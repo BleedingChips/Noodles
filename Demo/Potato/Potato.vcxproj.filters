@@ -1,0 +1,57 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="include">
+      <UniqueIdentifier>{aa0d0567-2c3a-441b-99cf-d0bd62c984bb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="source">
+      <UniqueIdentifier>{e318adce-66f7-4463-9aa4-b1a76e656d85}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\Potato\Include\auto_adapter.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Potato\Include\character_encoding.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Potato\Include\document.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Potato\Include\intrusive_ptr.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Potato\Include\lexical.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Potato\Include\syntax.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Potato\Include\tmp.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Potato\Include\tmpcall.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Potato\Include\tool.h">
+      <Filter>include</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\Potato\Source\character_encoding.cpp">
+      <Filter>source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Potato\Source\document.cpp">
+      <Filter>source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Potato\Source\lexical.cpp">
+      <Filter>source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Potato\Source\syntax.cpp">
+      <Filter>source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Potato\Source\tool.cpp">
+      <Filter>source</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>

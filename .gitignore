@@ -30,3 +30,14 @@
 *.exe
 *.out
 *.app
+
+# vs file
+/demo/.vs
+
+# Demo Project File
+/Demo/Debug
+/Demo/Release
+/Demo/x64
+/Demo/*/Debug
+/Demo/*/Release
+/Demo/*/x64
