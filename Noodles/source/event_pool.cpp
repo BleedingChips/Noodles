@@ -73,6 +73,7 @@ namespace Noodles::Implement
 
 	void SimilerEventPool::construct_event(void(*construct)(void*, void*), void* para, void(*deconstruct)(void*)noexcept)
 	{
+		std::lock_guard lg(write_mutex);
 		if (write_top == nullptr)
 		{
 			write_top = allocate_new_page();
@@ -90,12 +91,6 @@ namespace Noodles::Implement
 		construct(static_cast<void*>(reinterpret_cast<std::byte*>(last_write_desc->event_start) + last_index * layout().size), para);
 		last_write_desc->deconstructor_start[last_index] = deconstruct;
 		++last_write_desc->count;
-	}
-
-	void SimilerEventPool::write_lock(size_t mutex_size, void* mutex)
-	{
-		assert(mutex_size >= sizeof(std::lock_guard<std::shared_mutex>));
-		new (mutex) std::lock_guard<std::mutex>(write_mutex);
 	}
 
 	EventPoolMemoryDescription* SimilerEventPool::read_lock(size_t mutex_size, void* mutex)
@@ -135,17 +130,9 @@ namespace Noodles::Implement
 		ss->~shared_lock();
 	}
 
-	EventPoolWriteWrapperInterface* EventPool::write_lock(const TypeLayout& layout, size_t mutex_size, void* mutex) noexcept
+	EventPoolWriteWrapperInterface* EventPool::write_lock(const TypeLayout& layout) noexcept
 	{
-		auto pool = find_pool(layout);
-		pool->write_lock(mutex_size, mutex);
-		return pool;
-	}
-
-	void EventPool::write_unlock(EventPoolWriteWrapperInterface*, size_t mutex_size, void* mutex) noexcept
-	{
-		assert(mutex_size >= sizeof(std::lock_guard<std::mutex>));
-		static_cast<std::lock_guard<std::mutex>*>(mutex)->~lock_guard();
+		return find_pool(layout);
 	}
 
 	SimilerEventPool* EventPool::find_pool(const TypeLayout& layout)

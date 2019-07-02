@@ -466,8 +466,7 @@ namespace Noodles
 		{
 			virtual EventPoolMemoryDescription* read_lock(const TypeLayout& layout, size_t mutex_size, void* mutex) noexcept = 0;
 			virtual void read_unlock(size_t mutex_size, void* mutex) noexcept = 0;
-			virtual EventPoolWriteWrapperInterface* write_lock(const TypeLayout& layout, size_t mutex_size, void* mutex) noexcept = 0;
-			virtual void write_unlock(EventPoolWriteWrapperInterface*, size_t mutex_size, void* mutex) noexcept = 0;
+			virtual EventPoolWriteWrapperInterface* write_lock(const TypeLayout& layout) noexcept = 0;
 		};
 	}
 
@@ -481,12 +480,9 @@ namespace Noodles
 		EventProvider(Implement::EventPoolInterface* pool) noexcept : m_pool(pool){}
 		void lock() noexcept;
 		void unlock() noexcept;
-		static void export_rw_info(Implement::RWPropertyTuple& tuple) noexcept {
-			tuple.events.insert(TypeLayout::create<EventT>());
-		}
+		static void export_rw_info(Implement::RWPropertyTuple& tuple) noexcept {}
 		Implement::EventPoolWriteWrapperInterface* m_ref = nullptr;
 		Implement::EventPoolInterface* m_pool = nullptr;
-		std::array<std::byte, sizeof(std::lock_guard<std::mutex>) * 2> m_mutex;
 		template<typename ...Require> friend struct Implement::SystemStorage;
 		template<typename Require> friend struct Implement::FilterAndEventAndSystem;
 	};
@@ -506,13 +502,12 @@ namespace Noodles
 
 	template<typename EventT> void EventProvider<EventT>::lock() noexcept
 	{
-		m_ref = m_pool->write_lock(TypeLayout::create<EventT>(), sizeof(std::lock_guard<std::mutex>) * 2, m_mutex.data());
+		m_ref = m_pool->write_lock(TypeLayout::create<EventT>());
 		assert(m_ref != nullptr);
 	}
 
 	template<typename EventT> void EventProvider<EventT>::unlock() noexcept
 	{
-		m_pool->write_unlock(m_ref, sizeof(std::lock_guard<std::mutex>) * 2, m_mutex.data());
 		m_ref = nullptr;
 	}
 

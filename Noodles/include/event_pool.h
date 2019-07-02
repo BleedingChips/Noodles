@@ -17,9 +17,9 @@ namespace Noodles::Implement
 		void update();
 
 		EventPoolMemoryDescription* read_lock(size_t mutex_size, void* mutex);
-		void write_lock(size_t mutex_size, void* mutex);
 
 		const TypeLayout& layout() const noexcept { return m_layout; }
+
 	private:
 
 		EventPoolMemoryDescription* allocate_new_page();
@@ -45,8 +45,7 @@ namespace Noodles::Implement
 	{
 		virtual EventPoolMemoryDescription* read_lock(const TypeLayout& layout, size_t mutex_size, void* mutex) noexcept override;
 		virtual void read_unlock(size_t mutex_size, void* mutex) noexcept override;
-		virtual EventPoolWriteWrapperInterface* write_lock(const TypeLayout& layout, size_t mutex_size, void* mutex) noexcept override;
-		virtual void write_unlock(EventPoolWriteWrapperInterface*, size_t mutex_size, void* mutex) noexcept override;
+		virtual EventPoolWriteWrapperInterface* write_lock(const TypeLayout& layout) noexcept override;
 
 		EventPool(MemoryPageAllocator&) noexcept;
 		~EventPool() noexcept;
