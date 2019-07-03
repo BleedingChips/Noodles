@@ -45,8 +45,13 @@
     <ClInclude Include="..\..\Noodles\Interface\component_interface.h">
       <Filter>Interface</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Noodles\Interface\gobal_component_interface.h" />
     <ClInclude Include="..\..\Noodles\Interface\event_interface.h">
+      <Filter>Interface</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Noodles\Interface\gobal_component_interface.h">
+      <Filter>Interface</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Noodles\Interface\system_interface.h">
       <Filter>Interface</Filter>
     </ClInclude>
   </ItemGroup>

@@ -33,6 +33,7 @@
     <ClInclude Include="..\..\Noodles\Interface\event_interface.h" />
     <ClInclude Include="..\..\Noodles\Interface\gobal_component_interface.h" />
     <ClInclude Include="..\..\Noodles\Interface\interface.h" />
+    <ClInclude Include="..\..\Noodles\Interface\system_interface.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Noodles\Implement\component_pool.cpp" />
