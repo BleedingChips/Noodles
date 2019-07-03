@@ -78,6 +78,7 @@ namespace Noodles
 
 		void pre_apply() noexcept {}
 		void pos_apply() noexcept {}
+		void export_type_group_used(Implement::ReadWriteProperty* RWP) const noexcept {}
 
 		GobalFilter(Implement::GobalComponentPoolInterface* in) noexcept : m_pool(in), m_cur(nullptr) { assert(m_pool != nullptr); }
 		template<typename ...Require> friend struct Implement::SystemStorage;
