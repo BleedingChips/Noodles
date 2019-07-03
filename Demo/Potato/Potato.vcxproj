@@ -19,22 +19,22 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Potato\Include\auto_adapter.h" />
-    <ClInclude Include="..\..\Potato\Include\character_encoding.h" />
-    <ClInclude Include="..\..\Potato\Include\document.h" />
-    <ClInclude Include="..\..\Potato\Include\intrusive_ptr.h" />
-    <ClInclude Include="..\..\Potato\Include\lexical.h" />
-    <ClInclude Include="..\..\Potato\Include\syntax.h" />
-    <ClInclude Include="..\..\Potato\Include\tmp.h" />
-    <ClInclude Include="..\..\Potato\Include\tmpcall.h" />
-    <ClInclude Include="..\..\Potato\Include\tool.h" />
+    <ClInclude Include="..\..\Potato\auto_adapter.h" />
+    <ClInclude Include="..\..\Potato\character_encoding.h" />
+    <ClInclude Include="..\..\Potato\document.h" />
+    <ClInclude Include="..\..\Potato\intrusive_ptr.h" />
+    <ClInclude Include="..\..\Potato\lexical.h" />
+    <ClInclude Include="..\..\Potato\syntax.h" />
+    <ClInclude Include="..\..\Potato\tmp.h" />
+    <ClInclude Include="..\..\Potato\tmpcall.h" />
+    <ClInclude Include="..\..\Potato\tool.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\Potato\Source\character_encoding.cpp" />
-    <ClCompile Include="..\..\Potato\Source\document.cpp" />
-    <ClCompile Include="..\..\Potato\Source\lexical.cpp" />
-    <ClCompile Include="..\..\Potato\Source\syntax.cpp" />
-    <ClCompile Include="..\..\Potato\Source\tool.cpp" />
+    <ClCompile Include="..\..\Potato\character_encoding.cpp" />
+    <ClCompile Include="..\..\Potato\document.cpp" />
+    <ClCompile Include="..\..\Potato\lexical.cpp" />
+    <ClCompile Include="..\..\Potato\syntax.cpp" />
+    <ClCompile Include="..\..\Potato\tool.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>

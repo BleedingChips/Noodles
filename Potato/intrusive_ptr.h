@@ -1,5 +1,4 @@
 #pragma once
-#include "tool.h"
 #include <atomic>
 namespace Potato::Tool
 {

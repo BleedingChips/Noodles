@@ -1,57 +1,21 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="include">
-      <UniqueIdentifier>{aa0d0567-2c3a-441b-99cf-d0bd62c984bb}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="source">
-      <UniqueIdentifier>{e318adce-66f7-4463-9aa4-b1a76e656d85}</UniqueIdentifier>
-    </Filter>
+    <ClInclude Include="..\..\Potato\auto_adapter.h" />
+    <ClInclude Include="..\..\Potato\character_encoding.h" />
+    <ClInclude Include="..\..\Potato\document.h" />
+    <ClInclude Include="..\..\Potato\intrusive_ptr.h" />
+    <ClInclude Include="..\..\Potato\lexical.h" />
+    <ClInclude Include="..\..\Potato\syntax.h" />
+    <ClInclude Include="..\..\Potato\tmp.h" />
+    <ClInclude Include="..\..\Potato\tmpcall.h" />
+    <ClInclude Include="..\..\Potato\tool.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Potato\Include\auto_adapter.h">
-      <Filter>include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Potato\Include\character_encoding.h">
-      <Filter>include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Potato\Include\document.h">
-      <Filter>include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Potato\Include\intrusive_ptr.h">
-      <Filter>include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Potato\Include\lexical.h">
-      <Filter>include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Potato\Include\syntax.h">
-      <Filter>include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Potato\Include\tmp.h">
-      <Filter>include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Potato\Include\tmpcall.h">
-      <Filter>include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Potato\Include\tool.h">
-      <Filter>include</Filter>
-    </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="..\..\Potato\Source\character_encoding.cpp">
-      <Filter>source</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Potato\Source\document.cpp">
-      <Filter>source</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Potato\Source\lexical.cpp">
-      <Filter>source</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Potato\Source\syntax.cpp">
-      <Filter>source</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Potato\Source\tool.cpp">
-      <Filter>source</Filter>
-    </ClCompile>
+    <ClCompile Include="..\..\Potato\character_encoding.cpp" />
+    <ClCompile Include="..\..\Potato\document.cpp" />
+    <ClCompile Include="..\..\Potato\lexical.cpp" />
+    <ClCompile Include="..\..\Potato\syntax.cpp" />
+    <ClCompile Include="..\..\Potato\tool.cpp" />
   </ItemGroup>
 </Project>

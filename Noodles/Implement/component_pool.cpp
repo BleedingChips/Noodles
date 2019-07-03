@@ -1,5 +1,5 @@
-#include "../include/component_pool.h"
-#include "../../Potato/include/tool.h"
+#include "component_pool.h"
+#include "../../Potato/tool.h"
 namespace Noodles::Implement
 {
 	static constexpr size_t min_page_comp_count = 32;
