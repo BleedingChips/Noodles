@@ -4,7 +4,7 @@
 #include "Dx11/context.h"
 #include "..//..//Potato/document.h"
 #include <iostream>
-
+#include <array>
 #include <mutex>
 
 std::mutex* gobal_mutex;

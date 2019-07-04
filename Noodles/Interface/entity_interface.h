@@ -1,6 +1,6 @@
 #pragma once
 #include "aid.h"
-#include "..//..//Potato/intrusive_ptr.h"
+#include <assert.h>
 namespace Noodles
 {
 	namespace Implement
@@ -14,7 +14,7 @@ namespace Noodles
 			virtual bool have(const TypeInfo*, size_t index) const noexcept = 0;
 		};
 
-		using EntityInterfacePtr = Potato::Tool::intrusive_ptr<EntityInterface>;
+		using EntityInterfacePtr = intrusive_ptr<EntityInterface>;
 	}
 
 	struct Context;

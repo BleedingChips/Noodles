@@ -1,5 +1,7 @@
 #pragma once
-#include "interface.h"
+#include "../Interface/interface.h"
+#include "component_pool.h"
+#include "gobal_component_pool.h"
 #include <map>
 #include <shared_mutex>
 #include <set>
@@ -35,24 +37,22 @@ namespace Noodles::Implement
 			AllDone,
 		};
 
+		virtual void* find_system(const TypeInfo& ti) noexcept override;
 		virtual void regedit_system(SystemInterface*) noexcept override;
-		virtual void destory_system(const TypeLayout&) noexcept override;
-		virtual void regedit_template_system(TemplateSystemInterface*) noexcept override;
+		virtual void destory_system(const TypeInfo&) noexcept override;
+		virtual void regedit_template_system(SystemInterface*) noexcept override;
 
-		bool update();
+		bool update(bool component_change, bool gobal_component_change, ComponentPool& cp, GobalComponentPool& gcp);
 		void clean_all();
 		ApplyResult asynchro_apply_system(Context*, bool wait_for_lock = true);
-		void synchro_apply_template_system(Context*);
 
 	private:
 
 		struct SystemHolder;
-		using HoldType = std::map<TypeLayout, SystemHolder>;
-		bool release_system(const TypeLayout& id);
-		virtual SystemInterface* find_system(const TypeLayout& ti) noexcept override;
+		using HoldType = std::map<TypeInfo, SystemHolder>;
+		bool release_system(const TypeInfo& id);
 		static void update_new_system_order(HoldType::iterator, HoldType::iterator);
 		static void set_system_order(HoldType::iterator, HoldType::iterator, TickOrder order);
-
 
 		enum State
 		{
@@ -66,20 +66,26 @@ namespace Noodles::Implement
 		{
 			SystemInterfacePtr ptr;
 			size_t state_index;
-			std::vector<std::tuple<bool, size_t>> mutex_and_dependence;
-			std::vector<typename HoldType::iterator> derived;
 		};
 		HoldType m_systems;
-		std::vector<HoldType::iterator> m_start_system;
+		struct SystemRelationShip
+		{
+			HoldType::iterator active;
+			HoldType::iterator passtive;
+			bool is_mutex;
+			std::vector<TypeInfo> conflig_type;
+			std::array<size_t, 3> conflig_bound;
+		};
+		std::vector<SystemRelationShip> m_start_system;
 
 		std::mutex m_state_mutex;
 		std::vector<State> m_state;
 		std::vector<HoldType::iterator> m_waitting_list;
 
 		std::mutex m_log_mutex;
-		std::vector<std::variant<SystemInterfacePtr, TypeLayout>> m_regedited_system;
+		std::vector<std::variant<SystemInterfacePtr, TypeInfo>> m_regedited_system;
 
 		std::mutex m_template_mutex;
-		std::deque<TemplateSystemInterfacePtr> m_template_system;
+		std::deque<SystemInterfacePtr> m_template_system;
 	};
 }

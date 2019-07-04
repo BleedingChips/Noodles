@@ -6,6 +6,8 @@ namespace Noodles
 	namespace Implement
 	{
 
+		struct EventPoolMemoryDescription;
+
 		struct EventPoolWrapperInterface
 		{
 			virtual void construct_event(void(*construct)(void*, void*), void* para, void(*deconstruct)(void*)noexcept) = 0;
@@ -70,14 +72,13 @@ namespace Noodles
 			m_pool->unregister_event(TypeInfo::create<EventT>());
 		}
 
-		void type_group_change() noexcept {}
-		void system_change() noexcept { };
-		void gobal_component_change() noexcept { }
+		static void export_rw_info(Implement::ReadWritePropertyMap& tuple) noexcept {}
+
+		void envirment_change(bool system, bool gobalcomponent, bool component) {}
+		void export_type_group_used(const TypeInfo* conflig_type, size_t conflig_count, Implement::ReadWriteProperty*) const noexcept {}
 
 		void pre_apply() noexcept { m_top = m_wrapper->top_block(); }
 		void pos_apply() noexcept {}
-		void export_type_group_used(Implement::ReadWriteProperty* RWP) const noexcept {}
-		static void export_rw_info(Implement::ReadWritePropertyMap& tuple) noexcept {}
 
 		Implement::EventPoolInterface* m_pool = nullptr;
 		Implement::EventPoolWrapperInterface* m_wrapper = nullptr;
@@ -88,9 +89,9 @@ namespace Noodles
 
 	template<typename EventT> template<typename ...Parameter> void EventViewer<EventT>::push(Parameter&& ...pa)
 	{
-		assert(m_ref != nullptr);
+		assert(m_wrapper != nullptr);
 		auto pa_tuple = std::forward_as_tuple(std::forward<Parameter>(pa)...);
-		m_ref->construct_event(
+		m_wrapper->construct_event(
 			[](void* adress, void* para) {
 			auto& po = *static_cast<decltype(pa_tuple)*>(para);
 			std::apply([&](auto&& ...at) {

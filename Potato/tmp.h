@@ -626,4 +626,9 @@ namespace Potato::Tmp
 	template<typename FuncType, typename = std::void_t<>> struct function_type_extractor : Implement::function_type_extractor_implement<FuncType> {};
 	template<typename FuncType> struct function_type_extractor<FuncType, std::void_t<decltype(&FuncType::operator())>> : function_type_extractor<decltype(&FuncType::operator())> {};
 
+
+	// template<typename Type, typename = decltype(Type::a)> struct demo_condition{};
+	template<template<typename...> class Condition, typename Target, typename = std::void_t<>> struct member_exist : std::false_type {};
+	template<template<typename...> class Condition, typename Target> struct member_exist<Condition, Target, std::void_t<Condition<Target>>> : std::true_type {};
+
 }

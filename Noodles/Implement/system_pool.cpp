@@ -1,4 +1,4 @@
-#include "../include/system_pool.h"
+#include "system_pool.h"
 namespace Noodles::Implement
 {
 	void SystemPool::regedit_system(SystemInterface* in) noexcept
@@ -8,20 +8,20 @@ namespace Noodles::Implement
 		m_regedited_system.push_back(SystemInterfacePtr{in});
 	}
 
-	void SystemPool::destory_system(const TypeLayout& info) noexcept
+	void SystemPool::destory_system(const TypeInfo& info) noexcept
 	{
 		std::lock_guard lg(m_log_mutex);
 		m_regedited_system.push_back(info);
 	}
 
-	void SystemPool::regedit_template_system(TemplateSystemInterface* in) noexcept
+	void SystemPool::regedit_template_system(SystemInterface* in) noexcept
 	{
 		assert(in != nullptr);
 		std::lock_guard lg(m_template_mutex);
 		m_template_system.push_back(in);
 	}
 
-	bool SystemPool::update()
+	bool SystemPool::update(bool component_change, bool gobal_component_change, ComponentPool& cp)
 	{
 		std::lock_guard lg(m_log_mutex);
 		std::unique_lock up(m_system_mutex);
@@ -31,7 +31,7 @@ namespace Noodles::Implement
 			bool change = false;
 			for (auto& ite : m_regedited_system)
 			{
-				std::visit(Tool::overloaded{
+				std::visit(Potato::Tool::overloaded{
 					[&, this](SystemInterfacePtr& ptr) {
 						auto layout = ptr->layout();
 						release_system(layout);
@@ -43,7 +43,7 @@ namespace Noodles::Implement
 								update_new_system_order(ite, result.first);
 						change = true;
 					},
-					[&, this](const TypeLayout& layout) {
+					[&, this](const TypeInfo& layout) {
 						change = release_system(layout) || change;
 					}
 					}, ite);

@@ -1,6 +1,5 @@
 #pragma once
 #include "aid.h"
-#include "..//../Potato/intrusive_ptr.h"
 #include "..//..//Potato/tool.h"
 namespace Noodles
 {
@@ -20,7 +19,7 @@ namespace Noodles
 		template<typename Type> struct GobalComponentImp : GobalComponentInterface
 		{
 			operator Type& () { return m_storage; }
-			const TypeInfo& type_info() const noexcept { return m_layout; }
+			const TypeInfo& type_info() const noexcept { return m_info; }
 			virtual void add_ref() noexcept override { m_ref.add_ref(); }
 			virtual void sub_ref() noexcept override {
 				if (m_ref.sub_ref())
@@ -37,15 +36,13 @@ namespace Noodles
 		};
 
 		template<typename Type> template<typename ...Parameter> GobalComponentImp<Type>::GobalComponentImp(Parameter&& ... para)
-			: m_info(TypeLayout::create<Type>()), m_storage(std::forward<Parameter>(para)...)
+			: m_info(TypeInfo::create<Type>()), m_storage(std::forward<Parameter>(para)...)
 		{}
 
 		using GobalComponentInterfacePtr = Potato::Tool::intrusive_ptr<GobalComponentInterface>;
 
 		struct GobalComponentPoolInterface
 		{
-			template<typename Type>
-			void* find() noexcept;
 			virtual void regedit_gobal_component(GobalComponentInterface*) noexcept = 0;
 			virtual void destory_gobal_component(const TypeInfo&) = 0;
 			virtual void* find(const TypeInfo& layout) const noexcept = 0;
@@ -72,16 +69,17 @@ namespace Noodles
 			Implement::TypeInfoListExtractor<CompT>{}(tuple.gobal_components);
 		}
 
-		void type_group_change() noexcept {}
-		void system_change() noexcept { m_cur = reinterpret_cast<CompT>(m_pool->find(TypeInfo::create<CompT>())); };
-		void gobal_component_change() noexcept {}
-
+		void envirment_change(bool system, bool gobalcomponent, bool component)
+		{
+			if (gobalcomponent)
+				m_cur = reinterpret_cast<CompT>(m_pool->find(TypeInfo::create<CompT>()));
+		}
+		void export_type_group_used(const TypeInfo* conflig_type, size_t conflig_count, Implement::ReadWriteProperty*) const noexcept {}
 		void pre_apply() noexcept {}
 		void pos_apply() noexcept {}
-		void export_type_group_used(Implement::ReadWriteProperty* RWP) const noexcept {}
 
 		GobalFilter(Implement::GobalComponentPoolInterface* in) noexcept : m_pool(in), m_cur(nullptr) { assert(m_pool != nullptr); }
-		template<typename ...Require> friend struct Implement::SystemStorage;
+
 		template<typename Require> friend struct Implement::FilterAndEventAndSystem;
 
 		Implement::GobalComponentPoolInterface* m_pool = nullptr;

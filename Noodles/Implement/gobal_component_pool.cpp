@@ -1,13 +1,14 @@
-#include "../include/gobal_component_pool.h"
+#include "gobal_component_pool.h"
 namespace Noodles::Implement
 {
-	GobalComponentInterface* GobalComponentPool::find_imp(const TypeLayout& layout) const noexcept
+
+	void* GobalComponentPool::find(const TypeInfo& layout) const noexcept
 	{
 		std::shared_lock sl(m_list_mutex);
 		auto ite = m_lists.find(layout);
 		if (ite != m_lists.end())
-			return ite->second;
-		else 
+			return ite->second->get_adress();
+		else
 			return nullptr;
 	}
 
@@ -18,7 +19,7 @@ namespace Noodles::Implement
 		m_list.push_back(in);
 	}
 
-	void GobalComponentPool::destory_gobal_component(const TypeLayout& layout) noexcept
+	void GobalComponentPool::destory_gobal_component(const TypeInfo& layout) noexcept
 	{
 		std::lock_guard lg(m_write_list_mutex);
 		m_list.push_back(layout);
@@ -38,13 +39,13 @@ namespace Noodles::Implement
 		std::lock_guard lg(m_write_list_mutex);
 		for (auto& ite : m_list)
 		{
-			std::visit(Tool::overloaded{
+			std::visit(Potato::Tool::overloaded{
 				[&](GobalComponentInterfacePtr& ptr) {
 				assert(ptr);
-				auto& layout = ptr->layout();
+				auto& layout = ptr->type_info();
 				m_lists[layout] = std::move(ptr);
 			},
-				[&](const TypeLayout& layout) {
+				[&](const TypeInfo& layout) {
 				auto ite = m_lists.find(layout);
 				m_lists.erase(ite);
 			}}, ite);

@@ -1,24 +1,22 @@
 #pragma once
-#include "interface.h"
+#include "../Interface/event_interface.h"
 #include "memory.h"
 #include <map>
 #include <shared_mutex>
 namespace Noodles::Implement
 {
 
-	struct SimilerEventPool : EventPoolWriteWrapperInterface
+	struct SimilerEventPool : EventPoolWrapperInterface
 	{
 
-		SimilerEventPool(MemoryPageAllocator& allocator, const TypeLayout& layout) noexcept;
+		SimilerEventPool(MemoryPageAllocator& allocator, const TypeInfo& layout) noexcept;
 		~SimilerEventPool();
 
 		virtual void construct_event(void(*construct)(void*, void*), void* para, void(*deconstruct)(void*)noexcept) override;
-
+		virtual EventPoolMemoryDescription* top_block() const noexcept { return read_top; }
 		void update();
 
-		EventPoolMemoryDescription* read_lock(size_t mutex_size, void* mutex);
-
-		const TypeLayout& layout() const noexcept { return m_layout; }
+		const TypeInfo& layout() const noexcept { return m_layout; }
 
 	private:
 
@@ -26,14 +24,13 @@ namespace Noodles::Implement
 		EventPoolMemoryDescription* free_page(EventPoolMemoryDescription*) noexcept;
 
 		MemoryPageAllocator& m_allocator;
-		TypeLayout m_layout;
+		TypeInfo m_layout;
 
 		std::mutex write_mutex;
 		EventPoolMemoryDescription* write_top = nullptr;
 		EventPoolMemoryDescription* last_write_desc = nullptr;
 		size_t last_index = 0;
 
-		std::shared_mutex read_mutex;
 		EventPoolMemoryDescription* read_top = nullptr;
 		size_t last_read_index = 0;
 
@@ -43,17 +40,20 @@ namespace Noodles::Implement
 
 	struct EventPool : EventPoolInterface
 	{
-		virtual EventPoolMemoryDescription* read_lock(const TypeLayout& layout, size_t mutex_size, void* mutex) noexcept override;
-		virtual void read_unlock(size_t mutex_size, void* mutex) noexcept override;
-		virtual EventPoolWriteWrapperInterface* write_lock(const TypeLayout& layout) noexcept override;
+		std::mutex& read_mutex() noexcept { return m_read_mutex; }
+
+		virtual EventPoolWrapperInterface* register_event(const TypeInfo& info) noexcept override;
+		virtual void unregister_event(const TypeInfo& info) noexcept override;
 
 		EventPool(MemoryPageAllocator&) noexcept;
 		~EventPool() noexcept;
+
 		void clean_all();
 		void update();
-		SimilerEventPool* find_pool(const TypeLayout& layout);
+
 		MemoryPageAllocator& m_allocator;
-		std::shared_mutex m_event_list_mutex;
-		std::map<TypeLayout, SimilerEventPool> m_event_list;
+		std::mutex m_read_mutex;
+		std::mutex m_event_list_mutex;
+		std::map<TypeInfo, std::tuple<std::unique_ptr<SimilerEventPool>, size_t>> m_event_list;
 	};
 }

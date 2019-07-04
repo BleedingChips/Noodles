@@ -413,4 +413,24 @@ namespace Potato::Tool
 
 	template<typename Ts> scope_guard(Ts)->scope_guard<Ts>;
 
+	namespace Implement {
+		template<size_t s, size_t e> struct sequence_call_implement
+		{
+			template<typename Tuple, typename Function>
+			void operator()(Function&& f, Tuple&& type) {
+				std::forward<Function>(f)(std::get<s>(std::forward<Tuple>(type)));
+				sequence_call_implement<s + 1, e>{}(std::forward<Tuple>(type), std::forward<Function>(f));
+			}
+		};
+		template<size_t e> struct sequence_call_implement<e, e>
+		{
+			template<typename Tuple, typename Function>
+			void operator()(Function&& f, Tuple&& type) {}
+		};
+	}
+
+	template<typename Function, typename Tuple> void sequence_call(Function&& f, Tuple&& type)
+	{
+		Implement::sequence_call_implement<0, std::tuple_size_v<Tuple>>{}(std::forward<Function>(f), std::forward<Tuple>(type));
+	}
 }

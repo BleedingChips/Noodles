@@ -35,7 +35,7 @@ namespace Noodles::Implement
 			return false;
 	}
 
-	bool TypeLayoutArray::locate_ordered(const TypeLayout* input, size_t* output, size_t length) const noexcept
+	bool TypeLayoutArray::locate_ordered(const TypeInfo* input, size_t* output, size_t length) const noexcept
 	{
 		if (count >= length)
 		{
@@ -58,7 +58,7 @@ namespace Noodles::Implement
 		return false;
 	}
 
-	size_t TypeLayoutArray::locate(const TypeLayout& input) const noexcept
+	size_t TypeLayoutArray::locate(const TypeInfo& input) const noexcept
 	{
 		size_t i = 0;
 		while (i < count)
@@ -73,7 +73,7 @@ namespace Noodles::Implement
 		return i;
 	}
 
-	bool TypeLayoutArray::locate_unordered(const TypeLayout* input, size_t* output, size_t length) const noexcept
+	bool TypeLayoutArray::locate_unordered(const TypeInfo* input, size_t* output, size_t length) const noexcept
 	{
 		for (size_t i = 0; i < length; ++i)
 		{
@@ -391,11 +391,11 @@ namespace Noodles::Implement
 
 	TypeGroup* TypeGroup::create(TypeLayoutArray array)
 	{
-		size_t total_size = sizeof(TypeGroup) + array.count * sizeof(TypeLayout);
+		size_t total_size = sizeof(TypeGroup) + array.count * sizeof(TypeInfo);
 		std::byte* data = new std::byte[total_size];
-		TypeLayout* layout = reinterpret_cast<TypeLayout*>(data + sizeof(TypeGroup));
+		TypeInfo* layout = reinterpret_cast<TypeInfo*>(data + sizeof(TypeGroup));
 		for (size_t i = 0; i < array.count; ++i)
-			new (layout + i) TypeLayout{array.layouts[i]};
+			new (layout + i) TypeInfo{array.layouts[i]};
 		TypeLayoutArray layouts{ layout , array.count};
 		TypeGroup* result = new (data) TypeGroup{layouts};
 		return result;
@@ -407,7 +407,7 @@ namespace Noodles::Implement
 		auto layouts = input->layouts();
 		input->~TypeGroup();
 		for (size_t i = 0; i < layouts.count; ++i)
-			layouts[i].~TypeLayout();
+			layouts[i].~TypeInfo();
 		delete[] reinterpret_cast<std::byte*>(input);
 	}
 
@@ -459,7 +459,7 @@ namespace Noodles::Implement
 	}
 
 	void ComponentPool::construct_component(
-		const TypeLayout& layout, void(*constructor)(void*, void*), void* data,
+		const TypeInfo& layout, void(*constructor)(void*, void*), void* data,
 		EntityInterface* entity, void(*deconstructor)(void*) noexcept, void(*mover)(void*, void*) noexcept
 	)
 	{
@@ -485,7 +485,7 @@ namespace Noodles::Implement
 		size -= layout.size;
 	}
 
-	void ComponentPool::deconstruct_component(EntityInterface* entity, const TypeLayout& layout) noexcept
+	void ComponentPool::deconstruct_component(EntityInterface* entity, const TypeInfo& layout) noexcept
 	{
 		assert(entity != nullptr);
 		std::lock_guard lg(m_init_lock);
@@ -506,30 +506,19 @@ namespace Noodles::Implement
 		m_data.clear();
 	}
 
-	void ComponentPool::lock(size_t mutex_size, void* mutex)
-	{
-		assert(mutex_size >= sizeof(std::shared_lock<std::shared_mutex>));
-		new (mutex) std::shared_lock<std::shared_mutex>{m_type_group_mutex};
-	}
-
-	void ComponentPool::unlock(size_t mutex_size, void* mutex) noexcept
-	{
-		assert(mutex_size >= sizeof(std::shared_lock<std::shared_mutex>));
-		reinterpret_cast<std::shared_lock<std::shared_mutex>*>(mutex)->~shared_lock();
-	}
-
 	void ComponentPool::handle_entity_imp(EntityInterface* entity, EntityOperator ope) noexcept
 	{
 		assert(entity != nullptr);
 		std::lock_guard lg(m_init_lock);
-		m_init_history[entity].emplace_back(ope, TypeLayout::create<int>(), StorageBlockFunctionPair{ nullptr, nullptr }, nullptr);
+		m_init_history[entity].emplace_back(ope, TypeInfo::create<int>(), StorageBlockFunctionPair{ nullptr, nullptr }, nullptr);
 	}
 
 
-	void ComponentPool::update()
+	bool ComponentPool::update()
 	{
 		std::lock_guard lg(m_init_lock);
 		std::unique_lock ul(m_type_group_mutex);
+		bool new_type_group = false;
 		for (auto& ite : m_init_history)
 		{
 			Implement::TypeGroup* old_type_group;
@@ -580,6 +569,7 @@ namespace Noodles::Implement
 					auto re = m_data.insert({ ptr->layouts(), ptr });
 					assert(re.second);
 					find_result = re.first;
+					new_type_group = true;
 				}
 				if (find_result->second == old_type_group)
 				{
@@ -654,45 +644,47 @@ namespace Noodles::Implement
 		m_init_history.clear();
 		for (auto& ite : m_data)
 			ite.second->update();
+		return new_type_group;
 	}
 
-	bool ComponentPool::loacte_unordered_layouts(const TypeGroup* input, const TypeLayout* require_layout, size_t index, size_t* output)
+	void ComponentPool::search_type_group(
+		const TypeInfo* require_tl, size_t require_tl_count,
+		TypeGroup** output_tg,
+		size_t* output_tl_index
+	) const noexcept
 	{
-		return input->layouts().locate_unordered(require_layout, output, index);
-	}
-
-	size_t ComponentPool::search_type_group(
-		const TypeLayout* require_layout, size_t input_layout_count, size_t* output_layout_index,
-		StorageBlock** output_group, size_t buffer_count, size_t& total_count
-	)
-	{
-		total_count = 0;
-		size_t index = 0;
+		size_t k = 0;
 		for (auto& ite : m_data)
 		{
-			if (ite.second->top_block() != nullptr)
-			{
-				size_t* target_buffer;
-				if (index >= buffer_count)
-					target_buffer = nullptr;
-				else
-					target_buffer = output_layout_index;
-				if (ite.first.locate_unordered(require_layout, target_buffer, input_layout_count))
-				{
-					total_count += ite.second->available_count();
-					if (index < buffer_count)
-					{
-						*output_group = ite.second->top_block();
-						++output_group;
-						output_layout_index += input_layout_count;
-					}
-					++index;
-				}
-			}
+			if (ite.first.locate_unordered(require_tl, output_tl_index, require_tl_count))
+				output_tg[k] = ite.second;
 			else
-				continue;
+				output_tg[k] = nullptr;
+			++k;
 		}
-		return index;
+	}
+
+	size_t ComponentPool::find_top_block(const TypeGroup** tg, StorageBlock** output, size_t length) const noexcept
+	{
+		assert(length != m_data.size());
+		size_t total = 0;
+		for (size_t i = 0; i < length; ++i)
+		{
+			if (tg[i] != nullptr)
+			{
+				output[i] = tg[i]->top_block();
+				total += tg[i]->available_count();
+			}
+			else {
+				output[i] = nullptr;
+			}
+		}
+		return total;
+	}
+
+	size_t ComponentPool::type_group_count() const noexcept
+	{
+		return m_data.size();
 	}
 
 

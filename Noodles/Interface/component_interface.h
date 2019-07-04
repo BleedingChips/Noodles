@@ -1,6 +1,8 @@
 #pragma once
 #include "aid.h"
 #include "entity_interface.h"
+#include <optional>
+#include "..//..//Potato/tmp.h"
 namespace Noodles
 {
 
@@ -44,16 +46,13 @@ namespace Noodles
 			template<typename CompT, typename ...Parameter> CompT& construction_component(EntityInterface* owner, Parameter&& ...pa);
 
 			virtual size_t type_group_count() const noexcept = 0;
-			virtual size_t search_type_group(
+			virtual void search_type_group(
 				const TypeInfo* require_tl, size_t require_tl_count,
 				TypeGroup** output_tg,
-				size_t* output_tl_index,
-				size_t* output_tg_used_index
+				size_t* output_tl_index
 			) const noexcept = 0;
 
-			virtual void find_top_block(const TypeGroup** tg, StorageBlock** output, size_t length) const noexcept = 0;
-
-			virtual bool loacte_unordered_layouts(const TypeGroup* input, const TypeInfo* require_layout, size_t index, size_t* output) = 0;
+			virtual size_t find_top_block(const TypeGroup** tg, StorageBlock** output, size_t length) const noexcept = 0;
 			virtual void construct_component(const TypeInfo& layout, void(*constructor)(void*, void*), void* data, EntityInterface*, void(*deconstructor)(void*) noexcept, void(*mover)(void*, void*) noexcept) = 0;
 			virtual void deconstruct_component(EntityInterface*, const TypeInfo& layout) noexcept = 0;
 			virtual void handle_entity_imp(EntityInterface*, EntityOperator ope) noexcept = 0;
@@ -65,7 +64,7 @@ namespace Noodles
 		{
 			CompT* result = nullptr;
 			auto pa_tuple = std::forward_as_tuple(result, std::forward<Parameter>(pa)...);
-			construct_component(TypeLayout::create<CompT>(), [](void* adress, void* para) {
+			construct_component(TypeInfo::create<CompT>(), [](void* adress, void* para) {
 				auto& ref = *static_cast<decltype(pa_tuple)*>(para);
 				using Type = CompT;
 				std::apply([&](auto& ref, auto&& ...at) { ref = new (adress) Type{ std::forward<decltype(at) &&>(at)... }; }, ref);
@@ -115,7 +114,7 @@ namespace Noodles
 		Implement::FilterIteratorWrapper<CompT...>& operator*() noexcept { return m_wrapper; }
 		Implement::FilterIteratorWrapper<CompT...>* operator->() noexcept { return &m_wrapper; }
 		bool operator==(const FilterIterator& i) const noexcept {
-			return current_block == i.current_block && m_element_last == i.m_element_last;
+			return m_current_block == i.m_current_block && m_element_last == i.m_element_last;
 		}
 		bool operator!=(const FilterIterator& i) const noexcept { return !((*this) == i); }
 		FilterIterator& operator++() noexcept;
@@ -165,10 +164,10 @@ namespace Noodles
 			if (m_current_block != nullptr)
 			{
 				m_entity_start = m_current_block->entitys();
-				Implement::ComponentTupleHelper<0. sizeof...(CompT)>::translate(m_current_block, m_layout_index + sizeof...(CompT) * m_current_storage_block_index);
+				Implement::ComponentTupleHelper<0, sizeof...(CompT)>::translate(m_current_block, m_layout_index + sizeof...(CompT) * m_current_storage_block_index);
 				m_wrapper.set(*m_entity_start, m_pointer);
-				m_element_last = current_block->available_count;
-				assert(*current_block->entitys != nullptr);
+				m_element_last = m_current_block->available_count;
+				assert(*m_current_block->entitys != nullptr);
 			}
 			else
 				m_element_last = 0;
@@ -186,101 +185,132 @@ namespace Noodles
 			if (m_current_block != nullptr)
 			{
 				m_entity_start = m_current_block->entitys();
-				Implement::ComponentTupleHelper<0. sizeof...(CompT)>::translate(m_current_block, m_layout_index + sizeof...(CompT) * m_current_storage_block_index);
+				Implement::ComponentTupleHelper<0, sizeof...(CompT)>::translate(m_current_block, m_layout_index + sizeof...(CompT) * m_current_storage_block_index);
 				m_wrapper.set(*m_entity_start, m_pointer);
-				m_element_last = current_block->available_count;
-
+				m_element_last = m_current_block->available_count;
 			}
 		}
 	}
 
-	template<typename ...CompT> struct Filter
+	namespace Implement
 	{
-		static_assert(Potato::Tmp::bool_and<true, Implement::AcceptableTypeDetector<CompT...>::value...>::value, "Filter only accept Type and const Type!");
+		template<typename ...CompT>
+		struct FilterBase
+		{
+			void envirment_change(bool system, bool gobalcomponent, bool component);
+			static void export_rw_info(Implement::ReadWritePropertyMap& tuple) noexcept { Implement::TypeInfoListExtractor<CompT...>{}(tuple.components); }
+			void export_type_group_used(const TypeInfo* conflig_type, size_t conflig_count, Implement::ReadWriteProperty*) const noexcept;
+			FilterBase(observer_ptr<Implement::ComponentPoolInterface> ptr) noexcept : m_pool(std::move(ptr)) { assert(m_pool); }
+			size_t update_component(std::vector<StorageBlock**>& p) {
+				p.resize(m_type_group_count);
+				return 	m_pool->find_top_block(m_all_type_group.data(), p.data(), m_type_group_count);
+			}
+			size_t* layout_index() const noexcept { return m_type_layout_index.data(); }
+			size_t type_group_count() const noexcept { return m_type_group_count; }
+			size_t* find_type_layout(const Implement::TypeGroup* input) const noexcept {
+				assert(input != nullptr);
+				for (size_t i = 0; i < m_type_group_count; ++i)
+				{
+					if (m_all_type_group[i] == input)
+						return m_type_layout_index.data() + sizeof...(CompT) * i;
+				}
+				return nullptr;
+			}
+		private:
+			observer_ptr<Implement::ComponentPoolInterface> m_pool;
+			std::vector<TypeGroup**> m_all_type_group;
+			std::vector<size_t> m_type_layout_index;
+			size_t m_type_group_count = 0;
+		};
+
+		template<typename ...CompT> void FilterBase<CompT...>::export_type_group_used(const TypeInfo* conflig_type, size_t conflig_count, Implement::ReadWriteProperty* mapping) const noexcept
+		{
+			using Infos = Implement::TypeInfoList<CompT...>;
+			bool find = false;
+			for (size_t i = 0; i < conflig_count; ++i)
+			{
+				for (size_t k = 0; k < Infos::info().size(); ++k)
+				{
+					if (Infos::info()[k] == conflig_type[i])
+					{
+						find = true;
+						goto next;
+					}
+				}
+			}
+		next:
+			if (find)
+			{
+				size_t index = 0;
+				for (size_t index = 0; index < m_type_group_count; ++index)
+				{
+					if (m_all_type_group[index] != nullptr)
+					{
+						if constexpr (Implement::TypeInfoList<CompT>::is_pure)
+							mapping[index] = Implement::ReadWriteProperty::Write;
+						else {
+							auto& ref = mapping[index];
+							if (ref == Implement::ReadWriteProperty::Unknow)
+								ref = Implement::ReadWriteProperty::Read;
+						}
+					}
+				}
+			}
+		}
+
+		template<typename ...CompT> void FilterBase<CompT...>::envirment_change(bool system, bool gobalcomponent, bool component)
+		{
+			if (component)
+			{
+				using Infos = Implement::TypeInfoList<CompT...>;
+				m_type_group_count = m_pool->type_group_count();
+				m_all_type_group.resize(m_type_group_count);
+				m_type_layout_index.resize(m_type_group_count * sizeof...(CompT));
+				m_pool->search_type_group(
+					Infos::info().data(),
+					Infos::info().size(),
+					m_all_type_group.data(),
+					m_type_layout_index.data()
+				);
+			}
+		}
+	}
+
+	template<typename ...CompT> struct Filter : protected Implement::FilterBase<CompT...>
+	{
+		using Super = Implement::FilterBase<CompT...>;
+
+		static_assert(Potato::Tmp::bool_and<true, Implement::AcceptableTypeDetector<CompT>::value...>::value, "Filter only accept Type and const Type!");
 
 		FilterIterator<CompT...> begin() noexcept {
-			return FilterIterator<CompT...>{ m_start , m_tl_index_start , m_type_group_count };
+			return FilterIterator<CompT...>{ m_top_block.data(), Super::layout_index(), Super::type_group_count() };
 		}
 		FilterIterator<CompT...> end() noexcept { return FilterIterator<CompT...>{}; }
 		size_t count() const noexcept { return m_total_element_count; }
 
 	protected:
 
-		Filter(Implement::ComponentPoolInterface* pool) noexcept : m_pool(pool) {}
+		Filter(Implement::ComponentPoolInterface* pool) noexcept : Implement::FilterBase(pool) {}
 
-		void type_group_change() noexcept;
-		void system_change() noexcept {};
-		void gobal_component_change() noexcept {}
-
-		void pre_apply() noexcept;
+		void pre_apply() noexcept { m_total_element_count = Super::update_component(m_top_block); }
 		void pos_apply() noexcept {}
 
-		static void export_rw_info(Implement::ReadWritePropertyMap& tuple) noexcept { Implement::TypeInfoListExtractor<CompT...>{}(tuple.components); }
-		void export_type_group_used(Implement::ReadWriteProperty*) const noexcept;
-
-
-		std::vector<Implement::TypeGroup*> m_matching_type_group;
 		std::vector<Implement::StorageBlock*> m_top_block;
-		std::vector<size_t> m_type_ref;
-		std::vector<size_t> m_used_type_group;
 		size_t m_total_element_count;
 
-		Implement::ComponentPoolInterface* m_pool = nullptr;
-
-		template<typename ...Require> friend struct Implement::SystemStorage;
 		template<typename Require> friend struct Implement::FilterAndEventAndSystem;
 	};
 
-	template<typename ...CompT> void Filter<CompT...>::type_group_change() noexcept
+	template<typename ...CompT> struct EntityFilter : protected Implement::FilterBase<CompT...>
 	{
-		assert(m_pool != nullptr);
-		size_t count = m_pool->type_group_count();
-		m_matching_type_group.resize(count);
-		m_top_block.resize(count);
-		m_type_ref.resize(sizeof...(CompT) * count);
-		m_used_type_group.resize(count);
-		count = m_pool->search_type_group(Implement::TypeInfoList<CompT>::info(), sizeof...(CompT), m_matching_type_group.data(), m_type_ref.data(), m_used_type_group.data());
-		m_matching_type_group.resize(count);
-		m_top_block.resize(count);
-		m_type_ref.resize(sizeof...(CompT) * count);
-		m_used_type_group.resize(count);
-	}
-
-	template<typename ...CompT> void Filter<CompT...>::pre_apply() noexcept
-	{
-		assert(m_pool != nullptr);
-		m_pool->find_top_block(m_matching_type_group.data(), m_top_block.data(), m_top_block.size());
-	}
-
-	template<typename ...CompT> void Filter<CompT...>::export_type_group_used(Implement::ReadWriteProperty* mapping) const noexcept
-	{
-		for (auto ite : m_used_type_group)
-		{
-			if constexpr (Implement::TypeInfoList<CompT>::is_pure)
-				mapping[ite] = Implement::ReadWriteProperty::Write;
-			else{
-				auto& ref = mapping[ite];
-				if (ref == Implement::ReadWriteProperty::Unknow)
-					ref = Implement::ReadWriteProperty::Read;
-			}
-		}
-	}
-
-	template<typename ...CompT> struct EntityFilter
-	{
-		static_assert(Tmp::bool_and<true, Implement::TypePropertyDetector<CompT>::value...>::value, "EntityFilter only accept Type and const Type!");
+		using Super = Implement::FilterBase<CompT...>;
+		static_assert(Potato::Tmp::bool_and<true, Implement::AcceptableTypeDetector<CompT>::value...>::value, "EntityFilter only accept Type and const Type!");
 		template<typename Func>
 		void operator()(const Entity& wrapper, Func&& f);
 	private:
-		EntityFilter(Implement::ComponentPoolInterface* pool) noexcept : m_pool(pool) { assert(pool != nullptr); }
-		void lock() noexcept;
-		void unlock() noexcept;
-		static void export_rw_info(Implement::RWPropertyTuple& tuple) noexcept { Implement::ComponentInfoExtractor<CompT...>{}(tuple.components); }
-
-		Implement::ComponentPoolInterface* m_pool = nullptr;
-		std::array<std::byte, sizeof(std::shared_lock<std::shared_mutex>) * 2 * sizeof...(CompT)> m_mutex;
-
-		template<typename ...Require> friend struct Implement::SystemStorage;
+		EntityFilter(Implement::ComponentPoolInterface* pool) noexcept : Implement::FilterBase<CompT...>(pool) { }
+		void pre_apply() noexcept {}
+		void pos_apply() noexcept {}
 		template<typename Require> friend struct Implement::FilterAndEventAndSystem;
 	};
 
@@ -295,13 +325,11 @@ namespace Noodles
 			wrapper.m_imp->read(group, block, index);
 			if (group != nullptr)
 			{
-				auto& infos = Implement::ComponentTypeInfo<CompT...>::info();
-				assert(block != nullptr);
-				std::array<size_t, sizeof...(CompT)> indexs;
-				if (m_pool->loacte_unordered_layouts(group, infos.data(), sizeof...(CompT), indexs.data()))
+				size_t* infos = Super::find_type_layout(group);
+				if (infos != nullptr)
 				{
 					std::tuple<std::remove_reference_t<CompT>* ...> component_pointer;
-					Implement::ComponentTupleHelper<0, sizeof...(CompT)>::translate(block, indexs.data(), component_pointer);
+					Implement::ComponentTupleHelper<0, sizeof...(CompT)>::translate(block, infos, component_pointer);
 					std::apply([&](auto ...pointer) {
 						std::forward<Func>(f)(*pointer...);
 					}, component_pointer);
@@ -310,14 +338,13 @@ namespace Noodles
 		}
 	}
 
-	template<typename ...CompT> void EntityFilter<CompT...>::lock() noexcept
-	{
-		m_pool->lock(sizeof(std::shared_lock<std::shared_mutex>) * 2, m_mutex.data());
-	}
+}
 
-	template<typename ...CompT> void EntityFilter<CompT...>::unlock() noexcept
-	{
-		m_pool->unlock(sizeof...(CompT), sizeof(std::shared_lock<std::shared_mutex>) * 2, m_mutex.data());
+namespace std
+{
+	template<typename ...AT> struct tuple_size<typename Noodles::Implement::FilterIteratorWrapper<AT...>> : std::integral_constant<size_t, sizeof...(AT)> {};
+	template<size_t index, typename ...AT> decltype(auto) get(typename Noodles::Implement::FilterIteratorWrapper<AT...>& ite) {
+		return std::get<index>(ite.components());
 	}
-
+	template<size_t index, typename ...AT> struct tuple_element<index, typename Noodles::Implement::FilterIteratorWrapper<AT...>> : std::tuple_element<index, std::tuple<AT...>> {};
 }

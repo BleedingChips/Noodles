@@ -1,7 +1,12 @@
 #pragma once
 #include <map>
+#include "..//..//Potato/smart_pointer.h"
 namespace Noodles
 {
+
+	using Potato::Tool::intrusive_ptr;
+	using Potato::Tool::observer_ptr;
+
 	struct TypeInfo
 	{
 		size_t hash_code;
@@ -10,7 +15,7 @@ namespace Noodles
 		const char* name;
 		~TypeInfo() = default;
 		template<typename Type> static const TypeInfo& create() noexcept {
-			static TypeLayout type{ typeid(Type).hash_code(), sizeof(Type), alignof(Type), typeid(Type).name() };
+			static TypeInfo type{ typeid(Type).hash_code(), sizeof(Type), alignof(Type), typeid(Type).name() };
 			return type;
 		}
 		bool operator<(const TypeInfo& r) const noexcept
@@ -103,6 +108,8 @@ namespace Noodles
 		template<typename ...CompT> const std::array<TypeInfo, sizeof...(CompT)> TypeInfoList<CompT...>::m_info = {
 			TypeInfo::create<CompT>()...
 		};
+
+		template<typename Require> struct FilterAndEventAndSystem;
 
 	}
 }

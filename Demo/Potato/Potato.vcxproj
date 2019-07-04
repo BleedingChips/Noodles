@@ -22,7 +22,7 @@
     <ClInclude Include="..\..\Potato\auto_adapter.h" />
     <ClInclude Include="..\..\Potato\character_encoding.h" />
     <ClInclude Include="..\..\Potato\document.h" />
-    <ClInclude Include="..\..\Potato\intrusive_ptr.h" />
+    <ClInclude Include="..\..\Potato\smart_pointer.h" />
     <ClInclude Include="..\..\Potato\lexical.h" />
     <ClInclude Include="..\..\Potato\syntax.h" />
     <ClInclude Include="..\..\Potato\tmp.h" />

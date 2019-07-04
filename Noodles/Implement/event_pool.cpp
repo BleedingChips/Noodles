@@ -1,9 +1,10 @@
-#include "../include/event_pool.h"
+#include "event_pool.h"
+
 namespace Noodles::Implement
 {
 	static constexpr size_t min_page_event_count = 16;
 
-	SimilerEventPool::SimilerEventPool(MemoryPageAllocator& allocator, const TypeLayout& layout) noexcept
+	SimilerEventPool::SimilerEventPool(MemoryPageAllocator& allocator, const TypeInfo& layout) noexcept
 		: m_allocator(allocator), m_layout(layout)
 	{
 		size_t aligned_space = (layout.align > sizeof(nullptr) ? layout.align - sizeof(nullptr) : 0);
@@ -23,7 +24,6 @@ namespace Noodles::Implement
 		last_write_desc = nullptr;
 		last_index = 0;
 
-		std::unique_lock ul(read_mutex);
 		while (read_top != nullptr)
 			read_top = free_page(read_top);
 		last_read_index = 0;
@@ -62,7 +62,6 @@ namespace Noodles::Implement
 	void SimilerEventPool::update()
 	{
 		std::lock_guard lg(write_mutex);
-		std::unique_lock ul(read_mutex);
 		std::swap(read_top, write_top);
 		std::swap(last_read_index, last_index);
 		while (write_top != nullptr)
@@ -93,13 +92,6 @@ namespace Noodles::Implement
 		++last_write_desc->count;
 	}
 
-	EventPoolMemoryDescription* SimilerEventPool::read_lock(size_t mutex_size, void* mutex)
-	{
-		assert(mutex_size >= sizeof(std::shared_lock<std::shared_mutex>));
-		new (mutex) std::shared_lock<std::shared_mutex>(read_mutex);
-		return read_top;
-	}
-
 	EventPool::EventPool(MemoryPageAllocator& allocate) noexcept
 		: m_allocator(allocate) {}
 
@@ -115,44 +107,40 @@ namespace Noodles::Implement
 		m_event_list.clear();
 	}
 
-	EventPoolMemoryDescription* EventPool::read_lock(const TypeLayout& layout,  size_t mutex_size, void* mutex) noexcept
-	{
-		assert(mutex_size >= sizeof(std::shared_lock<std::shared_mutex>));
-		std::shared_lock<std::shared_mutex>* ss = static_cast<std::shared_lock<std::shared_mutex>*>(mutex);
-		auto ptr = find_pool(layout);
-		return ptr->read_lock(mutex_size, mutex);
-	}
-
-	void EventPool::read_unlock(size_t mutex_size, void* mutex) noexcept
-	{
-		assert(mutex_size >= sizeof(std::shared_lock<std::shared_mutex>));
-		std::shared_lock<std::shared_mutex>* ss = static_cast<std::shared_lock<std::shared_mutex>*>(mutex);
-		ss->~shared_lock();
-	}
-
-	EventPoolWriteWrapperInterface* EventPool::write_lock(const TypeLayout& layout) noexcept
-	{
-		return find_pool(layout);
-	}
-
-	SimilerEventPool* EventPool::find_pool(const TypeLayout& layout)
-	{
-		std::shared_lock sl(m_event_list_mutex);
-		auto ite = m_event_list.find(layout);
-		if (ite == m_event_list.end())
-		{
-			sl.unlock();
-			std::unique_lock ul(m_event_list_mutex);
-			ite = m_event_list.emplace(std::piecewise_construct, std::forward_as_tuple(layout), std::forward_as_tuple(m_allocator, layout)).first;
-		}
-		return &ite->second;
-	}
-
 	void EventPool::update()
 	{
+		std::lock_guard lg(m_read_mutex);
 		std::unique_lock ul(m_event_list_mutex);
 		for (auto& ite : m_event_list)
-			ite.second.update();
+			std::get<0>(ite.second)->update();
+	}
+
+	EventPoolWrapperInterface* EventPool::register_event(const TypeInfo& info) noexcept
+	{
+		std::lock_guard ul(m_event_list_mutex);
+		auto ite = m_event_list.find(info);
+		if (ite != m_event_list.end())
+		{
+			++std::get<1>(ite->second);
+			return std::get<0>(ite->second).get();
+		}
+		else {
+			std::unique_ptr<SimilerEventPool> ptr{ new SimilerEventPool{ m_allocator , info} };
+			auto result = m_event_list.insert({ info, std::tuple<std::unique_ptr<SimilerEventPool>, size_t>{ std::move(ptr), 0} });
+			assert(result.second);
+			return std::get<0>(result.first->second).get();
+		}
+	}
+	
+	void EventPool::unregister_event(const TypeInfo& info) noexcept
+	{
+		std::lock_guard ul(m_event_list_mutex);
+		auto result = m_event_list.find(info);
+		if (result != m_event_list.end())
+		{
+			if (--std::get<1>(result->second) == 0)
+				m_event_list.erase(result);
+		}
 	}
 
 }
