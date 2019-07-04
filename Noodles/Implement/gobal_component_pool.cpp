@@ -4,7 +4,6 @@ namespace Noodles::Implement
 
 	void* GobalComponentPool::find(const TypeInfo& layout) const noexcept
 	{
-		std::shared_lock sl(m_list_mutex);
 		auto ite = m_lists.find(layout);
 		if (ite != m_lists.end())
 			return ite->second->get_adress();
@@ -27,29 +26,35 @@ namespace Noodles::Implement
 
 	void GobalComponentPool::clean_all()
 	{
-		std::unique_lock ul(m_list_mutex);
+		std::unique_lock ul(m_read_mutex);
 		std::lock_guard lg(m_write_list_mutex);
 		m_lists.clear();
 		m_list.clear();
 	}
 
-	void GobalComponentPool::update()
+	bool GobalComponentPool::update()
 	{
-		std::unique_lock ul(m_list_mutex);
+		std::unique_lock ul(m_read_mutex);
 		std::lock_guard lg(m_write_list_mutex);
-		for (auto& ite : m_list)
+		bool gobal_component_update = false;
+		if (!m_list.empty())
 		{
-			std::visit(Potato::Tool::overloaded{
-				[&](GobalComponentInterfacePtr& ptr) {
-				assert(ptr);
-				auto& layout = ptr->type_info();
-				m_lists[layout] = std::move(ptr);
-			},
-				[&](const TypeInfo& layout) {
-				auto ite = m_lists.find(layout);
-				m_lists.erase(ite);
-			}}, ite);
+			gobal_component_update = true;
+			for (auto& ite : m_list)
+			{
+				std::visit(Potato::Tool::overloaded{
+					[&](GobalComponentInterfacePtr& ptr) {
+					assert(ptr);
+					auto& layout = ptr->type_info();
+					m_lists[layout] = std::move(ptr);
+				},
+					[&](const TypeInfo& layout) {
+					auto ite = m_lists.find(layout);
+					m_lists.erase(ite);
+				} }, ite);
+			}
+			m_list.clear();
 		}
-		m_list.clear();
+		return gobal_component_update;
 	}
 }
