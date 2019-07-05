@@ -76,7 +76,7 @@ namespace Noodles
 			void pre_apply() noexcept {}
 			void pos_apply() noexcept {}
 			static void export_rw_info(Implement::ReadWritePropertyMap& tuple) noexcept { }
-			void export_type_group_used(Implement::ReadWriteProperty* RWP) const noexcept {}
+			void export_type_group_used(const TypeInfo* infos, size_t info_count, ReadWriteProperty* type_group_useage) const noexcept {}
 			Context* as_pointer() noexcept { return m_ref; }
 			ContextStorage(Context* input) noexcept : m_ref(input) {}
 		private:
@@ -193,11 +193,18 @@ namespace Noodles
 				std::apply([&](auto&& ... ai) { sys(*ai.as_pointer()...); }, m_storage);
 				Potato::Tool::sequence_call([&](auto& a) {a.pos_apply(); }, m_storage);
 			}
-			static SystemRWInfo<Requires...> rw_info;
+			static SystemRWInfo<typename SystemStorageDetector<Requires>::Type...> rw_info;
 			SystemStorage(Context* in) : m_storage(CopyContext<sizeof...(Requires)>{}(in)) {}
+			void export_type_group_usage(const TypeInfo* infos, size_t info_count, ReadWriteProperty* type_group_useage) const noexcept {
+				Potato::Tool::sequence_call([&](auto& ite) {
+					ite.export_type_group_used(infos, info_count, type_group_useage);
+				}, m_storage);
+			}
 		private:
 			std::tuple<typename SystemStorageDetector<Requires>::Type...> m_storage;
 		};
+
+		template<typename ...Requires> SystemRWInfo<typename SystemStorageDetector<Requires>::Type...> SystemStorage<Requires...>::rw_info;
 
 	}
 
@@ -253,7 +260,7 @@ namespace Noodles
 
 			virtual TickOrder tick_order(const TypeInfo&, const TypeInfo* conflig, size_t* conflig_size) override {
 				if constexpr (Potato::Tmp::member_exist<TickOrderDetector, Type>::value)
-					return m_storage.tick_order(layout, conflig, conflig_size);
+					return m_storage.tick_order(layout(), conflig, conflig_size);
 				else
 					return TickOrder::Undefine;
 			};

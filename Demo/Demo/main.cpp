@@ -1,4 +1,4 @@
-#include "..//..//Noodles/include/implement.h"
+#include "..//..//Noodles/implement/implement.h"
 #include <random>
 #include <iostream>
 #include <math.h>
@@ -91,7 +91,7 @@ struct CollisionSystem
 	void operator()(
 		Filter<const Location, Collision, const EaterFlag>& eater,
 		Filter<const Location, const Collision, const FoodFlag>& food,
-		Context& con, EventProvider<DieEvent>& EP, EventViewer<DieEvent>& EV
+		Context& con, EventViewer<DieEvent>& EV
 		)
 	{
 		CallRecord<CollisionSystem> record;
@@ -116,7 +116,7 @@ struct CollisionSystem
 			}
 		}
 		if (die != 0)
-			EP.push(die);
+			EV.push(die);
 		std::lock_guard lg(cout_mutex);
 		for (auto& ite : EV)
 			std::cout << "Last Frame die : " << ite.index << std::endl;

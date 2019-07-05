@@ -664,7 +664,7 @@ namespace Noodles::Implement
 		}
 	}
 
-	size_t ComponentPool::find_top_block(const TypeGroup** tg, StorageBlock** output, size_t length) const noexcept
+	size_t ComponentPool::find_top_block(TypeGroup** tg, StorageBlock** output, size_t length) const noexcept
 	{
 		assert(length != m_data.size());
 		size_t total = 0;

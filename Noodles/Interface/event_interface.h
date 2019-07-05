@@ -61,7 +61,7 @@ namespace Noodles
 
 		template<typename ...Parameter> void push(Parameter&& ...pa);
 		EventIterator<EventT> begin() const noexcept { return EventIterator<EventT> {m_top}; }
-		EventIterator<EventT> end() const noexcept { return EventIterator<EventT>{}; }
+		EventIterator<EventT> end() const noexcept { return EventIterator<EventT>{nullptr}; }
 	private:
 		EventViewer(Implement::EventPoolInterface* pool) noexcept : m_pool(pool) {
 			m_wrapper = m_pool->register_event(TypeInfo::create<EventT>());

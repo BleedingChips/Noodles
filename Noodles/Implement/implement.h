@@ -35,6 +35,6 @@ namespace Noodles
 		Implement::EventPool event_pool;
 		Implement::SystemPool system_pool;
 		std::mutex m_asynchronous_works_mutex;
-		std::deque<Tool::intrusive_ptr<Implement::AsynchronousWorkInterface>> m_asynchronous_works;
+		std::deque<intrusive_ptr<Implement::AsynchronousWorkInterface>> m_asynchronous_works;
 	};
 }

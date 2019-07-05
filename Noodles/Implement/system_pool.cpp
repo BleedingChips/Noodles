@@ -16,41 +16,73 @@ namespace Noodles::Implement
 
 	void SystemPool::regedit_template_system(SystemInterface* in) noexcept
 	{
+		/*
 		assert(in != nullptr);
 		std::lock_guard lg(m_template_mutex);
 		m_template_system.push_back(in);
+		*/
 	}
-
-	bool SystemPool::update(bool component_change, bool gobal_component_change, ComponentPool& cp)
+	
+	bool SystemPool::update(bool component_change, bool gobal_component_change, ComponentPool& cp, GobalComponentPool& gcp)
 	{
 		std::lock_guard lg(m_log_mutex);
-		std::unique_lock up(m_system_mutex);
+		std::unique_lock up(m_systems_mutex);
+		std::lock_guard lg2(m_state_mutex);
 		if (!m_regedited_system.empty())
 		{
-			uint64_t current_index = m_systems.size();
-			bool change = false;
 			for (auto& ite : m_regedited_system)
 			{
 				std::visit(Potato::Tool::overloaded{
 					[&, this](SystemInterfacePtr& ptr) {
 						auto layout = ptr->layout();
 						release_system(layout);
-						SystemHolder tem{ std::move(ptr), m_systems.size(),{},{} };
-						auto result = m_systems.emplace(layout, std::move(tem));
+						auto result = m_systems.emplace(layout, SystemHolder{ std::move(ptr), 0, 0, 0 });
 						assert(result.second);
+						auto tar = result.first;
 						for (auto ite = m_systems.begin(); ite != m_systems.end(); ++ite)
-							if (ite != result.first)
-								update_new_system_order(ite, result.first);
-						change = true;
+						{
+							if (ite != tar)
+							{
+								auto result = handle_system_conflig(ite, tar);
+								if (result)
+								{
+									auto& [order, force, v_info, index] = *result;
+									switch (order)
+									{
+									case TickOrder::Mutex:
+										m_relationships.push_back(SystemRelationShip{ ite,  tar, force, true, v_info, index });
+										m_relationships.push_back(SystemRelationShip{ ite, tar, force, true, v_info, index });
+										break;
+									case TickOrder::After:
+										m_relationships.push_back(SystemRelationShip{ tar, ite, force, false, v_info, index });
+										break;
+									case TickOrder::Before:
+										m_relationships.push_back(SystemRelationShip{ ite, tar, force, false, v_info, index });
+										break;
+									case TickOrder::Undefine:
+										release_system(layout);
+										throw Error::SystemOrderConflig{layout.name, ite->second.ptr->layout().name};
+										break;
+									default:
+										assert(false);
+										break;
+									}
+								}
+							}
+
+						}
+						m_systems_change = true;
 					},
 					[&, this](const TypeInfo& layout) {
-						change = release_system(layout) || change;
+						m_systems_change = release_system(layout) || m_systems_change;
 					}
 					}, ite);
 			}
 			m_regedited_system.clear();
-			if (change)
+			if (m_systems_change)
 			{
+				m_systems_change = true;
+				/*
 				m_start_system.clear();
 				std::vector<HoldType::iterator> index_mapping(m_systems.size(), m_systems.end());
 				for (auto ite = m_systems.begin(); ite != m_systems.end(); ++ite)
@@ -110,18 +142,16 @@ namespace Noodles::Implement
 					}
 						
 				}
+				*/
 			}
 		}
-		std::lock_guard lg2(m_state_mutex);
-		m_waitting_list = m_start_system;
-		m_state.resize(m_systems.size());
-		for (auto& ite : m_state)
-			ite = State::Ready;
-		return !m_systems.empty() || !m_template_system.empty();
+		return !m_systems.empty();
 	}
 
 	SystemPool::ApplyResult SystemPool::asynchro_apply_system(Context* context, bool wait_for_lock)
 	{
+		return ApplyResult::AllDone;
+		/*
 		HoldType::iterator target;
 		bool finded = false;
 		{
@@ -189,54 +219,111 @@ namespace Noodles::Implement
 			return ApplyResult::Applied;
 		}
 		return ApplyResult::Waitting;
+		*/
 	}
 
-	void SystemPool::synchro_apply_template_system(Context* context)
-	{
-		TemplateSystemInterfacePtr ptr;
-		{
-			std::lock_guard lg(m_template_mutex);
-			if (!m_template_system.empty())
-			{
-				ptr = std::move(*m_template_system.begin());
-				m_template_system.pop_front();
-			}
-		}
-		if (ptr)
-			ptr->apply(context);
-	}
-
-	bool SystemPool::release_system(const TypeLayout& id)
+	bool SystemPool::release_system(const TypeInfo& id)
 	{
 		auto ite = m_systems.find(id);
 		if (ite != m_systems.end())
 		{
-			for (auto ite2 = m_systems.begin(); ite2 != m_systems.end(); ++ite2)
-			{
-				if (ite != ite2)
-				{
-					if (ite2->second.state_index > ite->second.state_index)
-						--ite2->second.state_index;
-					auto& vec = ite2->second.mutex_and_dependence;
-					vec.erase(std::remove_if(vec.begin(), vec.end(), [&](std::tuple<bool, size_t> & in) {
-						if (std::get<1>(in) == ite->second.state_index)
-							return true;
-						else if (std::get<1>(in) > ite->second.state_index)
-							--std::get<1>(in);
-						return false;
-						}), vec.end());
-					auto& vec2 = ite2->second.derived;
-					vec2.erase(std::remove_if(vec2.begin(), vec2.end(), [&](HoldType::iterator in) {
-						return in == ite;
-						}), vec2.end());
-				}
-			}
+			m_relationships.erase(std::remove_if(m_relationships.begin(), m_relationships.end(), [&](const SystemRelationShip& ship) -> bool{
+				return ship.active == ite || ship.passtive == ite;
+			}), m_relationships.end());
+			m_systems.erase(ite);
 			return true;
 		}
 		else
 			return false;
 	}
 
+	TickOrder handle_system_self_dependence(const TypeInfo& info, TypeInfo const* info_list, ReadWriteProperty const* property, size_t count)
+	{
+		for (size_t i = 0; i < count; ++i)
+		{
+			if (info_list[i] == info)
+			{
+				if (property[i] == ReadWriteProperty::Read)
+					return TickOrder::Before;
+				else
+					return TickOrder::After;
+			}
+			else if (!(info_list[i] < info))
+				break;
+		}
+		return TickOrder::Undefine;
+	}
+
+	std::optional<std::tuple<TickOrder, bool, std::vector<TypeInfo>, std::array<size_t, 3>>> SystemPool::handle_system_conflig(SystemHoldMap::iterator i1, SystemHoldMap::iterator i2)
+	{
+		assert(i1 != i2);
+		TypeInfo const* info1, * info2;
+		ReadWriteProperty const* rwp1, * rwp2;
+		size_t const* s1, * s2;
+		i1->second.ptr->rw_property(info1, rwp1, s1);
+		i2->second.ptr->rw_property(info2, rwp2, s2);
+		TickOrder to1 = handle_system_self_dependence(i1->first, info2, rwp2, s2[0]);
+		TickOrder to2 = handle_system_self_dependence(i2->first, info1, rwp1, s1[0]);
+		if (to2 == TickOrder::After)
+		{
+			if (to1 != TickOrder::After)
+				return std::make_tuple(TickOrder::Before, true, std::vector<TypeInfo>{}, std::array<size_t, 3>{0, 0, 0});
+		}
+		else if (to2 == TickOrder::Before)
+		{
+			if (to1 != TickOrder::Before)
+				return std::make_tuple(TickOrder::After, true, std::vector<TypeInfo>{}, std::array<size_t, 3>{0, 0, 0});
+		}
+		else
+		{
+			if (to1 == TickOrder::Undefine)
+			{
+				std::vector<TypeInfo> conflig_type;
+				std::array<size_t, 3> bound;
+				TickOrder result = TickOrder::Undefine;
+				size_t start1 = 0, start2 = 0;
+				for (size_t i = 0; i < 3; ++i)
+				{
+					ReadWriteProperty ir1 = ReadWriteProperty::Unknow;
+					ReadWriteProperty ir2 = ReadWriteProperty::Unknow;
+					for (size_t i1 = 0, i2 = 0; i1 < s1[i] && i2 < s2[i];)
+					{
+						if (info1[i1] == info2[i2])
+						{
+							if (!(rwp1[i1] == rwp2[i2] && rwp1[i1] == ReadWriteProperty::Read))
+							{
+								conflig_type.push_back(info1[i1]);
+								if (ir1 != ReadWriteProperty::Write)
+								{
+									if (rwp1[i1] == ReadWriteProperty::Write)
+										ir1 = ReadWriteProperty::Write;
+									else
+										ir1 = ReadWriteProperty::Read;
+								}
+								if (ir2 != ReadWriteProperty::Write)
+								{
+									if (rwp2[i1] == ReadWriteProperty::Write)
+										ir2 = ReadWriteProperty::Write;
+									else
+										ir2 = ReadWriteProperty::Read;
+								}
+							}
+							++i1; ++i2;
+						}
+						else if (info1[i1] < info2[i2])
+							++i1;
+					}
+				}
+				return {};
+			}
+			else {
+				return std::make_tuple(to1, true, std::vector<TypeInfo>{}, std::array<size_t, 3>{0, 0, 0});
+			}
+		}
+		return std::make_tuple(TickOrder::Undefine, true, std::vector<TypeInfo>{}, std::array<size_t, 3>{0, 0, 0});
+	}
+
+	/*
 	TickOrder handle_rw_collide(
 		const TypeLayout* slayout, const RWProperty* sstate, size_t sindex,
 		const TypeLayout* tlayout, const RWProperty* tstate, size_t tindex
@@ -432,29 +519,30 @@ namespace Noodles::Implement
 		else
 			return set_system_order(source, target, TickOrder::Before);
 	}
+	*/
 
-	SystemInterface* SystemPool::find_system(const TypeLayout& ti) noexcept
+	void* SystemPool::find_system(const TypeInfo& ti) noexcept
 	{
-		std::shared_lock sl(m_system_mutex);
+		std::shared_lock sl(m_systems_mutex);
 		auto ite = m_systems.find(ti);
 		if (ite != m_systems.end())
-			return ite->second.ptr;
+			return ite->second.ptr->data();
 		else
 			return nullptr;
 	}
 
 	void SystemPool::clean_all()
 	{
-		std::unique_lock ul1(m_system_mutex);
+		std::unique_lock ul1(m_systems_mutex);
 		std::lock_guard lg(m_state_mutex);
 		std::lock_guard lg2(m_log_mutex);
-		std::lock_guard lg3(m_template_mutex);
+		//std::lock_guard lg3(m_template_mutex);
 		m_systems.clear();
-		m_start_system.clear();
-		m_state.clear();
-		m_waitting_list.clear();
+		m_relationships.clear();
+		//m_state.clear();
+		//m_waitting_list.clear();
 		m_regedited_system.clear();
-		m_template_system.clear();
+		//m_template_system.clear();
 	}
 
 }

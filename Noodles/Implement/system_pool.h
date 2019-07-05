@@ -48,44 +48,68 @@ namespace Noodles::Implement
 
 	private:
 
-		struct SystemHolder;
-		using HoldType = std::map<TypeInfo, SystemHolder>;
-		bool release_system(const TypeInfo& id);
-		static void update_new_system_order(HoldType::iterator, HoldType::iterator);
-		static void set_system_order(HoldType::iterator, HoldType::iterator, TickOrder order);
-
-		enum State
+		enum class RuningState
 		{
 			Ready,
 			Using,
 			Done
 		};
 
-		std::shared_mutex m_system_mutex;
 		struct SystemHolder
 		{
 			SystemInterfacePtr ptr;
 			size_t state_index;
+			size_t relationship_start_index;
+			size_t relationship_length;
 		};
-		HoldType m_systems;
+
+		using SystemHoldMap = std::map<TypeInfo, SystemHolder>;
+
 		struct SystemRelationShip
 		{
-			HoldType::iterator active;
-			HoldType::iterator passtive;
+			SystemHoldMap::iterator active;
+			SystemHoldMap::iterator passtive;
+			bool is_force;
 			bool is_mutex;
 			std::vector<TypeInfo> conflig_type;
 			std::array<size_t, 3> conflig_bound;
 		};
-		std::vector<SystemRelationShip> m_start_system;
+
+		struct SystemState
+		{
+			RuningState state;
+			size_t relationship_start_index;
+			size_t relationship_length;
+			SystemHoldMap::iterator pointer;
+		};
+
+		struct SystemRunningRelationShip
+		{
+			size_t passtive_index;
+			bool is_mutex;
+			bool gobal_component_check;
+			bool system_check;
+			size_t component_check_start;
+			size_t component_check_length;
+		};
+
+		std::shared_mutex m_systems_mutex;
+		SystemHoldMap m_systems;
+		std::vector<SystemRelationShip> m_relationships;
+		bool m_systems_change = false;
 
 		std::mutex m_state_mutex;
-		std::vector<State> m_state;
-		std::vector<HoldType::iterator> m_waitting_list;
+		std::vector<SystemState> m_state;
+		std::vector<SystemRunningRelationShip> m_running_relationship;
+		std::vector<size_t> m_conflig_component_state;
+		std::vector<bool> m_component_state;
+		bool m_all_done = true;
 
 		std::mutex m_log_mutex;
 		std::vector<std::variant<SystemInterfacePtr, TypeInfo>> m_regedited_system;
 
-		std::mutex m_template_mutex;
-		std::deque<SystemInterfacePtr> m_template_system;
+		bool release_system(const TypeInfo& ite);
+		std::optional<std::tuple<TickOrder, bool, std::vector<TypeInfo>, std::array<size_t, 3>>> handle_system_conflig(SystemHoldMap::iterator, SystemHoldMap::iterator);
+
 	};
 }

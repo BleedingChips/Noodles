@@ -13,7 +13,6 @@ namespace Noodles
 			virtual void add_ref() noexcept = 0;
 			virtual void sub_ref() noexcept = 0;
 		private:
-			virtual void* get_adress_imp() = 0;
 		};
 
 		template<typename Type> struct GobalComponentImp : GobalComponentInterface

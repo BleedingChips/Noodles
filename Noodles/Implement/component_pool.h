@@ -87,7 +87,7 @@ namespace Noodles::Implement
 			const TypeInfo& layout, void(*constructor)(void*, void*), void* data,
 			EntityInterface*, void(*deconstructor)(void*) noexcept, void(*mover)(void*, void*) noexcept
 		) override;
-		virtual size_t find_top_block(const TypeGroup** tg, StorageBlock** output, size_t length) const noexcept override;
+		virtual size_t find_top_block(TypeGroup** tg, StorageBlock ** output, size_t length) const noexcept override;
 		virtual void deconstruct_component(EntityInterface*, const TypeInfo& layout) noexcept override;
 		bool update();
 		void clean_all();

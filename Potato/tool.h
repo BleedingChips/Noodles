@@ -419,7 +419,7 @@ namespace Potato::Tool
 			template<typename Tuple, typename Function>
 			void operator()(Function&& f, Tuple&& type) {
 				std::forward<Function>(f)(std::get<s>(std::forward<Tuple>(type)));
-				sequence_call_implement<s + 1, e>{}(std::forward<Tuple>(type), std::forward<Function>(f));
+				sequence_call_implement<s + 1, e>{}(std::forward<Function>(f), std::forward<Tuple>(type));
 			}
 		};
 		template<size_t e> struct sequence_call_implement<e, e>
@@ -431,6 +431,6 @@ namespace Potato::Tool
 
 	template<typename Function, typename Tuple> void sequence_call(Function&& f, Tuple&& type)
 	{
-		Implement::sequence_call_implement<0, std::tuple_size_v<Tuple>>{}(std::forward<Function>(f), std::forward<Tuple>(type));
+		Implement::sequence_call_implement<0, std::tuple_size_v<std::remove_reference_t<Tuple>>>{}(std::forward<Function>(f), std::forward<Tuple>(type));
 	}
 }
