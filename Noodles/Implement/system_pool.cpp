@@ -1,4 +1,6 @@
 #include "system_pool.h"
+#include <algorithm>
+#include <vector>
 namespace Noodles::Implement
 {
 	void SystemPool::regedit_system(SystemInterface* in) noexcept
@@ -22,14 +24,51 @@ namespace Noodles::Implement
 		m_template_system.push_back(in);
 		*/
 	}
+
+	void SystemPool::handle_relationship_component_conflig(SystemRelationShip& relationship, size_t component_size)
+	{
+		if (relationship.conflig_bound[2] != 0)
+		{
+			std::vector<ReadWriteProperty> t1_buffer{ component_size, ReadWriteProperty::Unknow };
+			std::vector<ReadWriteProperty> t2_buffer{ component_size, ReadWriteProperty::Unknow };
+			const TypeInfo* ti_start = &relationship.conflig_type[relationship.conflig_bound[0] + relationship.conflig_bound[1]];
+			size_t ti_length = relationship.conflig_bound[2];
+			relationship.active->second.ptr->type_group_usage(ti_start, ti_length, t1_buffer.data());
+			relationship.passtive->second.ptr->type_group_usage(ti_start, ti_length, t2_buffer.data());
+			relationship.component_check_start = m_conflig_component_state.size();
+			size_t count = 0;
+			for (size_t index = 0; index < t1_buffer.size(); ++index)
+			{
+				auto t1_b = t1_buffer[index];
+				auto t2_b = t2_buffer[index];
+				if (
+					(t1_b == ReadWriteProperty::Write || t2_b != ReadWriteProperty::Unknow)
+					&& (t2_b == ReadWriteProperty::Write || t1_b != ReadWriteProperty::Unknow)
+					)
+				{
+					m_conflig_component_state.push_back(index);
+					++count;
+				}
+			}
+			relationship.component_check_length = count;
+		}
+		
+	}
 	
 	bool SystemPool::update(bool component_change, bool gobal_component_change, ComponentPool& cp, GobalComponentPool& gcp)
 	{
 		std::lock_guard lg(m_log_mutex);
 		std::unique_lock up(m_systems_mutex);
 		std::lock_guard lg2(m_state_mutex);
+		cp.update_type_group_state(m_component_state);
+
 		if (!m_regedited_system.empty())
 		{
+			if (component_change || gobal_component_change)
+			{
+				for (auto& ite : m_systems)
+					ite.second.ptr->envirment_change(false, gobal_component_change, component_change);
+			}
 			for (auto& ite : m_regedited_system)
 			{
 				std::visit(Potato::Tool::overloaded{
@@ -39,33 +78,92 @@ namespace Noodles::Implement
 						auto result = m_systems.emplace(layout, SystemHolder{ std::move(ptr), 0, 0, 0 });
 						assert(result.second);
 						auto tar = result.first;
+						tar->second.ptr->envirment_change(false, true, true);
 						for (auto ite = m_systems.begin(); ite != m_systems.end(); ++ite)
 						{
 							if (ite != tar)
 							{
-								auto result = handle_system_conflig(ite, tar);
-								if (result)
-								{
-									auto& [order, force, v_info, index] = *result;
-									switch (order)
+								TickPriority tl1 = ite->second.ptr->tick_layout();
+								TickPriority tl2 = tar->second.ptr->tick_layout();
+								if (tl1 > tl2)
+									m_relationships.push_back(SystemRelationShip{ ite, tar, true, false, {}, {0, 0, 0} });
+								else if(tl1 < tl2)
+									m_relationships.push_back(SystemRelationShip{ tar, ite, true, false, {}, {0, 0, 0} });
+								else {
+									auto result = handle_system_conflig(ite, tar);
+									if (result)
 									{
-									case TickOrder::Mutex:
-										m_relationships.push_back(SystemRelationShip{ ite,  tar, force, true, v_info, index });
-										m_relationships.push_back(SystemRelationShip{ ite, tar, force, true, v_info, index });
-										break;
-									case TickOrder::After:
-										m_relationships.push_back(SystemRelationShip{ tar, ite, force, false, v_info, index });
-										break;
-									case TickOrder::Before:
-										m_relationships.push_back(SystemRelationShip{ ite, tar, force, false, v_info, index });
-										break;
-									case TickOrder::Undefine:
-										release_system(layout);
-										throw Error::SystemOrderConflig{layout.name, ite->second.ptr->layout().name};
-										break;
-									default:
-										assert(false);
-										break;
+										auto& [order, force, v_info, index] = *result;
+										TickPriority tl1 = ite->second.ptr->tick_priority();
+										TickPriority tl2 = tar->second.ptr->tick_priority();
+										if (tl1 > tl2)
+											m_relationships.push_back(SystemRelationShip{ ite, tar, true, false, {}, {0, 0, 0} });
+										else if (tl2 < tl1)
+											m_relationships.push_back(SystemRelationShip{ tar, ite, true, false, {}, {0, 0, 0} });
+										else {
+											TickOrder to1 = ite->second.ptr->tick_order(tar->second.ptr->layout(), v_info.data(), index.data());
+											TickOrder to2 = tar->second.ptr->tick_order(ite->second.ptr->layout(), v_info.data(), index.data());
+											if (to1 == to2)
+											{
+												if (to1 == TickOrder::Before || to1 == TickOrder::After)
+													order = TickOrder::Undefine;
+												else if (to1 == TickOrder::Mutex)
+													order = TickOrder::Mutex;
+												else if (order == TickOrder::Mutex)
+													order = TickOrder::Undefine;
+											}
+											else if (to1 == TickOrder::After)
+												order = TickOrder::After;
+											else if (to1 == TickOrder::Before)
+												order = TickOrder::Before;
+											else if (to2 == TickOrder::After)
+												order = TickOrder::Before;
+											else if (to2 == TickOrder::Before)
+												order = TickOrder::After;
+											else
+												order = TickOrder::Mutex;
+											std::optional<SystemRelationShip> re[2];
+											switch (order)
+											{
+											case TickOrder::Mutex:
+												re[0] = SystemRelationShip{ ite, tar, force, true, v_info, index, 0, 0 };
+												re[1] = SystemRelationShip{ ite, tar, force, true, v_info, index, 0, 0 };
+												break;
+											case TickOrder::After:
+												re[0] = SystemRelationShip{ ite, tar, force, false, v_info, index, 0, 0 };
+												break;
+											case TickOrder::Before:
+												re[0] = SystemRelationShip{ tar, ite, force, false, v_info, index, 0, 0 };
+												break;
+											case TickOrder::Undefine:
+												release_system(layout);
+												throw Error::SystemOrderConflig{ layout.name, ite->second.ptr->layout().name };
+												break;
+											default:
+												assert(false);
+												break;
+											}
+											for (size_t i = 0; i < 2; ++i)
+											{
+												if (re[i].has_value())
+												{
+													auto ite = std::find_if(m_relationships.rbegin(), m_relationships.rend(), [&](const SystemRelationShip& ship) -> bool {
+														return ship.active == (re[i])->active;
+													});
+													if (ite != m_relationships.rend())
+													{
+														auto true_ite = ite.base();
+														if(true_ite != m_relationships.end())
+															++true_ite;
+														m_relationships.insert(true_ite, std::move(*re[i]));
+													}
+													else
+														m_relationships.push_back(std::move(*re[i]));
+												}
+												else
+													break;
+											}
+										}
 									}
 								}
 							}
@@ -81,145 +179,289 @@ namespace Noodles::Implement
 			m_regedited_system.clear();
 			if (m_systems_change)
 			{
-				m_systems_change = true;
-				/*
-				m_start_system.clear();
-				std::vector<HoldType::iterator> index_mapping(m_systems.size(), m_systems.end());
-				for (auto ite = m_systems.begin(); ite != m_systems.end(); ++ite)
+				size_t i = 0;
+				// 同步 m_relationship m_systems
+				for (auto& ite : m_systems)
 				{
-					index_mapping[ite->second.state_index] = ite;
-					bool is_clean = true;
-					for (auto& ite : ite->second.mutex_and_dependence)
-						if (!std::get<0>(ite))
-							is_clean = false;
-					if (is_clean)
-						m_start_system.push_back(ite);
+					ite.second.state_index = i++;
+					ite.second.relationship_start_index = 0;
+					ite.second.relationship_length = 0;
+					ite.second.ptr->envirment_change(true, false, false);
 				}
-				std::vector<std::pair<size_t, size_t>> search_time(m_systems.size(), { 0, 0 });
-				size_t time = 0;
-				std::vector<HoldType::iterator> search_stack;
-				if (!m_start_system.empty())
-					search_stack = m_start_system;
-				else
-					search_stack.push_back(m_systems.begin());
-				while (!search_stack.empty())
+				m_conflig_component_state.clear();
+				if (!m_relationships.empty())
 				{
-					auto ite = *search_stack.rbegin();
-					auto& ref = search_time[ite->second.state_index];
-					if (ref.first == 0)
+					auto ite = m_relationships[0].active;
+					size_t s = 0;
+					size_t k = 0;
+					for (; k < m_relationships.size(); ++k)
 					{
-						ref.first = ++time;
-						for (auto ite2 = ite->second.derived.begin(); ite2 != ite->second.derived.end(); ++ite2)
+						handle_relationship_component_conflig(m_relationships[k], m_component_state.size());
+						if (m_relationships[k].active != ite)
 						{
-							auto& ref = search_time[(*ite2)->second.state_index];
-							if (ref.first == 0 && ref.second == 0)
-								search_stack.push_back(*ite2);
-							else if (ref.first != 0 && ref.second != 0)
-								continue;
-							else {
-								Error::SystemOrderRecursion error;
-								auto& layout = (*ite2)->second.ptr->layout();
-								for (auto ite3 = search_stack.begin(); ite3 != search_stack.end(); ++ite3)
+							ite->second.relationship_start_index = s;
+							assert(k > s);
+							ite->second.relationship_length = k - s;
+							ite = m_relationships[k].active;
+							s = k;
+						}
+					}
+					if (k != s)
+					{
+						ite->second.relationship_start_index = s;
+						assert(k > s);
+						ite->second.relationship_length = k - s;
+					}
+				}
+
+				// 找依赖环
+				// 0 ： 未访问， 1 ： 访问途中， 2 ：访问完成
+
+				{
+					std::vector<size_t> searching_state(m_systems.size(), 0);
+					std::vector<std::tuple<SystemHoldMap::iterator, size_t>> searching_stack;
+					searching_stack.reserve(m_systems.size());
+					while (searching_stack.empty())
+					{
+						for (auto ite = m_systems.begin(); ite != m_systems.end(); ++ite)
+						{
+							if (searching_state[ite->second.state_index] == 0)
+							{
+								if (ite->second.relationship_length != 0)
 								{
-									if ((*ite3)->second.ptr->layout() == layout)
+									bool hard_relationship = false;
+									for (size_t i = 0; i < ite->second.relationship_length; ++i)
 									{
-										for (; ite3 != search_stack.end(); ++ite3)
+										auto& relationship = m_relationships[ite->second.relationship_start_index + i];
+										// Mutex 关系的并不是一个依赖
+										if (relationship.is_force || !relationship.is_mutex)
 										{
-											auto& ref = (*ite3)->second;
-											if (search_time[ref.state_index].first != 0)
-												error.infos.push_back(ref.ptr->layout().name);
+											hard_relationship = true;
+											break;
 										}
-										break;
+									}
+									if (hard_relationship)
+										continue;
+								}
+								searching_stack.push_back({ ite , 0 });
+								searching_state[ite->second.state_index] = 1;
+								break;
+							}
+						}
+						if (!searching_stack.empty())
+						{
+							while (!searching_stack.empty())
+							{
+								auto& [ite, r_index] = *searching_stack.rbegin();
+								if (r_index == ite->second.relationship_length)
+								{
+									searching_state[ite->second.state_index] = 2;
+									searching_stack.pop_back();
+								}
+								else {
+									auto&  ref = m_relationships[ite->second.relationship_start_index + r_index];
+									if (ref.is_force || !ref.is_mutex)
+									{
+										auto ite2 = ref.passtive;
+										++r_index;
+										size_t state = searching_state[ite2->second.state_index];
+										if (state == 1)
+										{
+											Error::SystemOrderRecursion sor;
+											sor.infos.push_back(ite2->second.ptr->layout().name);
+											for (auto ite3 = searching_stack.rbegin(); ite3 != searching_stack.rend(); ++ite3)
+											{
+												sor.infos.push_back(std::get<0>(*ite3)->second.ptr->layout().name);
+												if (std::get<0>(*ite3) == ite2)
+													break;
+											}
+											throw sor;
+										}
+										else if (state == 0)
+										{
+											searching_stack.push_back({ ite2 , 0 });
+											searching_state[ite2->second.state_index] = 1;
+										}
 									}
 								}
-								throw error;
+							}
+						}
+						else {
+							for (auto ite = m_systems.begin(); ite != m_systems.end(); ++ite)
+							{
+								if (searching_state[ite->second.state_index] == 0)
+								{
+									searching_stack.push_back({ ite, 0 });
+									break;
+								}
 							}
 						}
 					}
-					else {
-						ref.second = ++time;
-						search_stack.pop_back();
-					}
-						
 				}
-				*/
+				
+				// 同步 m_state - m_systems
+				m_state.resize(m_systems.size());
+				for (auto ite = m_systems.begin(); ite != m_systems.end(); ++ite)
+					m_state[ite->second.state_index] = SystemState{ RuningState::Ready, ite->second.relationship_start_index, ite->second.relationship_length, ite };
+
+				// 同步 m_runingrelationship - m_relationship
+				m_running_relationship.resize(m_relationships.size());
+				for (size_t i = 0; i < m_relationships.size(); ++i)
+				{
+					auto& tar = m_relationships[i];
+					SystemRunningRelationShip running{ tar.passtive->second.state_index, tar.is_force, tar.is_mutex, true, true, true};
+					if (!running.is_force)
+					{
+						bool need_continue = true;
+						for (size_t index = 0; index < tar.conflig_bound[0]; ++index)
+						{
+							auto ti = tar.conflig_type[index];
+							auto ite = m_systems.find(ti);
+							if (ite != m_systems.end())
+							{
+								running.system_check = false;
+								need_continue = false;
+								break;
+							}
+						}
+						if (need_continue)
+						{
+							for (size_t index = 0; index < tar.conflig_bound[1]; ++index)
+							{
+								auto ti = tar.conflig_type[tar.conflig_bound[0] + index];
+								auto ite = gcp.find(ti);
+								if (ite != nullptr)
+								{
+									running.gobal_component_check = false;
+									need_continue = false;
+									break;
+								}
+							}
+						}
+					}
+					m_running_relationship[i] = running;
+				}
+				m_systems_change = false;
 			}
 		}
+		else if (gobal_component_change || component_change)
+		{
+			for (auto& ite : m_systems)
+				ite.second.ptr->envirment_change(false, gobal_component_change, component_change);
+			if (component_change)
+			{
+				m_conflig_component_state.clear();
+				for (auto& ite : m_relationships)
+					handle_relationship_component_conflig(ite, m_component_state.size());
+			}
+
+			if (gobal_component_change)
+			{
+				for (size_t i = 0; i < m_relationships.size(); ++i)
+				{
+					auto& running = m_running_relationship[i];
+					if (!running.is_force && running.system_check)
+					{
+						auto& rela = m_relationships[i];
+						const TypeInfo* ti = rela.conflig_type.data() + rela.conflig_bound[0];
+						for (size_t i = 0; i < rela.conflig_bound[1]; ++i)
+						{
+							auto ti_r = ti[i];
+							auto ite = gcp.find(ti_r);
+							if (ite != nullptr)
+							{
+								running.gobal_component_check = false;
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+		for (size_t index = 0; index < m_running_relationship.size(); ++index)
+		{
+			auto& running = m_running_relationship[index];
+			if (!running.is_force && (running.system_check || running.gobal_component_check))
+			{
+				auto& static_rel = m_relationships[index];
+				size_t length = static_rel.component_check_length;
+				const size_t* state = m_conflig_component_state.data() + static_rel.component_check_start;
+				for (size_t i = 0; i < length; ++i)
+				{
+					if (m_component_state[state[i]])
+					{
+						running.component_check = false;
+						break;
+					}
+				}
+			}
+		}
+		for (auto& ite : m_state)
+			ite.state = RuningState::Ready;
+		m_all_done = false;
 		return !m_systems.empty();
 	}
 
 	SystemPool::ApplyResult SystemPool::asynchro_apply_system(Context* context, bool wait_for_lock)
 	{
-		return ApplyResult::AllDone;
-		/*
-		HoldType::iterator target;
-		bool finded = false;
+		std::optional<SystemHoldMap::iterator> ite;
 		{
 			if (wait_for_lock)
 				m_state_mutex.lock();
 			else if (!m_state_mutex.try_lock())
 				return ApplyResult::Waitting;
 			std::lock_guard lg(m_state_mutex, std::adopt_lock);
-			if (m_waitting_list.empty())
+			if (!m_all_done)
 			{
-				for (auto& ite : m_state)
+				bool all_done = true;
+				for (size_t index = 0; index < m_state.size(); ++index)
 				{
-					if (ite != State::Done)
-						return ApplyResult::Waitting;
-				}
-				return ApplyResult::AllDone;
-			}
-			else {
-				std::shared_lock sl(m_system_mutex);
-				bool need_update_list = false;
-				for (auto& ite : m_waitting_list)
-				{
-					if (m_state[ite->second.state_index] == State::Ready)
+					auto& state = m_state[index];
+					if(state.state != RuningState::Done)
+						all_done = false;
+					if (state.state == RuningState::Ready)
 					{
-						bool ready = true;
-						for (auto& ite2 : ite->second.mutex_and_dependence)
+						size_t start = state.relationship_start_index;
+						size_t length = state.relationship_length;
+						bool able_to_apply = true;
+						for (size_t i = 0; i < length; ++i)
 						{
-							auto& state = m_state[std::get<1>(ite2)];
-							bool mutex = std::get<0>(ite2);
-							if (mutex && state == State::Using || (!mutex) && state != State::Done)
+							auto& rel = m_running_relationship[start + i];
+							if (rel.is_force || (!rel.system_check || !rel.gobal_component_check || !rel.component_check))
 							{
-								ready = false;
-								break;
+								auto& state2 = m_state[rel.passtive_index];
+								if (rel.is_mutex && state2.state == RuningState::Using || !rel.is_mutex && state2.state != RuningState::Done)
+								{
+									able_to_apply = false;
+									break;
+								}
 							}
 						}
-						if (ready)
+						if (able_to_apply)
 						{
-							m_state[ite->second.state_index] = State::Using;
-							target = ite;
-							ite = m_systems.end();
-							finded = true;
-							need_update_list = true;
+							state.state = RuningState::Using;
+							ite = state.pointer;
 							break;
 						}
 					}
-					else {
-						ite = m_systems.end();
-						need_update_list = true;
-					}
 				}
-				if (need_update_list)
+				if (all_done)
 				{
-					m_waitting_list.erase(std::remove_if(m_waitting_list.begin(), m_waitting_list.end(), [&](HoldType::iterator ite) {
-						return ite == m_systems.end();
-						}), m_waitting_list.end());
+					m_all_done = true;
+					return ApplyResult::AllDone;
 				}
 			}
+			else
+				return ApplyResult::AllDone;
 		}
-		if (finded)
+		if (ite.has_value())
 		{
-			target->second.ptr->apply(context);
+			(*ite)->second.ptr->apply(context);
 			std::lock_guard lg(m_state_mutex);
-			m_state[target->second.state_index] = State::Done;
-			m_waitting_list.insert(m_waitting_list.end(), target->second.derived.begin(), target->second.derived.end());
+			m_state[(*ite)->second.state_index].state = RuningState::Done;
 			return ApplyResult::Applied;
 		}
 		return ApplyResult::Waitting;
-		*/
 	}
 
 	bool SystemPool::release_system(const TypeInfo& id)
@@ -264,266 +506,84 @@ namespace Noodles::Implement
 		i2->second.ptr->rw_property(info2, rwp2, s2);
 		TickOrder to1 = handle_system_self_dependence(i1->first, info2, rwp2, s2[0]);
 		TickOrder to2 = handle_system_self_dependence(i2->first, info1, rwp1, s1[0]);
-		if (to2 == TickOrder::After)
+		if (to1 == TickOrder::Undefine && to2 != TickOrder::Undefine)
 		{
-			if (to1 != TickOrder::After)
+			if(to2 == TickOrder::Before)
+				return std::make_tuple(TickOrder::After, true, std::vector<TypeInfo>{}, std::array<size_t, 3>{0, 0, 0});
+			else
 				return std::make_tuple(TickOrder::Before, true, std::vector<TypeInfo>{}, std::array<size_t, 3>{0, 0, 0});
 		}
-		else if (to2 == TickOrder::Before)
+		else if (to2 == TickOrder::Undefine && to1 != TickOrder::Undefine)
 		{
-			if (to1 != TickOrder::Before)
-				return std::make_tuple(TickOrder::After, true, std::vector<TypeInfo>{}, std::array<size_t, 3>{0, 0, 0});
+			return std::make_tuple(to1, true, std::vector<TypeInfo>{}, std::array<size_t, 3>{0, 0, 0});
 		}
-		else
+		else if (to1 == to2 && to2 != TickOrder::Undefine)
 		{
-			if (to1 == TickOrder::Undefine)
+			return std::make_tuple(TickOrder::Undefine, true, std::vector<TypeInfo>{}, std::array<size_t, 3>{0, 0, 0});
+		}
+
+		std::vector<TypeInfo> conflig_type;
+		std::array<size_t, 3> bound;
+		TickOrder result = TickOrder::Undefine;
+		size_t start1 = 0, start2 = 0;
+		for (size_t i = 0; i < 3; ++i)
+		{
+			size_t count = 0;
+			ReadWriteProperty ir1 = ReadWriteProperty::Unknow;
+			ReadWriteProperty ir2 = ReadWriteProperty::Unknow;
+			for (size_t i1 = 0, i2 = 0; i1 < s1[i] && i2 < s2[i];)
 			{
-				std::vector<TypeInfo> conflig_type;
-				std::array<size_t, 3> bound;
-				TickOrder result = TickOrder::Undefine;
-				size_t start1 = 0, start2 = 0;
-				for (size_t i = 0; i < 3; ++i)
+				size_t ti1 = start1 + i1;
+				size_t ti2 = start2 + i2;
+				if (info1[ti1] == info2[ti2])
 				{
-					ReadWriteProperty ir1 = ReadWriteProperty::Unknow;
-					ReadWriteProperty ir2 = ReadWriteProperty::Unknow;
-					for (size_t i1 = 0, i2 = 0; i1 < s1[i] && i2 < s2[i];)
+					if (!(rwp1[ti1] == rwp2[ti2] && rwp1[ti1] == ReadWriteProperty::Read))
 					{
-						if (info1[i1] == info2[i2])
-						{
-							if (!(rwp1[i1] == rwp2[i2] && rwp1[i1] == ReadWriteProperty::Read))
-							{
-								conflig_type.push_back(info1[i1]);
-								if (ir1 != ReadWriteProperty::Write)
-								{
-									if (rwp1[i1] == ReadWriteProperty::Write)
-										ir1 = ReadWriteProperty::Write;
-									else
-										ir1 = ReadWriteProperty::Read;
-								}
-								if (ir2 != ReadWriteProperty::Write)
-								{
-									if (rwp2[i1] == ReadWriteProperty::Write)
-										ir2 = ReadWriteProperty::Write;
-									else
-										ir2 = ReadWriteProperty::Read;
-								}
-							}
-							++i1; ++i2;
-						}
-						else if (info1[i1] < info2[i2])
-							++i1;
+						count += 1;
+						conflig_type.push_back(info1[ti1]);
+						ir1 = ir1 > rwp1[ti1] ? ir1 : rwp1[ti1];
+						ir2 = ir2 > rwp2[ti2] ? ir2 : rwp2[ti2];
 					}
+					++i1; ++i2;
 				}
-				return {};
-			}
-			else {
-				return std::make_tuple(to1, true, std::vector<TypeInfo>{}, std::array<size_t, 3>{0, 0, 0});
-			}
-		}
-		return std::make_tuple(TickOrder::Undefine, true, std::vector<TypeInfo>{}, std::array<size_t, 3>{0, 0, 0});
-	}
-
-	/*
-	TickOrder handle_rw_collide(
-		const TypeLayout* slayout, const RWProperty* sstate, size_t sindex,
-		const TypeLayout* tlayout, const RWProperty* tstate, size_t tindex
-	)
-	{
-		TickOrder state = TickOrder::Undefine;
-		for (size_t si = 0, ti = 0; si < sindex && ti < tindex;)
-		{
-			auto& sl = slayout[si];
-			auto& tl = tlayout[ti];
-			if (sl == tl)
-			{
-				RWProperty st = sstate[si];
-				RWProperty tt = tstate[ti];
-				if (st == RWProperty::Write && tt == RWProperty::Write)
-					return TickOrder::Mutex;
-				else if (st == RWProperty::Write && tt == RWProperty::Read)
-				{
-					if (state == TickOrder::Undefine)
-						state = TickOrder::After;
-					else if (state == TickOrder::Before)
-						return TickOrder::Mutex;
-				}
-				else if (st == RWProperty::Read && tt == RWProperty::Write)
-				{
-					if (state == TickOrder::Undefine)
-						state = TickOrder::After;
-					else if (state == TickOrder::After)
-						return TickOrder::Mutex;
-				}
-				++si;
-				++ti;
-			}
-			else if (sl < tl)
-				++si;
-			else
-				++ti;
-		}
-		return state;
-	}
-
-	void SystemPool::set_system_order(HoldType::iterator source, HoldType::iterator target, TickOrder order)
-	{
-		switch (order)
-		{
-		case TickOrder::Mutex:
-			source->second.mutex_and_dependence.push_back({ true, target->second.state_index });
-			target->second.mutex_and_dependence.push_back({ true, source->second.state_index });
-			break;
-		case TickOrder::Before:
-			target->second.derived.push_back(source);
-			source->second.mutex_and_dependence.push_back({ false, target->second.state_index });
-			break;
-		case TickOrder::After:
-			source->second.derived.push_back(target);
-			target->second.mutex_and_dependence.push_back({ false, source->second.state_index });
-			break;
-		default:
-			break;
-		}
-	}
-
-	TickOrder handle_system_rw_info(const TypeLayout* layouts, const RWProperty* states, size_t count, const TypeLayout& type)
-	{
-		for (size_t i = 0; i < count && (layouts[i] <= type); ++i)
-		{
-			if (layouts[i] == type)
-			{
-				if (states[i] == RWProperty::Read)
-					return TickOrder::After;
+				else if (info1[i1] < info2[i2])
+					++i1;
 				else
-					return TickOrder::Before;
+					++i2;
 			}
-		}
-		return TickOrder::Undefine;
-	}
-
-	std::optional<TickOrder> handle_system_tick_order(SystemInterfacePtr& S, SystemInterfacePtr& T)
-	{
-		auto s_pro = S->tick_priority();
-		auto t_pro = T->tick_priority();
-
-		if (s_pro == t_pro)
-		{
-			auto sord = S->tick_order(T->layout());
-			auto tord = T->tick_order(S->layout());
-			if (sord == tord)
+			start1 += s1[i];
+			start2 += s2[i];
+			if (result != TickOrder::Mutex)
 			{
-				if (tord == TickOrder::Undefine || tord == TickOrder::Mutex)
-					return tord;
-				else
-					return {};
-			}
-			else {
-				switch (sord)
+				if (ir1 == ir2)
 				{
-				case TickOrder::Undefine: return tord;
-				case TickOrder::Mutex:
-					switch (tord)
-					{
-					case TickOrder::Undefine: return TickOrder::Mutex;
-					default: return tord;
-					};
-				case TickOrder::Before:
-					return TickOrder::After;
-				case TickOrder::After:
-					return TickOrder::Before;
-				default: assert(false); return TickOrder::Undefine;
+					if(ir1 == ReadWriteProperty::Write)
+						result = TickOrder::Mutex;
+				}
+				else if (ir1 == ReadWriteProperty::Write)
+				{
+					if (result == TickOrder::Undefine)
+						result = TickOrder::Before;
+					else if (result == TickOrder::After)
+						result = TickOrder::Mutex;
+				}
+				else if(ir2 == ReadWriteProperty::Write){
+					if (result == TickOrder::Undefine)
+						result = TickOrder::After;
+					else if (result == TickOrder::Before)
+						result = TickOrder::Mutex;
 				}
 			}
-		}else if (s_pro < t_pro)
-			return TickOrder::Before;
+			bound[i] = count;
+		}
+		if (conflig_type.empty())
+			return {};
 		else
-			return TickOrder::After;
+			return std::make_tuple(result, false, std::move(conflig_type), bound);
 	}
-
-	void SystemPool::update_new_system_order(HoldType::iterator source, HoldType::iterator target)
-	{
-		// user define
-		auto spriority = source->second.ptr->tick_layout();
-		auto tpriority = target->second.ptr->tick_layout();
-		if (spriority == tpriority)
-		{
-			const TypeLayout* slayout;
-			const RWProperty* sstate;
-			const size_t* sindex;
-			const TypeLayout* tlayout;
-			const RWProperty* tstate;
-			const size_t* tindex;
-			source->second.ptr->rw_property(slayout, sstate, sindex);
-			TickOrder s_order = handle_system_rw_info(slayout, sstate, sindex[0], target->second.ptr->layout());
-			target->second.ptr->rw_property(tlayout, tstate, tindex);
-			TickOrder t_order = handle_system_rw_info(tlayout, tstate, tindex[0], source->second.ptr->layout());
-
-			if (s_order != TickOrder::Undefine || t_order != TickOrder::Undefine)
-			{
-				auto re = handle_system_tick_order(source->second.ptr, target->second.ptr);
-				if (!re.has_value())
-					throw Error::SystemOrderConflig{ source->second.ptr->layout().name, target->second.ptr->layout().name};
-				else if (*re == TickOrder::Undefine)
-				{
-					if (s_order == TickOrder::Undefine)
-						return set_system_order(source, target, t_order);
-					else if (t_order == TickOrder::Undefine)
-					{
-						switch (s_order)
-						{
-						case TickOrder::After: return set_system_order(source, target, TickOrder::Before);
-						case TickOrder::Before: return set_system_order(source, target, TickOrder::After);
-						}
-					}
-					else if (t_order != s_order)
-						return set_system_order(source, target, t_order);
-					else
-						throw Error::SystemOrderConflig{ source->second.ptr->layout().name, target->second.ptr->layout().name };
-				}
-				else
-					return set_system_order(source, target, *re);
-			}
-
-			for (size_t i = 0; i < 4; ++i)
-			{
-				t_order = handle_rw_collide(slayout, sstate, sindex[i], tlayout, tstate, tindex[i]);
-				if (t_order != TickOrder::Undefine)
-				{
-					if (i < 3)
-					{
-						auto re = handle_system_tick_order(source->second.ptr, target->second.ptr);
-						if (!re.has_value())
-							throw Error::SystemOrderConflig{ source->second.ptr->layout().name, target->second.ptr->layout().name };
-						else if (*re == TickOrder::Undefine)
-						{
-							switch (t_order)
-							{
-							case TickOrder::Mutex:
-								throw Error::SystemOrderConflig{ source->second.ptr->layout().name, target->second.ptr->layout().name };
-							default: return set_system_order(source, target, t_order);
-							}
-						}
-						else
-							return set_system_order(source, target, *re);
-					}else
-						return set_system_order(source, target, t_order);
-				}
-				slayout += sindex[i];
-				sstate += sindex[i];
-				tlayout += tindex[i];
-				tstate += tindex[i];
-			}
-		}
-		else if (static_cast<size_t>(spriority) < static_cast<size_t>(tpriority))
-			return set_system_order(source, target, TickOrder::After);
-		else
-			return set_system_order(source, target, TickOrder::Before);
-	}
-	*/
 
 	void* SystemPool::find_system(const TypeInfo& ti) noexcept
 	{
-		std::shared_lock sl(m_systems_mutex);
 		auto ite = m_systems.find(ti);
 		if (ite != m_systems.end())
 			return ite->second.ptr->data();

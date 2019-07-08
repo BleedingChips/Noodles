@@ -180,8 +180,13 @@ namespace Noodles
 	{
 		if(storage_buffer_count > 0 && storage_buffer != nullptr)
 		{
-			for (; m_current_storage_block_index < m_storage_block_count && m_current_block != nullptr; ++m_current_storage_block_index)
+			for (; m_current_storage_block_index < m_storage_block_count; ++m_current_storage_block_index)
+			{
 				m_current_block = storage_buffer[m_current_storage_block_index];
+				if (m_current_block != nullptr)
+					break;
+			}
+				
 			if (m_current_block != nullptr)
 			{
 				m_entity_start = m_current_block->entitys;

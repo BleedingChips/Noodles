@@ -91,7 +91,7 @@ struct CollisionSystem
 	void operator()(
 		Filter<const Location, Collision, const EaterFlag>& eater,
 		Filter<const Location, const Collision, const FoodFlag>& food,
-		Context& con, EventViewer<DieEvent>& EV
+		Context& con, EventViewer<DieEvent>& EV, SystemFilter<const MoveSystem>& f
 		)
 	{
 		CallRecord<CollisionSystem> record;
@@ -164,17 +164,20 @@ int main()
 		ContextImplement imp;
 
 		imp.set_thread_reserved(2);
-
+		imp.set_minimum_duration(duration_ms{1000});
 		
-
+		/*
 		imp.create_system([&]() {
 			std::lock_guard lg(cout_mutex);
 			std::cout << "loop start --------------" << std::endl;
 		}, TickPriority::HighHigh, TickPriority::HighHigh);
+		
 		imp.create_system([&]() {
 			std::lock_guard lg(cout_mutex);
 			std::cout << "loop end --------------" << std::endl;
 		}, TickPriority::LowLow, TickPriority::LowLow);
+		*/
+		
 
 		std::random_device r_dev;
 		std::default_random_engine engine(r_dev());
@@ -218,7 +221,7 @@ int main()
 			void (*init)(Context*, std::mutex*) = (void(*)(Context*, std::mutex*))GetProcAddress(handle, "init");
 			init(&imp, &cout_mutex);
 		}
-
+		/*
 		imp.insert_asynchronous_work([&](Context& con, float input) {
 			{
 				std::lock_guard lg(cout_mutex);
@@ -228,6 +231,7 @@ int main()
 			std::this_thread::sleep_for(duration_ms{ 30 });
 			return true;
 		}, 6.50f);
+		*/
 
 		try {
 			imp.loop();

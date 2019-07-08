@@ -1,5 +1,5 @@
-#include "../include/lexical.h"
-#include "../include/character_encoding.h"
+#include "lexical.h"
+#include "character_encoding.h"
 #include <assert.h>
 namespace Potato::Lexical
 {

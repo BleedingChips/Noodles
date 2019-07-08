@@ -656,7 +656,7 @@ namespace Noodles::Implement
 		size_t k = 0;
 		for (auto& ite : m_data)
 		{
-			if (ite.first.locate_unordered(require_tl, output_tl_index, require_tl_count))
+			if (ite.first.locate_unordered(require_tl, output_tl_index + k * require_tl_count, require_tl_count))
 				output_tg[k] = ite.second;
 			else
 				output_tg[k] = nullptr;
@@ -666,7 +666,8 @@ namespace Noodles::Implement
 
 	size_t ComponentPool::find_top_block(TypeGroup** tg, StorageBlock** output, size_t length) const noexcept
 	{
-		assert(length != m_data.size());
+		size_t data_count = m_data.size();
+		assert(length == data_count);
 		size_t total = 0;
 		for (size_t i = 0; i < length; ++i)
 		{
@@ -685,6 +686,14 @@ namespace Noodles::Implement
 	size_t ComponentPool::type_group_count() const noexcept
 	{
 		return m_data.size();
+	}
+
+	void ComponentPool::update_type_group_state(std::vector<bool>& tar)
+	{
+		tar.resize(m_data.size());
+		size_t i = 0;
+		for (auto& ite : m_data)
+			tar[i++] = (ite.second->top_block() != nullptr);
 	}
 
 

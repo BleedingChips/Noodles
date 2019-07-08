@@ -69,28 +69,30 @@ namespace Noodles::Implement
 		{
 			SystemHoldMap::iterator active;
 			SystemHoldMap::iterator passtive;
-			bool is_force;
-			bool is_mutex;
+			bool is_force = false;
+			bool is_mutex = true;
 			std::vector<TypeInfo> conflig_type;
 			std::array<size_t, 3> conflig_bound;
+			size_t component_check_start = 0;
+			size_t component_check_length = 0;
 		};
 
 		struct SystemState
 		{
-			RuningState state;
-			size_t relationship_start_index;
-			size_t relationship_length;
+			RuningState state = RuningState::Ready;
+			size_t relationship_start_index = 0;
+			size_t relationship_length = 0;
 			SystemHoldMap::iterator pointer;
 		};
 
 		struct SystemRunningRelationShip
 		{
 			size_t passtive_index;
-			bool is_mutex;
-			bool gobal_component_check;
-			bool system_check;
-			size_t component_check_start;
-			size_t component_check_length;
+			bool is_force = false;
+			bool is_mutex = true;
+			bool gobal_component_check = true;
+			bool system_check = true;
+			bool component_check = true;
 		};
 
 		std::shared_mutex m_systems_mutex;
@@ -110,6 +112,6 @@ namespace Noodles::Implement
 
 		bool release_system(const TypeInfo& ite);
 		std::optional<std::tuple<TickOrder, bool, std::vector<TypeInfo>, std::array<size_t, 3>>> handle_system_conflig(SystemHoldMap::iterator, SystemHoldMap::iterator);
-
+		void handle_relationship_component_conflig(SystemRelationShip&, size_t component_size);
 	};
 }

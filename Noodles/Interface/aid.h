@@ -52,9 +52,10 @@ namespace Noodles
 	{
 		enum class ReadWriteProperty : uint8_t
 		{
-			Read = 0,
-			Write = 1,
-			Unknow = 2
+			Unknow = 0,
+			Read = 1,
+			Write = 2,
+			
 		};
 
 		struct ReadWritePropertyMap
@@ -68,6 +69,18 @@ namespace Noodles
 		{
 			void operator()(std::map<TypeInfo, ReadWriteProperty>& result) {}
 			static constexpr ReadWriteProperty read_write_property = ReadWriteProperty::Read;
+		};
+
+		template<typename T, typename ...AT> struct TypeInfoListExtractor<T, AT...>
+		{
+			void operator()(std::map<TypeInfo, ReadWriteProperty>& result) {
+				if constexpr (std::is_const_v<T>)
+					result.insert({ TypeInfo::create<T>(), ReadWriteProperty::Read });
+				else
+					result[TypeInfo::create<T>()] = ReadWriteProperty::Write;
+				TypeInfoListExtractor<AT...>{}(result);
+			}
+			static constexpr ReadWriteProperty read_write_property = std::is_const_v<T> ? TypeInfoListExtractor<AT...>::read_write_property : ReadWriteProperty::Write;
 		};
 
 		struct TypeGroup;

@@ -15,21 +15,6 @@ namespace Noodles
 		auto target_duration = m_target_duration;
 		m_last_duration = target_duration;
 
-		Potato::Tool::scope_guard sg{
-			[&, this]() noexcept {
-			for (auto& ite : mulity_thread)
-				ite.join();
-			{
-				std::lock_guard lg(m_asynchronous_works_mutex);
-				m_asynchronous_works.clear();
-			}
-			system_pool.clean_all();
-			event_pool.clean_all();
-			gobal_component_pool.clean_all();
-			component_pool.clean_all();
-		}
-		};
-
 		try {
 			while (m_available)
 			{
@@ -63,10 +48,26 @@ namespace Noodles
 						m_available = false;
 				}
 			}
+			for (auto& ite : mulity_thread)
+				ite.join();
+			{
+				std::lock_guard lg(m_asynchronous_works_mutex);
+				m_asynchronous_works.clear();
+			}
+			system_pool.clean_all();
+			event_pool.clean_all();
+			gobal_component_pool.clean_all();
+			component_pool.clean_all();
 		}
 		catch (...)
 		{
 			m_available = false;
+			for (auto& ite : mulity_thread)
+				ite.join();
+			{
+				std::lock_guard lg(m_asynchronous_works_mutex);
+				m_asynchronous_works.clear();
+			}
 			throw;
 		}
 		

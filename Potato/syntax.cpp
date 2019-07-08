@@ -1,5 +1,5 @@
-#include "../include/syntax.h"
-#include "../include/character_encoding.h"
+#include "syntax.h"
+#include "character_encoding.h"
 #include <assert.h>
 #include <string>
 #include <iostream>

@@ -71,7 +71,7 @@ namespace Noodles
 		void envirment_change(bool system, bool gobalcomponent, bool component)
 		{
 			if (gobalcomponent)
-				m_cur = reinterpret_cast<CompT>(m_pool->find(TypeInfo::create<CompT>()));
+				m_cur = reinterpret_cast<CompT*>(m_pool->find(TypeInfo::create<CompT>()));
 		}
 		void export_type_group_used(const TypeInfo* conflig_type, size_t conflig_count, Implement::ReadWriteProperty*) const noexcept {}
 		void pre_apply() noexcept {}

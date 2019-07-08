@@ -6,13 +6,13 @@
 
 namespace Noodles
 {
-	enum class TickPriority
+	enum class TickPriority : int8_t
 	{
-		HighHigh = 0,
-		High = 1,
-		Normal = 2,
-		Low = 3,
-		LowLow = 4,
+		HighHigh = -2,
+		High = -1,
+		Normal = 0,
+		Low = 1,
+		LowLow = 2,
 	};
 
 	enum class TickOrder
@@ -61,7 +61,7 @@ namespace Noodles
 		void pos_apply() noexcept {}
 		static void export_rw_info(Implement::ReadWritePropertyMap& tuple) noexcept { Implement::TypeInfoListExtractor<Type>{}(tuple.systems); }
 
-		observer_ptr<Type> m_resource;
+		Type* m_resource;
 		Implement::SystemPoolInterface* m_pool;
 		template<typename Require> friend struct Implement::FilterAndEventAndSystem;
 	};
@@ -70,15 +70,13 @@ namespace Noodles
 	{
 		template<typename Type> struct ContextStorage
 		{
-			void type_group_change() noexcept {}
-			void system_change() noexcept { };
-			void gobal_component_change() noexcept {  }
 			void pre_apply() noexcept {}
 			void pos_apply() noexcept {}
 			static void export_rw_info(Implement::ReadWritePropertyMap& tuple) noexcept { }
 			void export_type_group_used(const TypeInfo* infos, size_t info_count, ReadWriteProperty* type_group_useage) const noexcept {}
 			Context* as_pointer() noexcept { return m_ref; }
 			ContextStorage(Context* input) noexcept : m_ref(input) {}
+			void envirment_change(bool system, bool gobalcomponent, bool component) {};
 		private:
 			using PureType = std::remove_const_t<Type>;
 			static_assert(std::is_same_v<PureType, Context&>, "System require Parameter Should be \"Context&\" but not \"Context\"");
@@ -200,6 +198,12 @@ namespace Noodles
 					ite.export_type_group_used(infos, info_count, type_group_useage);
 				}, m_storage);
 			}
+			void envirment_change(bool system, bool gobalcomponent, bool component)
+			{
+				Potato::Tool::sequence_call([&](auto& ite) {
+					ite.envirment_change(system, gobalcomponent, component);
+				}, m_storage);
+			}
 		private:
 			std::tuple<typename SystemStorageDetector<Requires>::Type...> m_storage;
 		};
@@ -218,6 +222,7 @@ namespace Noodles
 		{
 			virtual void* data() noexcept = 0;
 			virtual const TypeInfo& layout() const noexcept = 0;
+			virtual void envirment_change(bool system, bool gobalcomponent, bool component) noexcept = 0;
 			virtual void apply(Context*) noexcept = 0;
 			virtual void add_ref() noexcept = 0;
 			virtual void sub_ref() noexcept = 0;
@@ -245,6 +250,10 @@ namespace Noodles
 				TickPriority prioerity, TickPriority layout,
 				Parameter&& ... para
 			);
+			virtual void envirment_change(bool system, bool gobalcomponent, bool component) noexcept
+			{
+				m_append_storgae.envirment_change(system, gobalcomponent, component);
+			}
 			virtual TickPriority tick_layout() override {
 				if constexpr (Potato::Tmp::member_exist<TickLayoutDetector, Type>::value)
 					return (m_outside_layout == TickPriority::Normal) ? m_storage.tick_layout() : m_outside_layout;
@@ -258,9 +267,9 @@ namespace Noodles
 					return m_outside_priority;
 			}
 
-			virtual TickOrder tick_order(const TypeInfo&, const TypeInfo* conflig, size_t* conflig_size) override {
+			virtual TickOrder tick_order(const TypeInfo& o_info, const TypeInfo* conflig, size_t* conflig_size) override {
 				if constexpr (Potato::Tmp::member_exist<TickOrderDetector, Type>::value)
-					return m_storage.tick_order(layout(), conflig, conflig_size);
+					return m_storage.tick_order(o_info, conflig, conflig_size);
 				else
 					return TickOrder::Undefine;
 			};
