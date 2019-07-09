@@ -119,18 +119,18 @@ struct CollisionSystem
 			EV.push(die);
 		std::lock_guard lg(cout_mutex);
 		for (auto& ite : EV)
-			std::cout << "Last Frame die : " << ite.index << std::endl;
+			std::cout << "CollisionSystem :: Last Frame die : " << ite.index << std::endl;
 	}
 };
 
 struct CreaterSystem
 {
-	void operator()(Filter<const Location, ProviderFlag>& s, Context& con)
+	void operator()(Filter<const Location, const Collision, ProviderFlag>& s, Context& con)
 	{
 		CallRecord<CreaterSystem> record;
 		for (auto& ite : s)
 		{
-			auto& [lo, flag] = ite;
+			auto& [lo, co, flag] = ite;
 			if (ran(engine) < flag.Data)
 			{
 				flag.Data = 0.0;
@@ -164,9 +164,9 @@ int main()
 		ContextImplement imp;
 
 		imp.set_thread_reserved(2);
-		imp.set_minimum_duration(duration_ms{1000});
+		imp.set_minimum_duration(duration_ms{200});
 		
-		/*
+		
 		imp.create_system([&]() {
 			std::lock_guard lg(cout_mutex);
 			std::cout << "loop start --------------" << std::endl;
@@ -176,9 +176,7 @@ int main()
 			std::lock_guard lg(cout_mutex);
 			std::cout << "loop end --------------" << std::endl;
 		}, TickPriority::LowLow, TickPriority::LowLow);
-		*/
 		
-
 		std::random_device r_dev;
 		std::default_random_engine engine(r_dev());
 		std::uniform_real_distribution<float> location(-0.9f, 0.9f);
@@ -221,17 +219,16 @@ int main()
 			void (*init)(Context*, std::mutex*) = (void(*)(Context*, std::mutex*))GetProcAddress(handle, "init");
 			init(&imp, &cout_mutex);
 		}
-		/*
+		
 		imp.insert_asynchronous_work([&](Context& con, float input) {
 			{
 				std::lock_guard lg(cout_mutex);
 				std::cout << "thread id<" << std::this_thread::get_id() << "> : " <<
 					"asynchronous_work" << std::endl;
 			}
-			std::this_thread::sleep_for(duration_ms{ 30 });
+			std::this_thread::sleep_for(duration_ms{ 100 });
 			return true;
 		}, 6.50f);
-		*/
 
 		try {
 			imp.loop();

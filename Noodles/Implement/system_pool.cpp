@@ -42,8 +42,8 @@ namespace Noodles::Implement
 				auto t1_b = t1_buffer[index];
 				auto t2_b = t2_buffer[index];
 				if (
-					(t1_b == ReadWriteProperty::Write || t2_b != ReadWriteProperty::Unknow)
-					&& (t2_b == ReadWriteProperty::Write || t1_b != ReadWriteProperty::Unknow)
+					(t1_b == ReadWriteProperty::Write && t2_b != ReadWriteProperty::Unknow)
+					|| (t2_b == ReadWriteProperty::Write && t1_b != ReadWriteProperty::Unknow)
 					)
 				{
 					m_conflig_component_state.push_back(index);
@@ -223,6 +223,7 @@ namespace Noodles::Implement
 					searching_stack.reserve(m_systems.size());
 					while (searching_stack.empty())
 					{
+						bool all_done = true;
 						for (auto ite = m_systems.begin(); ite != m_systems.end(); ++ite)
 						{
 							if (searching_state[ite->second.state_index] == 0)
@@ -295,6 +296,9 @@ namespace Noodles::Implement
 									break;
 								}
 							}
+							if (searching_stack.empty())
+								// 全部轮询完了
+								break;
 						}
 					}
 				}
@@ -535,18 +539,22 @@ namespace Noodles::Implement
 			{
 				size_t ti1 = start1 + i1;
 				size_t ti2 = start2 + i2;
-				if (info1[ti1] == info2[ti2])
+				auto& info11 = info1[ti1];
+				auto& info22 = info2[ti2];
+				auto rw11 = rwp1[ti1];
+				auto rw22 = rwp2[ti2];
+				if (info11 == info22)
 				{
-					if (!(rwp1[ti1] == rwp2[ti2] && rwp1[ti1] == ReadWriteProperty::Read))
+					if (!(rw11 == rw22 && rw11 == ReadWriteProperty::Read))
 					{
 						count += 1;
-						conflig_type.push_back(info1[ti1]);
-						ir1 = ir1 > rwp1[ti1] ? ir1 : rwp1[ti1];
-						ir2 = ir2 > rwp2[ti2] ? ir2 : rwp2[ti2];
+						conflig_type.push_back(info11);
+						ir1 = ir1 > rw11 ? ir1 : rw11;
+						ir2 = ir2 > rw22 ? ir2 : rw22;
 					}
 					++i1; ++i2;
 				}
-				else if (info1[i1] < info2[i2])
+				else if (info11 < info22)
 					++i1;
 				else
 					++i2;

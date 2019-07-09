@@ -21,6 +21,8 @@ namespace Noodles::Error
 	{
 		const char* si;
 		const char* ti;
+		std::vector<const char*> conflig_type;
+		std::array<size_t, 3> conflig_bound;
 	};
 }
 
