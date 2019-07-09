@@ -1,7 +1,7 @@
 # Noodles
 ECS (Entity-Component-System) Framework
 
-> 好吃过不饺子！
+> 如面条般顺滑（？）。
 
 Demo code in `Demo/demo.sln (vs2019)`.
 
