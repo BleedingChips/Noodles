@@ -1,5 +1,5 @@
-#include "../include/entity.h"
-#include "../include/component_pool.h"
+#include "entity.h"
+#include "component_pool.h"
 namespace Noodles::Implement
 {
 
@@ -15,7 +15,7 @@ namespace Noodles::Implement
 		m_index = index;
 	}
 
-	bool EntityImp::have(const TypeLayout* ty, size_t index) const noexcept
+	bool EntityImp::have(const TypeInfo* ty, size_t index) const noexcept
 	{
 		if (index == 0)
 			return true;
@@ -38,7 +38,7 @@ namespace Noodles::Implement
 			delete this;
 	}
 
-	Tool::intrusive_ptr<EntityImp> EntityImp::create_one()
+	intrusive_ptr<EntityImp> EntityImp::create_one()
 	{
 		return new EntityImp{};
 	}

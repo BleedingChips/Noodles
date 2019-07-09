@@ -1,4 +1,4 @@
-#include "../include/tool.h"
+#include "tool.h"
 #include <iostream>
 
 namespace Potato::Tool

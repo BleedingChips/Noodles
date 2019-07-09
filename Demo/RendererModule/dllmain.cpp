@@ -1,10 +1,10 @@
 ﻿// dllmain.cpp : 定义 DLL 应用程序的入口点。
 #include <Windows.h>
-#include "..//..//Noodles/include/interface.h"
+#include "..//..//Noodles/interface/interface.h"
 #include "Dx11/context.h"
-#include "..//..//Potato/include/document.h"
+#include "..//..//Potato/document.h"
 #include <iostream>
-
+#include <array>
 #include <mutex>
 
 std::mutex* gobal_mutex;
@@ -91,7 +91,7 @@ struct RenderSystem
 						data[i].pro = 1.0f;
 					++i;
 				}
-				D3D11_BUFFER_DESC DBD{ sizeof(Poi) * data.size(), D3D11_USAGE_IMMUTABLE , D3D11_BIND_VERTEX_BUFFER, 0, 0, sizeof(Poi) };
+				D3D11_BUFFER_DESC DBD{ static_cast<UINT>(sizeof(Poi) * data.size()), D3D11_USAGE_IMMUTABLE , D3D11_BIND_VERTEX_BUFFER, 0, 0, static_cast<UINT>(sizeof(Poi)) };
 				ComPtr<ID3D11Buffer> ins_buffer;
 				D3D11_SUBRESOURCE_DATA DSD{ data.data(), 0, 0 };
 				HRESULT re = (*context)->CreateBuffer(&DBD, &DSD, ComWrapper::ref(ins_buffer));
@@ -109,7 +109,7 @@ struct RenderSystem
 				(*render)->OMSetRenderTargets(1, view, nullptr);
 				D3D11_VIEWPORT viewport{ 0.0, 0.0, 1024.0f, 768.0f, 0.0, 1.0 };
 				(*render)->RSSetViewports(1, &viewport);
-				(*render)->DrawInstanced(13 * 3, count, 0, 0);
+				(*render)->DrawInstanced(13 * 3, static_cast<UINT>(count), 0, 0);
 			}
 			(*render).replaceable_updates();
 		}
@@ -134,14 +134,14 @@ struct RenderSystem
 		D3D11_SUBRESOURCE_DATA DSD{ all_buffer.data(), 0, 0 };
 		HRESULT re = (*context)->CreateBuffer(&DBD, &DSD, ComWrapper::ref(buffer));
 		assert(SUCCEEDED(re));
-		Doc::loader_binary vsb_doc(L"VertexShader.cso");
+		Potato::Doc::loader_binary vsb_doc(L"VertexShader.cso");
 		assert(vsb_doc.is_open());
 		std::vector<std::byte> vsb;
 		vsb.resize(vsb_doc.last_size());
 		vsb_doc.read(vsb.data(), vsb.size());
 		re = (*context)->CreateVertexShader(vsb.data(), vsb.size(), nullptr, ComWrapper::ref(vs));
 		assert(SUCCEEDED(re));
-		Doc::loader_binary psb_doc(L"PixelShader.cso");
+		Potato::Doc::loader_binary psb_doc(L"PixelShader.cso");
 		assert(psb_doc.is_open());
 		std::vector<std::byte> psb;
 		psb.resize(psb_doc.last_size());
@@ -183,9 +183,9 @@ struct FormUpdateSystem
 		}
 	}
 
-	TickOrder tick_order(const TypeLayout& layout) const noexcept
+	TickOrder tick_order(const TypeInfo& layout, const TypeInfo*, size_t* count) const noexcept
 	{
-		if (layout == TypeLayout::create<RenderSystem>())
+		if (layout == TypeInfo::create<RenderSystem>())
 			return TickOrder::After;
 		return TickOrder::Mutex;
 	}

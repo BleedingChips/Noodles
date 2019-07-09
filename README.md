@@ -1,11 +1,13 @@
 # Noodles
 ECS (Entity-Component-System) Framework
 
+> 好吃过不饺子！
+
 Demo code in `Demo/demo.sln (vs2019)`.
 
 #### How to use
 
-1. Include `noodles/include/implement.h` and link `noodles.lib`.
+1. Include `Noodles/implement/implement.h`.
 
 1. Define your Components and Systems.
 
@@ -28,7 +30,8 @@ Demo code in `Demo/demo.sln (vs2019)`.
 		//Defines system's priority with specific system. It could be ignored.
 		//Use TypeLayout::create<X>() to create typelayout for specific system.
 		//Default Order is TickOrder Undefine.
-		TickOrder tick_order(const TypeLayout& layout);
+		// conflig_type_count is a size[3] which represent system conflig, gobal component conflig and component conflig
+		TickOrder tick_order(const TypeLayout& layout， const TypeInfo* conflig_type, size_t* conflig_type_count);
 
 		//Define operator() function with special Filter.
 		void operator()(Filter<const Component1>&, Context&);
@@ -81,8 +84,11 @@ Demo code in `Demo/demo.sln (vs2019)`.
 
 	```cpp
 	// Include interface
-	#include "po/include/frame/ecs/interface.h"
+	#include "Noodles/Interface/interface.h"
 	// Define Components or Systems
+	
+	// using namespace, optional
+	using namespace Noodles;
 	extern "C" {
 		void __declspec(dllexport) init(Context*);
 	}
@@ -129,43 +135,23 @@ Demo code in `Demo/demo.sln (vs2019)`.
 	```cpp
 	void s1::operator()(Filter<const Component1, Component2>& f)
 	{
-		for(auto ite = f.begin(); ite != f.end(); ++ ite)
+		for(auto ite : f)
 		{
-			Entity entity = std::get<0>(*ite);
-			std::tuple<const Component1&, Component2&> ref_tuple = std::get<1>(*ite);
+			auto& [comp1, comp2] = ite;
+			Entity entity = ite.entity();
 			...
 		}
-	}
-
-	void s1::operator()(Filter<const Component1>& f)
-	{
-		for(auto ite = f.begin(); ite != f.end(); ++ ite)
-		{
-			Entity entity = std::get<0>(*ite);
-			const Component1& ref = std::get<1>(*ite);
-			...
-		}
-	}
-	```
-
-* EventProvider
-
-	Provide event to next frame for other systems to access.
-
-	```cpp
-	void s1::operator()(EventProvider<int>& f)
-	{
-		f.push(1);
 	}
 	```
 
 * EventViewer
 
-	Access event form last frame.
+	Provide event to next frame for other systems to access.
 
 	```cpp
-	void s1::operator()(EventProvider<int>& f)
+	void s1::operator()(EventViewer<int>& f)
 	{
+		f.push(1);
 		for(auto ite = f.begin(); ite != f.end(); ++ite)
 		{
 			const int& event = *ite;
@@ -185,7 +171,7 @@ Demo code in `Demo/demo.sln (vs2019)`.
 
         // insert asynchronous work
         f.insert_asynchronous_work([](Context& c){
-            // continue apply
+            // continue to apply this work
             return true;
         });
 	}
@@ -236,19 +222,27 @@ Framework uses the type of special filter from system's `operator()` funtion to 
 |`SystemWrapper<const A>`|Read From SystemA|
 |`GobalFilter<A>`|Write To GobalComponentA|
 |`GobalFilter<const A>`|Read From GobalComponentA|
-|`EntityProvider<A>`|Write To EventA|
 |`EntityViewer<A>`|None|
 
 Framework uses the following step to decide system order of two specific system.
 
 1. Compares system layout priority.
 
-	System layout priority comes from function `TickPriority s1::tick_layout()`. `TickPriority` has following 5 values which sorted by its priority.
-	> **HighHigh** > **High** > **Normal** > **Low** > **LowLow**
+	System layout priority comes from function `TickPriority s1::tick_layout()`. `TickPriority` has following 5 default enum value:
 
-	System with higher priority will be called **Before** system with lower priority. In the same time, two systems with difference priority will never be parallelized. 
+	| Enum | Value |
+	|---|---|
+	| HighHigh | -120 |
+	| High | -60 |
+	| Normal | 0 |
+	| Low | 60 |
+	| LowLow | 120 |
+
+	Or you can define your custom priority like `static_cast<TickPriority>(int8_t{8})`. But be attention that enum `TickPriority` is a `int8_t` type value, which mean that the range of `TickPriority` is [-128, 127].
+
+	System with lower priority will be called **Before** system with higher priority. In the same time, two systems with difference priority will `never be` parallelized. 
 	
-	If is the same, jump to step 2.
+	If have the same priority, jump to step 2.
 
 2. Calculate system's read-write-property
 
@@ -262,9 +256,9 @@ Framework uses the following step to decide system order of two specific system.
 
 3. Calculate read-write-property of same data type.
 
-	Data type is sperated into following 4 independent channels, sorted by calculating order.
+	Data type is sperated into following 3 independent channels, sorted by calculating order.
 
-	> **System** > **GobalComponent** > **Component** > **Event**
+	> **System** > **GobalComponent** > **Component**
 
 	If s1 needs to write to DataTypeA, and s2 needs to read from DataTypeA, means s1 **may** be called **Before** s2. 
 	
@@ -281,8 +275,8 @@ Framework uses the following step to decide system order of two specific system.
 	System priority just like system layout priority but it came from `TickPriority s1::tick_priority()`. If is the same, framework will call following two functions to get the order.
 	
 	```cpp
-	auto t1 = TickOrder s1::tick_order(TypeLayout::create<s2>());
-	auto t2 = TickOrder s2::tick_order(TypeLayout::create<s1>());
+	auto t1 = TickOrder s1::tick_order(TypeInfo::create<s2>(), conflig_type.data(), conflig_type_length.data());
+	auto t2 = TickOrder s2::tick_order(TypeInfo::create<s1>(),  conflig_type.data(), conflig_type_length.data());
 	```
 
 	If t1 and t2 is `TickOrder::Undefine`, will not overwrite order.
@@ -295,11 +289,8 @@ After system order is beening decide, an order graphic will be made. But if s1 b
 
 With the help of order graphic, systems can be Parallelized.
 
----
+#### More flexible mutual condition determination.
 
-### Todo list:
-More flexible mutual condition determination.
-    
-* like filter `Filter<A, B, C>` and `Filter<A, B, D>` in different systems. And there is no Entity with ComponentGroup like `<A, B, C, D>`. Those two systems can be parallelized.
+Like filter `Filter<A, B, C>` and `Filter<A, B, D>` in different systems. And there is no Entity with ComponentGroup like `<A, B, C, D>`. Those two systems can be parallelized.
 
 > PS: 英语不太好的我实在是尽力了。。。

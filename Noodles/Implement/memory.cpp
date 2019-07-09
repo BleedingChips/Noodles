@@ -1,5 +1,5 @@
-#include "../include/memory.h"
-#include "../include/component_pool.h"
+#include "memory.h"
+#include "component_pool.h"
 namespace Noodles::Implement
 {
 

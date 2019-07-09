@@ -1,89 +1,126 @@
 #pragma once
-#include <typeindex>
-#include "..//..//Potato/include/intrusive_ptr.h"
-#include <array>
-#include <map>
-#include <shared_mutex>
-#include <set>
-#include <tuple>
+#include "component_interface.h"
+#include "entity_interface.h"
+#include "event_interface.h"
+#include "system_interface.h"
+
+namespace Noodles
+{
+	struct Context
+	{
+		Entity create_entity() { return Entity{ create_entity_imp() }; }
+		template<typename CompT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<CompT>>& create_component(Entity entity, Parameter&& ...p);
+		template<typename CompT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<CompT>>& create_gobal_component(Parameter&& ...p);
+		template<typename SystemT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<SystemT>>& create_system(Parameter&& ...p);
+		template<typename SystemT> void create_system(SystemT&& p, TickPriority priority = TickPriority::Normal, TickPriority layout = TickPriority::Normal);
+		template<typename SystemT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<SystemT>>& create_temporary_system(Parameter&& ...p);
+		template<typename SystemT> void create_temporary_system(SystemT&& p, TickPriority priority = TickPriority::Normal, TickPriority layout = TickPriority::Normal);
+		template<typename SystemT> void destory_system();
+		template<typename CompT> bool destory_component(Entity entity);
+		template<typename CompT> void destory_gobal_component();
+		void destory_entity(Entity entity) {
+			assert(entity);
+			Implement::ComponentPoolInterface* CPI = *this;
+			assert(entity);
+			CPI->entity_destory(entity.m_imp);
+		}
+		virtual void exit() noexcept = 0;
+		virtual float duration_s() const noexcept = 0;
+		template<typename CallableObject, typename ...Parameter> void insert_asynchronous_work(CallableObject&& co, Parameter&& ... pa);
+	private:
+		virtual void insert_asynchronous_work_imp(Implement::AsynchronousWorkInterface* ptr) = 0;
+		template<typename CompT> friend struct Implement::FilterAndEventAndSystem;
+		template<typename CompT> friend struct Implement::ContextStorage;
+		virtual operator Implement::ComponentPoolInterface* () = 0;
+		virtual operator Implement::GobalComponentPoolInterface* () = 0;
+		virtual operator Implement::EventPoolInterface* () = 0;
+		virtual operator Implement::SystemPoolInterface* () = 0;
+		virtual Implement::EntityInterfacePtr create_entity_imp() = 0;
+	};
+
+	template<typename CallableObject, typename ...Parameter> void Context::insert_asynchronous_work(CallableObject&& co, Parameter&& ... pa)
+	{
+		intrusive_ptr<Implement::AsynchronousWorkInterface> ptr = new Implement::AsynchronousWorkImplement<CallableObject, Parameter...>{
+			std::forward<CallableObject>(co), std::forward<Parameter>(pa)...
+		};
+		insert_asynchronous_work_imp(ptr);
+	}
+
+	template<typename CompT> void Context::destory_gobal_component()
+	{
+		Implement::GobalComponentPoolInterface* GPI = *this;
+		GPI->destory_gobal_component(TypeInfo::create<CompT>());
+	}
+
+	template<typename CompT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<CompT>>& Context::create_component(Entity entity, Parameter&& ...p)
+	{
+		Implement::ComponentPoolInterface* cp = *this;
+		assert(entity);
+		return cp->construction_component<CompT>(entity.m_imp, std::forward<Parameter>(p)...);
+	}
+
+	template<typename CompT> bool Context::destory_component(Entity entity)
+	{
+		Implement::ComponentPoolInterface* cp = *this;
+		assert(entity);
+		return cp->deconstruct_component(entity.m_imp, TypeInfo::create<CompT>());
+	}
+
+	template<typename CompT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<CompT>>& Context::create_gobal_component(Parameter&& ...p)
+	{
+		Implement::GobalComponentPoolInterface* cp = *this;
+		auto result = Implement::GobalComponentImp<CompT>::create(std::forward<Parameter>(p)...);
+		cp->regedit_gobal_component(result);
+		return *result;
+	}
+
+	template<typename SystemT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<SystemT>>& Context::create_system(Parameter&& ...p)
+	{
+		Implement::SystemPoolInterface* SI = *this;
+		intrusive_ptr<Implement::SystemImplement<SystemT>> ptr = new Implement::SystemImplement<SystemT>{ this, [](const Implement::SystemImplement<SystemT>* in) noexcept {delete in; }, TickPriority::Normal, TickPriority::Normal, std::forward<Parameter>(p)... };
+		SI->regedit_system(ptr);
+		return *ptr;
+	}
+
+	template<typename SystemT> void Context::create_system(SystemT&& p, TickPriority priority, TickPriority layout)
+	{
+		Implement::SystemPoolInterface* SI = *this;
+		intrusive_ptr<Implement::SystemImplement<SystemT>> ptr = new Implement::SystemImplement<SystemT>{ this, [](const Implement::SystemImplement<SystemT>* in) noexcept {delete in; }, priority, layout, std::forward<SystemT>(p) };
+		SI->regedit_system(ptr);
+	}
+
+	template<typename SystemT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<SystemT>>& Context::create_temporary_system(Parameter&& ...p)
+	{
+		Implement::SystemPoolInterface* SI = *this;
+		intrusive_ptr<Implement::SystemImplement<SystemT>> ptr = new Implement::SystemImplement<SystemT>{ this, [](const Implement::SystemImplement<SystemT>* in) noexcept {delete in; }, TickPriority::Normal, TickPriority::Normal, std::forward<Parameter>(p)... };
+		SI->regedit_template_system(ptr);
+		return *ptr;
+	}
+
+	template<typename SystemT> void Context::create_temporary_system(SystemT&& p, TickPriority priority, TickPriority layout)
+	{
+		Implement::SystemPoolInterface* SI = *this;
+		intrusive_ptr<Implement::SystemImplement<SystemT>> ptr = new Implement::SystemImplement<SystemT>{ this, [](const Implement::SystemImplement<SystemT>* in) noexcept {delete in; }, priority, layout, std::forward<SystemT>(p) };
+		SI->regedit_template_system(ptr);
+	}
+
+	template<typename SystemT> void Context::destory_system()
+	{
+		Implement::SystemPoolInterface* SI = *this;
+		SI->destory_system(TypeInfo::create<SystemT>());
+	}
+}
+
+
+/*
 namespace Noodles
 {
 	using namespace Potato;
-	struct TypeLayout
-	{
-		size_t hash_code;
-		size_t size;
-		size_t align;
-		const char* name;
-		~TypeLayout() = default;
-		template<typename Type> static const TypeLayout& create() noexcept {
-			static TypeLayout type{typeid(Type).hash_code(), sizeof(Type), alignof(Type), typeid(Type).name()};
-			return type;
-		}
-		bool operator<(const TypeLayout& r) const noexcept
-		{
-			if (hash_code < r.hash_code)
-				return true;
-			else if (hash_code == r.hash_code)
-			{
-				if (size < r.size)
-					return true;
-				else if (size == r.size)
-				{
-					if (align < r.align)
-						return true;
-				}
-			}
-			return false;
-		}
-		bool operator<=(const TypeLayout& r) const noexcept
-		{
-			return (*this) == r || (*this) < r;
-		}
-		bool operator==(const TypeLayout& type) const noexcept
-		{
-			return hash_code == type.hash_code && size == type.size && align == type.align;
-		}
-		bool operator!=(const TypeLayout& type) const noexcept
-		{
-			return !(*this == type);
-		}
-	};
 
 	struct Context;
 
 	namespace Implement
 	{
-
-		enum class RWProperty
-		{
-			Read,
-			Write
-		};
-
-		struct RWPropertyTuple
-		{
-			std::map<TypeLayout, Implement::RWProperty> components;
-			std::map<TypeLayout, Implement::RWProperty> gobal_components;
-			std::map<TypeLayout, Implement::RWProperty> systems;
-			std::set<TypeLayout> events;
-		};
-
-		template<typename ...AT> struct ComponentInfoExtractor
-		{
-			void operator()(std::map<TypeLayout, RWProperty>& result) {}
-		};
-
-		template<typename T, typename ...AT> struct ComponentInfoExtractor<T, AT...>
-		{
-			void operator()(std::map<TypeLayout, RWProperty>& result) {
-				if constexpr (std::is_const_v<T>)
-					result.insert({ TypeLayout::create<T>(), RWProperty::Read });
-				else
-					result[TypeLayout::create<T>()] = RWProperty::Write;
-				ComponentInfoExtractor<AT...>{}(result);
-			}
-		};
 
 		template<typename ...Require> struct SystemStorage;
 		template<typename Type> struct FilterAndEventAndSystem;
@@ -93,60 +130,14 @@ namespace Noodles
 	namespace Implement
 	{
 
-		struct TypeGroup;
-		struct EntityInterface;
+		
 
-		struct StorageBlockFunctionPair
-		{
-			void (*destructor)(void*) noexcept = nullptr;
-			void (*mover)(void*, void*) noexcept = nullptr;
-		};
-
-		struct StorageBlock
-		{
-			const TypeGroup* m_owner = nullptr;
-			StorageBlock* front = nullptr;
-			StorageBlock* next = nullptr;
-			size_t available_count = 0;
-			StorageBlockFunctionPair** functions = nullptr;
-			void** datas = nullptr;
-			EntityInterface** entitys = nullptr;
-		};
-
-		struct EntityInterface
-		{
-			virtual void add_ref() const noexcept = 0;
-			virtual void sub_ref() const noexcept = 0;
-			virtual void read(TypeGroup*&, StorageBlock*&, size_t& index) const noexcept = 0;
-			virtual void set(TypeGroup*, StorageBlock*, size_t index) noexcept = 0;
-			virtual bool have(const TypeLayout*, size_t index) const noexcept = 0;
-		};
+		
 
 		using EntityInterfacePtr = Tool::intrusive_ptr<EntityInterface>;
 	}
 
-	struct Entity
-	{
-		operator bool() const noexcept { return m_imp; }
-		template<typename ...Type> bool have() const noexcept
-		{
-			assert(m_imp);
-			std::array<TypeLayout, sizeof...(Type)> infos = {TypeLayout::create<Type>()...};
-			return m_imp->have(infos.data(), infos.size());
-		}
-		Entity(const Entity&) = default;
-		Entity(Entity&&) = default;
-		Entity() = default;
-		Entity& operator=(const Entity&) = default;
-		Entity& operator=(Entity&&) = default;
-		Entity(Implement::EntityInterfacePtr ptr) : m_imp(std::move(ptr)) {}
-	private:
-		Implement::EntityInterfacePtr m_imp;
-
-		friend struct EntityWrapper;
-		template<typename ...CompT> friend struct EntityFilter;
-		friend struct Context;
-	};
+	
 
 }
 
@@ -154,45 +145,6 @@ namespace Noodles
 {
 	namespace Implement
 	{
-
-		enum class EntityOperator : uint8_t
-		{
-			Construct = 0,
-			Destruct = 1,
-			DeleteAll = 2,
-			Destory = 3,
-		};
-
-		struct ComponentPoolInterface
-		{
-			template<typename CompT, typename ...Parameter> CompT& construction_component(EntityInterface* owner, Parameter&& ...pa);
-			virtual void lock(size_t mutex_size, void* mutex) = 0;
-			virtual size_t search_type_group(
-				const TypeLayout* require_layout, size_t input_layout_count, size_t* output_layout_index,
-				StorageBlock** output_group, size_t buffer_count, size_t& total_count
-			) = 0;
-			virtual void unlock(size_t mutex_size, void* mutex) noexcept = 0;
-			virtual bool loacte_unordered_layouts(const TypeGroup* input, const TypeLayout* require_layout, size_t index, size_t* output) = 0;
-			virtual void construct_component(const TypeLayout& layout, void(*constructor)(void*,void*), void* data, EntityInterface*, void(*deconstructor)(void*) noexcept, void(*mover)(void*, void*) noexcept) = 0;
-			virtual void deconstruct_component(EntityInterface*, const TypeLayout& layout) noexcept = 0;
-			virtual void handle_entity_imp(EntityInterface*, EntityOperator ope) noexcept = 0;
-			void entity_destory(EntityInterface* in) { return handle_entity_imp(in, EntityOperator::Destory); }
-			void entity_delete_all(EntityInterface* in) { return handle_entity_imp(in, EntityOperator::DeleteAll); }
-		};
-
-		template<typename CompT, typename ...Parameter> auto ComponentPoolInterface::construction_component(EntityInterface* owner, Parameter&& ...pa) -> CompT&
-		{
-			CompT* result = nullptr;
-			auto pa_tuple = std::forward_as_tuple(result, std::forward<Parameter>(pa)...);
-			construct_component(TypeLayout::create<CompT>(), [](void* adress, void* para) {
-				auto& ref = *static_cast<decltype(pa_tuple)*>(para);
-				using Type = CompT;
-				std::apply([&](auto& ref, auto && ...at) { ref = new (adress) Type{ std::forward<decltype(at)&&>(at)... }; },ref);
-			}, & pa_tuple, owner, [](void* in) noexcept { static_cast<CompT*>(in)->~CompT(); }, [](void* target, void* source) noexcept {
-				new (target) CompT{std::move(*reinterpret_cast<CompT*>(source))};
-			});
-			return *result;
-		}
 	}
 
 	namespace Implement
@@ -223,106 +175,15 @@ namespace Noodles
 			template<typename TupleType>
 			static void add(TupleType& tuple) { }
 		};
-
-		template<typename ...CompT> struct ComponentTypeInfo
-		{
-			static const std::array<TypeLayout, sizeof...(CompT)>& info() noexcept { return m_info; }
-		private:
-			static const std::array<TypeLayout, sizeof...(CompT)> m_info;
-		};
-
-		template<typename ...CompT> const std::array<TypeLayout, sizeof...(CompT)> ComponentTypeInfo<CompT...>::m_info = {
-			TypeLayout::create<CompT>()...
-		};
 	}
 
-	template<typename ...CompT> struct EntityFilter
-	{
-		static_assert(Tmp::bool_and<true, Implement::TypePropertyDetector<CompT>::value...>::value, "EntityFilter only accept Type and const Type!");
-		template<typename Func>
-		void operator()(const Entity& wrapper, Func&& f);
-	private:
-		EntityFilter(Implement::ComponentPoolInterface* pool) noexcept : m_pool(pool) { assert(pool != nullptr); }
-		void lock() noexcept;
-		void unlock() noexcept;
-		static void export_rw_info(Implement::RWPropertyTuple& tuple) noexcept { Implement::ComponentInfoExtractor<CompT...>{}(tuple.components); }
-
-		Implement::ComponentPoolInterface* m_pool = nullptr;
-		std::array<std::byte, sizeof(std::shared_lock<std::shared_mutex>) * 2 * sizeof...(CompT)> m_mutex;
-
-		template<typename ...Require> friend struct Implement::SystemStorage;
-		template<typename Require> friend struct Implement::FilterAndEventAndSystem;
-	};
-
-	template<typename ...CompT> template<typename Func>
-	void EntityFilter<CompT...>::operator()(const Entity& wrapper, Func&& f)
-	{
-		if (wrapper)
-		{
-			Implement::TypeGroup* group;
-			Implement::StorageBlock* block;
-			size_t index;
-			wrapper.m_imp->read(group, block, index);
-			if (group != nullptr)
-			{
-				auto& infos = Implement::ComponentTypeInfo<CompT...>::info();
-				assert(block != nullptr);
-				std::array<size_t, sizeof...(CompT)> indexs;
-				if (m_pool->loacte_unordered_layouts(group, infos.data(), sizeof...(CompT), indexs.data()))
-				{
-					std::tuple<std::remove_reference_t<CompT>*...> component_pointer;
-					Implement::ComponentTupleHelper<0, sizeof...(CompT)>::translate(block, indexs.data(), component_pointer);
-					std::apply([&](auto ...pointer) {
-						std::forward<Func>(f)(*pointer...);
-					}, component_pointer);
-				}
-			}
-		}
-	}
-
-	template<typename ...CompT> void EntityFilter<CompT...>::lock() noexcept
-	{
-		m_pool->lock(sizeof(std::shared_lock<std::shared_mutex>) * 2, m_mutex.data());
-	}
-
-	template<typename ...CompT> void EntityFilter<CompT...>::unlock() noexcept
-	{
-		m_pool->unlock(sizeof...(CompT), sizeof(std::shared_lock<std::shared_mutex>) * 2, m_mutex.data());
-	}
+	
 
 	template<typename ...CompT> struct FilterIterator;
 
 	namespace Implement
 	{
-		template<typename ...CompT> struct FilterIteratorWrapper
-		{
-			Entity entity() noexcept { return Entity{ *m_entity }; }
-			std::tuple<CompT& ...>& components() noexcept { assert(m_ref.has_value()); return *m_ref; }
-			FilterIteratorWrapper() = default;
-			FilterIteratorWrapper(const FilterIteratorWrapper&) = default;
-
-			template<size_t index> decltype(auto) get() noexcept { return std::get<index>(*m_ref); }
-
-		private:
-			
-			void reset(Implement::StorageBlock* input, size_t* layout_index)
-			{
-				m_entity = input->entitys;
-				Implement::ComponentTupleHelper<0, sizeof...(CompT)>::translate(input, layout_index, m_component_pointer);
-				m_ref.emplace(std::apply([](auto ...pointer) { return std::tuple<CompT & ...>{*pointer...}; }, m_component_pointer));
-			}
-			void add()
-			{
-				m_entity += 1;
-				Implement::ComponentTupleHelper<0, sizeof...(CompT)>::add(m_component_pointer);
-				m_ref.emplace(std::apply([](auto ...pointer) { return std::tuple<CompT & ...>{*pointer...}; }, m_component_pointer));
-			}
-			Implement::EntityInterface** m_entity = nullptr;
-			std::tuple<CompT* ...> m_component_pointer;
-			std::optional<std::tuple<CompT& ...>> m_ref;
-
-			template<typename ...CompT> friend struct FilterIterator;
-		};
+		
 	}
 
 	template<typename ...CompT> struct Filter;
@@ -377,46 +238,7 @@ namespace Noodles
 		template<typename ...CompT> friend struct Filter;
 	};
 
-	template<typename ...CompT> struct Filter
-	{
-		static_assert(Tmp::bool_and<true, Implement::TypePropertyDetector<CompT>::value...>::value, "Filter only accept Type and const Type!");
-
-		FilterIterator<CompT...> begin() noexcept {
-			FilterIterator<CompT...> tem;
-			tem.m_storage_block = m_storage.data();
-			tem.m_layout_index = m_layout_index.data();
-			tem.m_max_buffer = m_used_buffer_count;
-			if (m_used_buffer_count != 0)
-			{
-				tem.current_block = m_storage[0];
-				tem.m_element_last = tem.current_block->available_count;
-				tem.reset_wrapper();
-			}
-			return tem;
-		}
-		FilterIterator<CompT...> end() noexcept { FilterIterator<CompT...> tem; return tem; }
-		size_t count() const noexcept { return m_total_element_count; }
-	protected:
-		Filter(Implement::ComponentPoolInterface* pool) noexcept : m_pool(pool) { 
-			assert(pool != nullptr); 
-			m_storage.resize(10, nullptr);
-			m_layout_index.resize(10 * sizeof...(CompT), sizeof...(CompT));
-			m_used_buffer_count = 0;
-		}
-		void lock() noexcept;
-		void unlock() noexcept;
-		static void export_rw_info(Implement::RWPropertyTuple& tuple) noexcept { Implement::ComponentInfoExtractor<CompT...>{}(tuple.components); }
-
-		std::vector<Implement::StorageBlock*> m_storage;
-		std::vector<size_t> m_layout_index;
-		size_t m_used_buffer_count;
-		std::array<std::byte, sizeof(std::shared_lock<std::shared_mutex>) * 2> m_mutex;
-		Implement::ComponentPoolInterface* m_pool = nullptr;
-		size_t m_total_element_count;
-
-		template<typename ...Require> friend struct Implement::SystemStorage;
-		template<typename Require> friend struct Implement::FilterAndEventAndSystem;
-	};
+	
 
 	template<typename ...CompT> void Filter<CompT...>::lock() noexcept
 	{
@@ -444,235 +266,7 @@ namespace Noodles
 		m_pool->unlock(sizeof(std::shared_lock<std::shared_mutex>) * 2, m_mutex.data());
 	}
 
-	namespace Implement
-	{
-		struct EventPoolMemoryDescription;
-
-		struct EventPoolWriteWrapperInterface
-		{
-			virtual void construct_event(void(*construct)(void*, void*), void* para, void(*deconstruct)(void*)noexcept) = 0;
-		};
-
-		struct EventPoolMemoryDescription
-		{
-			EventPoolMemoryDescription* front = nullptr;
-			EventPoolMemoryDescription* next = nullptr;
-			void (**deconstructor_start)(void*) noexcept = nullptr;
-			size_t count = 0;
-			void* event_start = nullptr;
-		};
-
-		struct EventPoolInterface
-		{
-			virtual EventPoolMemoryDescription* read_lock(const TypeLayout& layout, size_t mutex_size, void* mutex) noexcept = 0;
-			virtual void read_unlock(size_t mutex_size, void* mutex) noexcept = 0;
-			virtual EventPoolWriteWrapperInterface* write_lock(const TypeLayout& layout, size_t mutex_size, void* mutex) noexcept = 0;
-			virtual void write_unlock(EventPoolWriteWrapperInterface*, size_t mutex_size, void* mutex) noexcept = 0;
-		};
-	}
-
-	template<typename EventT> struct EventProvider
-	{
-		static_assert(std::is_same_v<EventT, std::remove_cv_t<std::remove_reference_t<EventT>>>, "EventProvider only accept pure Type!");
-
-		operator bool() const noexcept { return m_ref != nullptr; }
-		template<typename ...Parameter> void push(Parameter&& ...pa);
-	private:
-		EventProvider(Implement::EventPoolInterface* pool) noexcept : m_pool(pool){}
-		void lock() noexcept;
-		void unlock() noexcept;
-		static void export_rw_info(Implement::RWPropertyTuple& tuple) noexcept {
-			tuple.events.insert(TypeLayout::create<EventT>());
-		}
-		Implement::EventPoolWriteWrapperInterface* m_ref = nullptr;
-		Implement::EventPoolInterface* m_pool = nullptr;
-		std::array<std::byte, sizeof(std::lock_guard<std::mutex>) * 2> m_mutex;
-		template<typename ...Require> friend struct Implement::SystemStorage;
-		template<typename Require> friend struct Implement::FilterAndEventAndSystem;
-	};
-
-	template<typename EventT> template<typename ...Parameter> void EventProvider<EventT>::push(Parameter&& ...pa)
-	{
-		assert(m_ref != nullptr);
-		auto pa_tuple = std::forward_as_tuple(std::forward<Parameter>(pa)...);
-		m_ref->construct_event(
-			[](void* adress, void* para) {
-				auto& po = *static_cast<decltype(pa_tuple)*>(para);
-				std::apply([&](auto && ...at) {
-					new (adress) EventT{ std::forward<decltype(at) &&>(at)... };
-					}, po);
-			}, &pa_tuple, [](void* in) noexcept { reinterpret_cast<EventT*>(in)->~EventT(); });
-	}
-
-	template<typename EventT> void EventProvider<EventT>::lock() noexcept
-	{
-		m_ref = m_pool->write_lock(TypeLayout::create<EventT>(), sizeof(std::lock_guard<std::mutex>) * 2, m_mutex.data());
-		assert(m_ref != nullptr);
-	}
-
-	template<typename EventT> void EventProvider<EventT>::unlock() noexcept
-	{
-		m_pool->write_unlock(m_ref, sizeof(std::lock_guard<std::mutex>) * 2, m_mutex.data());
-		m_ref = nullptr;
-	}
-
-	template<typename EventT> struct EventViewer
-	{
-		static_assert(std::is_same_v<EventT, std::remove_cv_t<std::remove_reference_t<EventT>>>, "EventViewer only accept pure Type!");
-
-		struct iterator
-		{
-			const EventT& operator*() const noexcept{ return *(static_cast<const EventT*>(m_start->event_start) + m_index); }
-			iterator operator++() noexcept
-			{
-				assert(m_start != nullptr);
-				++m_index;
-				if (m_index >= m_start->count)
-				{
-					m_start = m_start->next;
-					m_index = 0;
-				}
-				return *this;
-			}
-			bool operator== (const iterator& i) const noexcept { return m_start == i.m_start && m_index == i.m_index; }
-			bool operator!= (const iterator& i) const noexcept { return !(*this == i); }
-		private:
-			Implement::EventPoolMemoryDescription* m_start = nullptr;
-			size_t m_index = 0;
-			template<typename EventT> friend struct EventViewer;
-		};
-		iterator begin() noexcept;
-		iterator end() noexcept;
-	private:
-		EventViewer(Implement::EventPoolInterface* pool) noexcept : m_pool(pool){}
-		void lock() noexcept;
-		void unlock() noexcept;
-		static void export_rw_info(Implement::RWPropertyTuple& tuple) noexcept {}
-		Implement::EventPoolInterface* m_pool = nullptr;
-		std::array<std::byte, sizeof(std::shared_lock<std::shared_mutex>) * 2> m_mutex;
-		Implement::EventPoolMemoryDescription* m_start = nullptr;
-		template<typename ...Require> friend struct Implement::SystemStorage;
-		template<typename Require> friend struct Implement::FilterAndEventAndSystem;
-	};
-
-	template<typename EventT> void EventViewer<EventT>::lock() noexcept
-	{
-		m_start = m_pool->read_lock(TypeLayout::create<EventT>(), sizeof(std::shared_lock<std::shared_mutex>) * 2, m_mutex.data());
-	}
-
-	template<typename EventT> void EventViewer<EventT>::unlock() noexcept
-	{
-		m_pool->read_unlock(sizeof(std::shared_lock<std::shared_mutex>) * 2, m_mutex.data());
-		m_start = nullptr;
-	}
-
-	template<typename EventT> auto EventViewer<EventT>::begin() noexcept -> iterator
-	{
-		iterator result;
-		result.m_start = m_start;
-		return result;
-	}
-
-	template<typename EventT> auto EventViewer<EventT>::end() noexcept -> iterator
-	{
-		iterator result;
-		return result;
-	}
-
-
-	namespace Implement
-	{
-
-		template<typename Type> struct GobalComponentImp;
-		template<typename CompT> using GobalComponentImpPtr = Tool::intrusive_ptr<GobalComponentImp<CompT>>;
-
-		struct GobalComponentInterface
-		{
-			virtual ~GobalComponentInterface() = default;
-			virtual const TypeLayout& layout() const noexcept = 0;
-			template<typename T> std::remove_reference_t<T>* get_adress() {
-				assert(layout() == TypeLayout::create<T>());
-				return static_cast<std::remove_reference_t<T>*>(get_adress_imp());
-			}
-			virtual void add_ref() const noexcept = 0;
-			virtual void sub_ref() const noexcept = 0;
-		private:
-			virtual void* get_adress_imp() = 0;
-		};
-
-		template<typename Type> struct GobalComponentImp : GobalComponentInterface
-		{
-			operator Type& () { return m_storage; }
-			const TypeLayout& layout() const noexcept { return m_layout; }
-			virtual void add_ref() const noexcept override { m_ref.add_ref(); }
-			virtual void sub_ref() const noexcept override {
-				if (m_ref.sub_ref())
-					delete this;
-			}
-			void* get_adress_imp() { return &m_storage; }
-			template<typename ...Parameter>
-			static Tool::intrusive_ptr<GobalComponentImp> create(Parameter&& ... para) { return new GobalComponentImp{ std::forward<Parameter>(para)... }; }
-		private:
-			template<typename ...Parameter> GobalComponentImp(Parameter&& ...);
-			mutable Tool::atomic_reference_count m_ref;
-			const TypeLayout& m_layout;
-			Type m_storage;
-		};
-
-		template<typename Type> template<typename ...Parameter> GobalComponentImp<Type>::GobalComponentImp(Parameter&& ... para)
-			: m_layout(TypeLayout::create<Type>()), m_storage(std::forward<Parameter>(para)...)
-		{}
-
-		using GobalComponentInterfacePtr = Tool::intrusive_ptr<GobalComponentInterface>;
-
-		struct GobalComponentPoolInterface
-		{
-			template<typename Type>
-			std::remove_reference_t<Type>* find() noexcept;
-			virtual void regedit_gobal_component(GobalComponentInterface*) noexcept = 0;
-			virtual void destory_gobal_component(const TypeLayout&) = 0;
-		private:
-			virtual GobalComponentInterface* find_imp(const TypeLayout& layout) const noexcept = 0;
-		};
-
-		template<typename Type> std::remove_reference_t<Type>* GobalComponentPoolInterface::find() noexcept
-		{
-			using PureType = std::remove_const_t<std::remove_reference_t<Type>>;
-			auto re = find_imp(TypeLayout::create<PureType>());
-			if (re)
-				return re->get_adress<Type>();
-			return nullptr;
-		}
-	}
-
-	template<typename CompT> struct GobalFilter
-	{
-		static_assert(Implement::TypePropertyDetector<CompT>::value, "GobalFilter only accept Type and const Type!");
-		operator bool() const noexcept { return m_cur != nullptr; }
-		CompT* operator->() noexcept { return m_cur; }
-		CompT& operator*() noexcept { return *m_cur; }
-		static void export_rw_info(Implement::RWPropertyTuple& tuple) noexcept
-		{
-			if constexpr (std::is_const_v<CompT> || std::is_same_v<CompT, std::remove_reference<CompT>>)
-				tuple.gobal_components.emplace(TypeLayout::create<CompT>(), Implement::RWProperty::Read);
-			else
-				tuple.gobal_components[TypeLayout::create<CompT>()] = Implement::RWProperty::Write;
-		}
-	private:
-		void lock() noexcept;
-		void unlock()  noexcept { m_cur = nullptr; }
-		GobalFilter(Implement::GobalComponentPoolInterface* in) noexcept : m_pool(in), m_cur(nullptr) { assert(m_pool != nullptr); }
-		template<typename ...Require> friend struct Implement::SystemStorage;
-		template<typename Require> friend struct Implement::FilterAndEventAndSystem;
-
-		Implement::GobalComponentPoolInterface* m_pool = nullptr;
-		CompT* m_cur;
-	};
-
-	template<typename CompT> void GobalFilter<CompT>::lock() noexcept
-	{
-		m_cur = m_pool->find<CompT>();
-	}
+	
 
 	enum class TickPriority
 	{
@@ -1168,3 +762,4 @@ namespace std
 	}
 	template<size_t index, typename ...AT> struct tuple_element<index, typename Noodles::Implement::FilterIteratorWrapper<AT...>> : std::tuple_element<index, std::tuple<AT...>> {};
 }
+*/

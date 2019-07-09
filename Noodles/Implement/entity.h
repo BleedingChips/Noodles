@@ -1,6 +1,6 @@
 #pragma once
 #include <shared_mutex>
-#include "interface.h"
+#include "..//Interface/interface.h"
 
 namespace Noodles::Implement
 {
@@ -13,9 +13,9 @@ namespace Noodles::Implement
 
 		virtual void read(TypeGroup*&, StorageBlock*&, size_t& index) const noexcept override;
 		virtual void set(TypeGroup*, StorageBlock*, size_t index) noexcept override;
-		virtual bool have(const TypeLayout*, size_t index) const noexcept override;
+		virtual bool have(const TypeInfo*, size_t index) const noexcept override;
 
-		static Tool::intrusive_ptr<EntityImp> create_one();
+		static intrusive_ptr<EntityImp> create_one();
 
 		~EntityImp();
 	private:
@@ -26,8 +26,8 @@ namespace Noodles::Implement
 		TypeGroup* m_type_group = nullptr;
 		StorageBlock* m_storage_block = nullptr;
 		size_t m_index = 0;
-		mutable Tool::atomic_reference_count m_ref;
+		mutable Potato::Tool::atomic_reference_count m_ref;
 	};
 
-	using EntityImpPtr = Tool::intrusive_ptr<EntityImp>;
+	using EntityImpPtr = Potato::Tool::intrusive_ptr<EntityImp>;
 }

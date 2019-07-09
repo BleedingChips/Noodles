@@ -3,8 +3,8 @@
 #include <string>
 #include <Windows.h>
 #include <deque>
-#include "..//..//..//Potato/include/intrusive_ptr.h"
-#include "..//..//..//Potato/include/tool.h"
+#include "..//..//..//Potato/smart_pointer.h"
+#include "..//..//..//Potato/tool.h"
 namespace Win32
 {
 

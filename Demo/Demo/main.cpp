@@ -1,4 +1,4 @@
-#include "..//..//Noodles/include/implement.h"
+#include "..//..//Noodles/implement/implement.h"
 #include <random>
 #include <iostream>
 #include <math.h>
@@ -91,7 +91,7 @@ struct CollisionSystem
 	void operator()(
 		Filter<const Location, Collision, const EaterFlag>& eater,
 		Filter<const Location, const Collision, const FoodFlag>& food,
-		Context& con, EventProvider<DieEvent>& EP, EventViewer<DieEvent>& EV
+		Context& con, EventViewer<DieEvent>& EV, SystemFilter<const MoveSystem>& f
 		)
 	{
 		CallRecord<CollisionSystem> record;
@@ -116,21 +116,21 @@ struct CollisionSystem
 			}
 		}
 		if (die != 0)
-			EP.push(die);
+			EV.push(die);
 		std::lock_guard lg(cout_mutex);
 		for (auto& ite : EV)
-			std::cout << "Last Frame die : " << ite.index << std::endl;
+			std::cout << "CollisionSystem :: Last Frame die : " << ite.index << std::endl;
 	}
 };
 
 struct CreaterSystem
 {
-	void operator()(Filter<const Location, ProviderFlag>& s, Context& con)
+	void operator()(Filter<const Location, const Collision, ProviderFlag>& s, Context& con)
 	{
 		CallRecord<CreaterSystem> record;
 		for (auto& ite : s)
 		{
-			auto& [lo, flag] = ite;
+			auto& [lo, co, flag] = ite;
 			if (ran(engine) < flag.Data)
 			{
 				flag.Data = 0.0;
@@ -153,8 +153,23 @@ private:
 	std::uniform_real_distribution<float>& m_vel;
 };
 
+struct Temporary2;
 
+struct Temporary1
+{
+	void operator()(Context& c) {
+		CallRecord<Temporary1> record;
+		c.create_temporary_system<Temporary2>();
+	}
+};
 
+struct Temporary2
+{
+	void operator()(Context& c) {
+		CallRecord<Temporary2> record;
+		c.create_temporary_system<Temporary1>();
+	}
+};
 
 
 int main()
@@ -164,18 +179,19 @@ int main()
 		ContextImplement imp;
 
 		imp.set_thread_reserved(2);
-
 		
-
+		//imp.set_minimum_duration(duration_ms{200});
+		
 		imp.create_system([&]() {
 			std::lock_guard lg(cout_mutex);
 			std::cout << "loop start --------------" << std::endl;
 		}, TickPriority::HighHigh, TickPriority::HighHigh);
+		
 		imp.create_system([&]() {
 			std::lock_guard lg(cout_mutex);
 			std::cout << "loop end --------------" << std::endl;
 		}, TickPriority::LowLow, TickPriority::LowLow);
-
+		
 		std::random_device r_dev;
 		std::default_random_engine engine(r_dev());
 		std::uniform_real_distribution<float> location(-0.9f, 0.9f);
@@ -185,6 +201,7 @@ int main()
 		imp.create_system<CollisionSystem>();
 		imp.create_system<CreaterSystem>(engine, range, vel);
 		imp.create_system<MoveSystem>();
+		imp.create_temporary_system<Temporary1>();
 
 		for (size_t i = 0; i < 500; ++i)
 		{
@@ -218,14 +235,14 @@ int main()
 			void (*init)(Context*, std::mutex*) = (void(*)(Context*, std::mutex*))GetProcAddress(handle, "init");
 			init(&imp, &cout_mutex);
 		}
-
+		
 		imp.insert_asynchronous_work([&](Context& con, float input) {
 			{
 				std::lock_guard lg(cout_mutex);
 				std::cout << "thread id<" << std::this_thread::get_id() << "> : " <<
 					"asynchronous_work" << std::endl;
 			}
-			std::this_thread::sleep_for(duration_ms{ 30 });
+			std::this_thread::sleep_for(duration_ms{ 100 });
 			return true;
 		}, 6.50f);
 

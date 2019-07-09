@@ -1,5 +1,5 @@
-#include "../include/implement.h"
-#include "../include/platform.h"
+#include "implement.h"
+#include "platform.h"
 namespace Noodles
 {
 
@@ -15,8 +15,39 @@ namespace Noodles
 		auto target_duration = m_target_duration;
 		m_last_duration = target_duration;
 
-		Tool::scope_guard sg{
-			[&, this]() noexcept {
+		try {
+			while (m_available)
+			{
+				bool Component = component_pool.update();
+				bool GobalComponent = gobal_component_pool.update();
+				event_pool.update();
+				{
+					std::lock_guard lg(component_pool.read_mutex());
+					std::lock_guard lg2(gobal_component_pool.read_mutex());
+					std::lock_guard lg3(event_pool.read_mutex());
+					if (system_pool.update(Component, GobalComponent, component_pool, gobal_component_pool))
+					{
+						system_pool.asynchro_temporary_system(this);
+						while (system_pool.asynchro_apply_system(this) != Implement::SystemPool::ApplyResult::AllDone)
+							std::this_thread::yield();
+
+						if (mulity_thread.empty())
+							while (apply_asynchronous_work());
+
+						auto current_tick = std::chrono::system_clock::now();
+						auto dura = std::chrono::duration_cast<std::chrono::milliseconds>(current_tick - last_tick);
+						if (dura < target_duration)
+						{
+							std::this_thread::sleep_for(target_duration - dura);
+							current_tick = std::chrono::system_clock::now();
+						}
+						m_last_duration = std::chrono::duration_cast<std::chrono::milliseconds>(current_tick - last_tick);
+						last_tick = current_tick;
+					}
+					else
+						m_available = false;
+				}
+			}
 			for (auto& ite : mulity_thread)
 				ite.join();
 			{
@@ -28,40 +59,15 @@ namespace Noodles
 			gobal_component_pool.clean_all();
 			component_pool.clean_all();
 		}
-		};
-
-		try {
-			while (m_available)
-			{
-				component_pool.update();
-				gobal_component_pool.update();
-				event_pool.update();
-				if (system_pool.update())
-				{
-					while (system_pool.asynchro_apply_system(this) != Implement::SystemPool::ApplyResult::AllDone)
-						std::this_thread::yield();
-					system_pool.synchro_apply_template_system(this);
-
-					if (mulity_thread.empty())
-						while (apply_asynchronous_work());
-
-					auto current_tick = std::chrono::system_clock::now();
-					auto dura = std::chrono::duration_cast<std::chrono::milliseconds>(current_tick - last_tick);
-					if (dura < target_duration)
-					{
-						std::this_thread::sleep_for(target_duration - dura);
-						current_tick = std::chrono::system_clock::now();
-					}
-					m_last_duration = std::chrono::duration_cast<std::chrono::milliseconds>(current_tick - last_tick);
-					last_tick = current_tick;
-				}
-				else
-					m_available = false;
-			}
-		}
 		catch (...)
 		{
 			m_available = false;
+			for (auto& ite : mulity_thread)
+				ite.join();
+			{
+				std::lock_guard lg(m_asynchronous_works_mutex);
+				m_asynchronous_works.clear();
+			}
 			throw;
 		}
 		
@@ -69,7 +75,7 @@ namespace Noodles
 
 	bool ContextImplement::apply_asynchronous_work()
 	{
-		Tool::intrusive_ptr<Implement::AsynchronousWorkInterface> ptr;
+		Potato::Tool::intrusive_ptr<Implement::AsynchronousWorkInterface> ptr;
 		{
 			std::lock_guard lg(m_asynchronous_works_mutex);
 			if (!m_asynchronous_works.empty())
@@ -132,7 +138,7 @@ namespace Noodles
 
 	void ContextImplement::insert_asynchronous_work_imp(Implement::AsynchronousWorkInterface* ptr)
 	{
-		Tool::intrusive_ptr<Implement::AsynchronousWorkInterface> p = ptr;
+		Potato::Tool::intrusive_ptr<Implement::AsynchronousWorkInterface> p = ptr;
 		assert(ptr != nullptr);
 		std::lock_guard lg(m_asynchronous_works_mutex);
 		m_asynchronous_works.push_back(std::move(ptr));

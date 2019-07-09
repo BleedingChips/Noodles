@@ -1,4 +1,4 @@
-#include "../include/character_encoding.h"
+#include "character_encoding.h"
 #include <assert.h>
 
 #ifdef _WIN32

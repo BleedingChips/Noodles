@@ -1,4 +1,4 @@
-#include "../include/platform.h"
+#include "platform.h"
 namespace Noodles
 {
 	process_scription& process_scription::instance()

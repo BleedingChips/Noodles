@@ -19,25 +19,31 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Noodles\include\component_pool.h" />
-    <ClInclude Include="..\..\Noodles\include\entity.h" />
-    <ClInclude Include="..\..\Noodles\include\event_pool.h" />
-    <ClInclude Include="..\..\Noodles\include\gobal_component_pool.h" />
-    <ClInclude Include="..\..\Noodles\include\implement.h" />
-    <ClInclude Include="..\..\Noodles\include\interface.h" />
-    <ClInclude Include="..\..\Noodles\include\memory.h" />
-    <ClInclude Include="..\..\Noodles\include\platform.h" />
-    <ClInclude Include="..\..\Noodles\include\system_pool.h" />
+    <ClInclude Include="..\..\Noodles\Implement\component_pool.h" />
+    <ClInclude Include="..\..\Noodles\Implement\entity.h" />
+    <ClInclude Include="..\..\Noodles\Implement\event_pool.h" />
+    <ClInclude Include="..\..\Noodles\Implement\gobal_component_pool.h" />
+    <ClInclude Include="..\..\Noodles\Implement\implement.h" />
+    <ClInclude Include="..\..\Noodles\Implement\memory.h" />
+    <ClInclude Include="..\..\Noodles\Implement\platform.h" />
+    <ClInclude Include="..\..\Noodles\Implement\system_pool.h" />
+    <ClInclude Include="..\..\Noodles\Interface\aid.h" />
+    <ClInclude Include="..\..\Noodles\Interface\component_interface.h" />
+    <ClInclude Include="..\..\Noodles\Interface\entity_interface.h" />
+    <ClInclude Include="..\..\Noodles\Interface\event_interface.h" />
+    <ClInclude Include="..\..\Noodles\Interface\gobal_component_interface.h" />
+    <ClInclude Include="..\..\Noodles\Interface\interface.h" />
+    <ClInclude Include="..\..\Noodles\Interface\system_interface.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\Noodles\source\component_pool.cpp" />
-    <ClCompile Include="..\..\Noodles\source\entity.cpp" />
-    <ClCompile Include="..\..\Noodles\source\event_pool.cpp" />
-    <ClCompile Include="..\..\Noodles\source\gobal_component_pool.cpp" />
-    <ClCompile Include="..\..\Noodles\source\implement.cpp" />
-    <ClCompile Include="..\..\Noodles\source\memory.cpp" />
-    <ClCompile Include="..\..\Noodles\source\platform.cpp" />
-    <ClCompile Include="..\..\Noodles\source\system_pool.cpp" />
+    <ClCompile Include="..\..\Noodles\Implement\component_pool.cpp" />
+    <ClCompile Include="..\..\Noodles\Implement\entity.cpp" />
+    <ClCompile Include="..\..\Noodles\Implement\event_pool.cpp" />
+    <ClCompile Include="..\..\Noodles\Implement\gobal_component_pool.cpp" />
+    <ClCompile Include="..\..\Noodles\Implement\implement.cpp" />
+    <ClCompile Include="..\..\Noodles\Implement\memory.cpp" />
+    <ClCompile Include="..\..\Noodles\Implement\platform.cpp" />
+    <ClCompile Include="..\..\Noodles\Implement\system_pool.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>

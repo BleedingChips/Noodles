@@ -1,5 +1,5 @@
-#include "../include/component_pool.h"
-#include "../../Potato/include/tool.h"
+#include "component_pool.h"
+#include "../../Potato/tool.h"
 namespace Noodles::Implement
 {
 	static constexpr size_t min_page_comp_count = 32;
@@ -35,7 +35,7 @@ namespace Noodles::Implement
 			return false;
 	}
 
-	bool TypeLayoutArray::locate_ordered(const TypeLayout* input, size_t* output, size_t length) const noexcept
+	bool TypeLayoutArray::locate_ordered(const TypeInfo* input, size_t* output, size_t length) const noexcept
 	{
 		if (count >= length)
 		{
@@ -58,7 +58,7 @@ namespace Noodles::Implement
 		return false;
 	}
 
-	size_t TypeLayoutArray::locate(const TypeLayout& input) const noexcept
+	size_t TypeLayoutArray::locate(const TypeInfo& input) const noexcept
 	{
 		size_t i = 0;
 		while (i < count)
@@ -73,7 +73,7 @@ namespace Noodles::Implement
 		return i;
 	}
 
-	bool TypeLayoutArray::locate_unordered(const TypeLayout* input, size_t* output, size_t length) const noexcept
+	bool TypeLayoutArray::locate_unordered(const TypeInfo* input, size_t* output, size_t length) const noexcept
 	{
 		for (size_t i = 0; i < length; ++i)
 		{
@@ -391,11 +391,11 @@ namespace Noodles::Implement
 
 	TypeGroup* TypeGroup::create(TypeLayoutArray array)
 	{
-		size_t total_size = sizeof(TypeGroup) + array.count * sizeof(TypeLayout);
+		size_t total_size = sizeof(TypeGroup) + array.count * sizeof(TypeInfo);
 		std::byte* data = new std::byte[total_size];
-		TypeLayout* layout = reinterpret_cast<TypeLayout*>(data + sizeof(TypeGroup));
+		TypeInfo* layout = reinterpret_cast<TypeInfo*>(data + sizeof(TypeGroup));
 		for (size_t i = 0; i < array.count; ++i)
-			new (layout + i) TypeLayout{array.layouts[i]};
+			new (layout + i) TypeInfo{array.layouts[i]};
 		TypeLayoutArray layouts{ layout , array.count};
 		TypeGroup* result = new (data) TypeGroup{layouts};
 		return result;
@@ -407,7 +407,7 @@ namespace Noodles::Implement
 		auto layouts = input->layouts();
 		input->~TypeGroup();
 		for (size_t i = 0; i < layouts.count; ++i)
-			layouts[i].~TypeLayout();
+			layouts[i].~TypeInfo();
 		delete[] reinterpret_cast<std::byte*>(input);
 	}
 
@@ -459,7 +459,7 @@ namespace Noodles::Implement
 	}
 
 	void ComponentPool::construct_component(
-		const TypeLayout& layout, void(*constructor)(void*, void*), void* data,
+		const TypeInfo& layout, void(*constructor)(void*, void*), void* data,
 		EntityInterface* entity, void(*deconstructor)(void*) noexcept, void(*mover)(void*, void*) noexcept
 	)
 	{
@@ -485,7 +485,7 @@ namespace Noodles::Implement
 		size -= layout.size;
 	}
 
-	void ComponentPool::deconstruct_component(EntityInterface* entity, const TypeLayout& layout) noexcept
+	void ComponentPool::deconstruct_component(EntityInterface* entity, const TypeInfo& layout) noexcept
 	{
 		assert(entity != nullptr);
 		std::lock_guard lg(m_init_lock);
@@ -506,43 +506,32 @@ namespace Noodles::Implement
 		m_data.clear();
 	}
 
-	void ComponentPool::lock(size_t mutex_size, void* mutex)
-	{
-		assert(mutex_size >= sizeof(std::shared_lock<std::shared_mutex>));
-		new (mutex) std::shared_lock<std::shared_mutex>{m_type_group_mutex};
-	}
-
-	void ComponentPool::unlock(size_t mutex_size, void* mutex) noexcept
-	{
-		assert(mutex_size >= sizeof(std::shared_lock<std::shared_mutex>));
-		reinterpret_cast<std::shared_lock<std::shared_mutex>*>(mutex)->~shared_lock();
-	}
-
 	void ComponentPool::handle_entity_imp(EntityInterface* entity, EntityOperator ope) noexcept
 	{
 		assert(entity != nullptr);
 		std::lock_guard lg(m_init_lock);
-		m_init_history[entity].emplace_back(ope, TypeLayout::create<int>(), StorageBlockFunctionPair{ nullptr, nullptr }, nullptr);
+		m_init_history[entity].emplace_back(ope, TypeInfo::create<int>(), StorageBlockFunctionPair{ nullptr, nullptr }, nullptr);
 	}
 
 
-	void ComponentPool::update()
+	bool ComponentPool::update()
 	{
 		std::lock_guard lg(m_init_lock);
 		std::unique_lock ul(m_type_group_mutex);
+		bool new_type_group = false;
 		for (auto& ite : m_init_history)
 		{
 			Implement::TypeGroup* old_type_group;
 			Implement::StorageBlock* old_storage_block;
 			size_t old_element_index;
 			ite.first->read(old_type_group, old_storage_block, old_element_index);
-			m_old_type_template.clear();
+			std::map<TypeInfo, std::variant<size_t, InitHistory*>> old_type_template;
 			if (old_type_group != nullptr)
 			{
 				assert(old_storage_block != nullptr);
 				assert(old_element_index < old_type_group->element_count());
 				for (size_t i = 0; i < old_type_group->layouts().count; ++i)
-					m_old_type_template.insert({ old_type_group->layouts()[i], i });
+					old_type_template.insert({ old_type_group->layouts()[i], i });
 			}
 			for (auto& ite2 : ite.second)
 			{
@@ -550,68 +539,71 @@ namespace Noodles::Implement
 				switch (ite2.ope)
 				{
 				case EntityOperator::Construct:
-					m_old_type_template[ite2.type] = &ite2;
+					old_type_template[ite2.type] = &ite2;
 					break;
 				case EntityOperator::Destruct:
-					m_old_type_template.erase(ite2.type);
+					old_type_template.erase(ite2.type);
 					break;
 				case EntityOperator::Destory:
 					need_destory = true;
 				case EntityOperator::DeleteAll:
-					m_old_type_template.clear();
+					old_type_template.clear();
 					break;
 				}
 				if (need_destory)
 					break;
 			}
-			if (!m_old_type_template.empty())
+			if (!old_type_template.empty())
 			{
-				m_new_type_template.clear();
-				m_new_type_state_template.clear();
-				for (auto& ite2 : m_old_type_template)
+				std::vector<TypeInfo> new_type_template;
+				std::vector<std::variant<size_t, InitHistory*>> new_type_state_template;
+				new_type_state_template.clear();
+				for (auto& ite2 : old_type_template)
 				{
-					m_new_type_template.push_back(ite2.first);
-					m_new_type_state_template.push_back(ite2.second);
+					new_type_template.push_back(ite2.first);
+					new_type_state_template.push_back(ite2.second);
 				}
-				auto find_result = m_data.find({ m_new_type_template.data(), m_new_type_template.size() });
+				auto find_result = m_data.find({ new_type_template.data(), new_type_template.size() });
 				if (find_result == m_data.end())
 				{
-					TypeGroup* ptr = TypeGroup::create({ m_new_type_template.data(), m_new_type_template.size() });
+					TypeGroup* ptr = TypeGroup::create({ new_type_template.data(), new_type_template.size() });
 					auto re = m_data.insert({ ptr->layouts(), ptr });
 					assert(re.second);
 					find_result = re.first;
+					new_type_group = true;
 				}
 				if (find_result->second == old_type_group)
 				{
 					assert(old_type_group != nullptr);
-					m_state_template.clear();
-					m_state_template.resize(find_result->first.count, false);
+					std::vector<bool> state_template;
+					state_template.clear();
+					state_template.resize(find_result->first.count, false);
 					for (auto ite2 = ite.second.rbegin(); ite2 != ite.second.rend(); ++ite2)
 					{
 						if (ite2->ope == EntityOperator::Construct)
 						{
 							size_t type_index = old_type_group->layouts().locate(ite2->type);
-							assert(type_index < m_state_template.size());
-							if (!m_state_template[type_index])
+							assert(type_index < state_template.size());
+							if (!state_template[type_index])
 							{
 								auto& function = old_storage_block->functions[type_index][old_element_index];
-								auto data = reinterpret_cast<std::byte*>(old_storage_block->datas[type_index]) + m_new_type_template[type_index].size * old_element_index;
+								auto data = reinterpret_cast<std::byte*>(old_storage_block->datas[type_index]) + new_type_template[type_index].size * old_element_index;
 								function.destructor(data);
 								ite2->functions.mover(data, ite2->data);
 								function = ite2->functions;
-								m_state_template[type_index] = true;
+								state_template[type_index] = true;
 							}
 						}
 					}
 				}
 				else {
 					auto [new_block, new_element_index] = find_result->second->allocate_group(m_allocator);
-					for (size_t i = 0; i < m_new_type_template.size(); ++i)
+					for (size_t i = 0; i < new_type_template.size(); ++i)
 					{
-						size_t component_size = m_new_type_template[i].size;
+						size_t component_size = new_type_template[i].size;
 						auto& functions = new_block->functions[i][new_element_index];
 						auto data = reinterpret_cast<std::byte*>(new_block->datas[i]) + component_size * new_element_index;
-						auto& var = m_new_type_state_template[i];
+						auto& var = new_type_state_template[i];
 						if (std::holds_alternative<size_t>(var))
 						{
 							size_t target_index = std::get<size_t>(var);
@@ -654,45 +646,56 @@ namespace Noodles::Implement
 		m_init_history.clear();
 		for (auto& ite : m_data)
 			ite.second->update();
+		return new_type_group;
 	}
 
-	bool ComponentPool::loacte_unordered_layouts(const TypeGroup* input, const TypeLayout* require_layout, size_t index, size_t* output)
+	void ComponentPool::search_type_group(
+		const TypeInfo* require_tl, size_t require_tl_count,
+		TypeGroup** output_tg,
+		size_t* output_tl_index
+	) const noexcept
 	{
-		return input->layouts().locate_unordered(require_layout, output, index);
-	}
-
-	size_t ComponentPool::search_type_group(
-		const TypeLayout* require_layout, size_t input_layout_count, size_t* output_layout_index,
-		StorageBlock** output_group, size_t buffer_count, size_t& total_count
-	)
-	{
-		total_count = 0;
-		size_t index = 0;
+		size_t k = 0;
 		for (auto& ite : m_data)
 		{
-			if (ite.second->top_block() != nullptr)
-			{
-				size_t* target_buffer;
-				if (index >= buffer_count)
-					target_buffer = nullptr;
-				else
-					target_buffer = output_layout_index;
-				if (ite.first.locate_unordered(require_layout, target_buffer, input_layout_count))
-				{
-					total_count += ite.second->available_count();
-					if (index < buffer_count)
-					{
-						*output_group = ite.second->top_block();
-						++output_group;
-						output_layout_index += input_layout_count;
-					}
-					++index;
-				}
-			}
+			if (ite.first.locate_unordered(require_tl, output_tl_index + k * require_tl_count, require_tl_count))
+				output_tg[k] = ite.second;
 			else
-				continue;
+				output_tg[k] = nullptr;
+			++k;
 		}
-		return index;
+	}
+
+	size_t ComponentPool::find_top_block(TypeGroup** tg, StorageBlock** output, size_t length) const noexcept
+	{
+		size_t data_count = m_data.size();
+		assert(length == data_count);
+		size_t total = 0;
+		for (size_t i = 0; i < length; ++i)
+		{
+			if (tg[i] != nullptr)
+			{
+				output[i] = tg[i]->top_block();
+				total += tg[i]->available_count();
+			}
+			else {
+				output[i] = nullptr;
+			}
+		}
+		return total;
+	}
+
+	size_t ComponentPool::type_group_count() const noexcept
+	{
+		return m_data.size();
+	}
+
+	void ComponentPool::update_type_group_state(std::vector<bool>& tar)
+	{
+		tar.resize(m_data.size());
+		size_t i = 0;
+		for (auto& ite : m_data)
+			tar[i++] = (ite.second->top_block() != nullptr);
 	}
 
 

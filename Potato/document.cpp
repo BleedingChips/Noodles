@@ -1,5 +1,5 @@
-#include "../include/document.h"
-#include "../include/character_encoding.h"
+#include "document.h"
+#include "character_encoding.h"
 #include <assert.h>
 #include <array>
 

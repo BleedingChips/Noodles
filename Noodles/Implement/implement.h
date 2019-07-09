@@ -12,7 +12,7 @@ namespace Noodles
 	{
 		void loop();
 		virtual void exit() noexcept override;
-		void set_duration(std::chrono::milliseconds ds) noexcept { m_target_duration = ds; }
+		void set_minimum_duration(std::chrono::milliseconds ds) noexcept { m_target_duration = ds; }
 		void set_thread_reserved(size_t tr) noexcept { m_thread_reserved = tr; }
 		ContextImplement() noexcept;
 	private:
@@ -35,6 +35,6 @@ namespace Noodles
 		Implement::EventPool event_pool;
 		Implement::SystemPool system_pool;
 		std::mutex m_asynchronous_works_mutex;
-		std::deque<Tool::intrusive_ptr<Implement::AsynchronousWorkInterface>> m_asynchronous_works;
+		std::deque<intrusive_ptr<Implement::AsynchronousWorkInterface>> m_asynchronous_works;
 	};
 }

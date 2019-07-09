@@ -8,27 +8,27 @@ namespace Noodles::Implement
 {
 	struct TypeLayoutArray
 	{
-		const TypeLayout* layouts = nullptr;
+		const TypeInfo* layouts = nullptr;
 		size_t count = 0;
 		bool operator<(const TypeLayoutArray&) const noexcept;
 		bool operator==(const TypeLayoutArray&) const noexcept;
 		TypeLayoutArray& operator=(const TypeLayoutArray&) = default;
 		TypeLayoutArray(const TypeLayoutArray&) = default;
-		const TypeLayout& operator[](size_t index) const noexcept
+		const TypeInfo& operator[](size_t index) const noexcept
 		{
 			assert(index < count);
 			return layouts[index];
 		}
 
-		size_t locate(const TypeLayout& input) const noexcept;
-		bool locate_ordered(const TypeLayout* input, size_t* output, size_t length) const noexcept;
-		bool locate_unordered(const TypeLayout* input, size_t* output, size_t length) const noexcept;
+		size_t locate(const TypeInfo& input) const noexcept;
+		bool locate_ordered(const TypeInfo* input, size_t* output, size_t length) const noexcept;
+		bool locate_unordered(const TypeInfo* input, size_t* output, size_t length) const noexcept;
 
-		bool hold(const TypeLayout& input) const noexcept { return (locate(input) < count); }
+		bool hold(const TypeInfo& input) const noexcept { return (locate(input) < count); }
 		bool hold_ordered(const TypeLayoutArray& array) const noexcept { return hold_ordered(array.layouts, array.count); }
-		bool hold_ordered(const TypeLayout* input, size_t count) const noexcept { return locate_ordered(input, nullptr, count); }
+		bool hold_ordered(const TypeInfo* input, size_t count) const noexcept { return locate_ordered(input, nullptr, count); }
 		bool hold_unordered(const TypeLayoutArray& array) const noexcept { return hold_unordered(array.layouts, array.count); }
-		bool hold_unordered(const TypeLayout* input, size_t length) const noexcept { return locate_unordered(input, nullptr, length); }
+		bool hold_unordered(const TypeInfo* input, size_t length) const noexcept { return locate_unordered(input, nullptr, length); }
 	};
 
 	struct TypeGroup
@@ -68,26 +68,29 @@ namespace Noodles::Implement
 	struct InitHistory
 	{
 		bool is_construction;
-		TypeLayout type;
+		TypeInfo type;
 		void* data;
 	};
 
 	struct ComponentPool : ComponentPoolInterface
 	{
-		virtual void lock(size_t mutex_size, void* mutex) override;
-		virtual size_t search_type_group(
-			const TypeLayout* require_layout, size_t input_layout_count, size_t* output_layout_index,
-			StorageBlock** output_group, size_t buffer_count, size_t& total_count
-		) override;
-		virtual void unlock(size_t mutex_size, void* mutex) noexcept override;
-		virtual bool loacte_unordered_layouts(const TypeGroup* input, const TypeLayout* require_layout, size_t index, size_t* output) override;
+		std::shared_mutex& read_mutex() noexcept { return m_type_group_mutex; }
+		virtual size_t type_group_count() const noexcept override;
+		virtual void search_type_group(
+			const TypeInfo* require_tl, size_t require_tl_count,
+			TypeGroup** output_tg,
+			size_t* output_tl_index
+		) const noexcept override;
+
 		virtual void handle_entity_imp(EntityInterface*, EntityOperator ope) noexcept override;
 		virtual void construct_component(
-			const TypeLayout& layout, void(*constructor)(void*, void*), void* data, 
+			const TypeInfo& layout, void(*constructor)(void*, void*), void* data,
 			EntityInterface*, void(*deconstructor)(void*) noexcept, void(*mover)(void*, void*) noexcept
 		) override;
-		virtual void deconstruct_component(EntityInterface*, const TypeLayout& layout) noexcept override;
-		void update();
+		virtual size_t find_top_block(TypeGroup** tg, StorageBlock ** output, size_t length) const noexcept override;
+		virtual void deconstruct_component(EntityInterface*, const TypeInfo& layout) noexcept override;
+		bool update();
+		void update_type_group_state(std::vector<bool>& ite);
 		void clean_all();
 		ComponentPool(MemoryPageAllocator& allocator) noexcept;
 		~ComponentPool();
@@ -110,20 +113,17 @@ namespace Noodles::Implement
 		struct InitHistory
 		{
 			EntityOperator ope;
-			TypeLayout type;
+			TypeInfo type;
 			StorageBlockFunctionPair functions;
 			void* data;
-			InitHistory(EntityOperator i, const TypeLayout& t, StorageBlockFunctionPair p, void* d)
+			InitHistory(EntityOperator i, const TypeInfo& t, StorageBlockFunctionPair p, void* d)
 				: ope(i), type(t), functions(p), data(d) {}
 			~InitHistory();
 		};
+
 		std::shared_mutex m_type_group_mutex;
 		MemoryPageAllocator& m_allocator;
 		std::map<TypeLayoutArray, TypeGroup*> m_data;
-		std::map<TypeLayout, std::variant<size_t, InitHistory*>> m_old_type_template;
-		std::vector<TypeLayout> m_new_type_template;
-		std::vector<std::variant<size_t, InitHistory*>> m_new_type_state_template;
-		std::vector<bool> m_state_template;
 
 		std::mutex m_init_lock;
 		std::vector<InitBlock> m_init_block;
