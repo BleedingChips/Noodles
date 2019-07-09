@@ -47,7 +47,7 @@ namespace Noodles::Implement
 		bool update(bool component_change, bool gobal_component_change, ComponentPool& cp, GobalComponentPool& gcp);
 		void clean_all();
 		ApplyResult asynchro_apply_system(Context*, bool wait_for_lock = true);
-
+		size_t asynchro_temporary_system(Context*);
 	private:
 
 		enum class RuningState
@@ -108,9 +108,12 @@ namespace Noodles::Implement
 		std::vector<size_t> m_conflig_component_state;
 		std::vector<bool> m_component_state;
 		bool m_all_done = true;
+		std::vector<SystemInterfacePtr> m_using_temporary;
+		bool m_all_temporary_done = true;
 
 		std::mutex m_log_mutex;
 		std::vector<std::variant<SystemInterfacePtr, TypeInfo>> m_regedited_system;
+		std::vector<SystemInterfacePtr> m_regedited_temporary_system;
 
 		bool release_system(const TypeInfo& ite);
 		std::optional<std::tuple<TickOrder, bool, std::vector<TypeInfo>, std::array<size_t, 3>>> handle_system_conflig(SystemHoldMap::iterator, SystemHoldMap::iterator);

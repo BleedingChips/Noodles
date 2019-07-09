@@ -153,8 +153,23 @@ private:
 	std::uniform_real_distribution<float>& m_vel;
 };
 
+struct Temporary2;
 
+struct Temporary1
+{
+	void operator()(Context& c) {
+		CallRecord<Temporary1> record;
+		c.create_temporary_system<Temporary2>();
+	}
+};
 
+struct Temporary2
+{
+	void operator()(Context& c) {
+		CallRecord<Temporary2> record;
+		c.create_temporary_system<Temporary1>();
+	}
+};
 
 
 int main()
@@ -164,8 +179,8 @@ int main()
 		ContextImplement imp;
 
 		imp.set_thread_reserved(2);
-		imp.set_minimum_duration(duration_ms{200});
 		
+		//imp.set_minimum_duration(duration_ms{200});
 		
 		imp.create_system([&]() {
 			std::lock_guard lg(cout_mutex);
@@ -186,6 +201,7 @@ int main()
 		imp.create_system<CollisionSystem>();
 		imp.create_system<CreaterSystem>(engine, range, vel);
 		imp.create_system<MoveSystem>();
+		imp.create_temporary_system<Temporary1>();
 
 		for (size_t i = 0; i < 500; ++i)
 		{

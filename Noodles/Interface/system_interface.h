@@ -8,11 +8,11 @@ namespace Noodles
 {
 	enum class TickPriority : int8_t
 	{
-		HighHigh = -2,
-		High = -1,
+		HighHigh = -120,
+		High = -60,
 		Normal = 0,
-		Low = 1,
-		LowLow = 2,
+		Low = 60,
+		LowLow = 120,
 	};
 
 	enum class TickOrder

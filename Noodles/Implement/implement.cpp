@@ -27,7 +27,7 @@ namespace Noodles
 					std::lock_guard lg3(event_pool.read_mutex());
 					if (system_pool.update(Component, GobalComponent, component_pool, gobal_component_pool))
 					{
-
+						system_pool.asynchro_temporary_system(this);
 						while (system_pool.asynchro_apply_system(this) != Implement::SystemPool::ApplyResult::AllDone)
 							std::this_thread::yield();
 

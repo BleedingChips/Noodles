@@ -124,10 +124,6 @@ namespace Noodles::Implement
 		std::shared_mutex m_type_group_mutex;
 		MemoryPageAllocator& m_allocator;
 		std::map<TypeLayoutArray, TypeGroup*> m_data;
-		std::map<TypeInfo, std::variant<size_t, InitHistory*>> m_old_type_template;
-		std::vector<TypeInfo> m_new_type_template;
-		std::vector<std::variant<size_t, InitHistory*>> m_new_type_state_template;
-		std::vector<bool> m_state_template;
 
 		std::mutex m_init_lock;
 		std::vector<InitBlock> m_init_block;

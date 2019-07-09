@@ -525,13 +525,13 @@ namespace Noodles::Implement
 			Implement::StorageBlock* old_storage_block;
 			size_t old_element_index;
 			ite.first->read(old_type_group, old_storage_block, old_element_index);
-			m_old_type_template.clear();
+			std::map<TypeInfo, std::variant<size_t, InitHistory*>> old_type_template;
 			if (old_type_group != nullptr)
 			{
 				assert(old_storage_block != nullptr);
 				assert(old_element_index < old_type_group->element_count());
 				for (size_t i = 0; i < old_type_group->layouts().count; ++i)
-					m_old_type_template.insert({ old_type_group->layouts()[i], i });
+					old_type_template.insert({ old_type_group->layouts()[i], i });
 			}
 			for (auto& ite2 : ite.second)
 			{
@@ -539,33 +539,34 @@ namespace Noodles::Implement
 				switch (ite2.ope)
 				{
 				case EntityOperator::Construct:
-					m_old_type_template[ite2.type] = &ite2;
+					old_type_template[ite2.type] = &ite2;
 					break;
 				case EntityOperator::Destruct:
-					m_old_type_template.erase(ite2.type);
+					old_type_template.erase(ite2.type);
 					break;
 				case EntityOperator::Destory:
 					need_destory = true;
 				case EntityOperator::DeleteAll:
-					m_old_type_template.clear();
+					old_type_template.clear();
 					break;
 				}
 				if (need_destory)
 					break;
 			}
-			if (!m_old_type_template.empty())
+			if (!old_type_template.empty())
 			{
-				m_new_type_template.clear();
-				m_new_type_state_template.clear();
-				for (auto& ite2 : m_old_type_template)
+				std::vector<TypeInfo> new_type_template;
+				std::vector<std::variant<size_t, InitHistory*>> new_type_state_template;
+				new_type_state_template.clear();
+				for (auto& ite2 : old_type_template)
 				{
-					m_new_type_template.push_back(ite2.first);
-					m_new_type_state_template.push_back(ite2.second);
+					new_type_template.push_back(ite2.first);
+					new_type_state_template.push_back(ite2.second);
 				}
-				auto find_result = m_data.find({ m_new_type_template.data(), m_new_type_template.size() });
+				auto find_result = m_data.find({ new_type_template.data(), new_type_template.size() });
 				if (find_result == m_data.end())
 				{
-					TypeGroup* ptr = TypeGroup::create({ m_new_type_template.data(), m_new_type_template.size() });
+					TypeGroup* ptr = TypeGroup::create({ new_type_template.data(), new_type_template.size() });
 					auto re = m_data.insert({ ptr->layouts(), ptr });
 					assert(re.second);
 					find_result = re.first;
@@ -574,34 +575,35 @@ namespace Noodles::Implement
 				if (find_result->second == old_type_group)
 				{
 					assert(old_type_group != nullptr);
-					m_state_template.clear();
-					m_state_template.resize(find_result->first.count, false);
+					std::vector<bool> state_template;
+					state_template.clear();
+					state_template.resize(find_result->first.count, false);
 					for (auto ite2 = ite.second.rbegin(); ite2 != ite.second.rend(); ++ite2)
 					{
 						if (ite2->ope == EntityOperator::Construct)
 						{
 							size_t type_index = old_type_group->layouts().locate(ite2->type);
-							assert(type_index < m_state_template.size());
-							if (!m_state_template[type_index])
+							assert(type_index < state_template.size());
+							if (!state_template[type_index])
 							{
 								auto& function = old_storage_block->functions[type_index][old_element_index];
-								auto data = reinterpret_cast<std::byte*>(old_storage_block->datas[type_index]) + m_new_type_template[type_index].size * old_element_index;
+								auto data = reinterpret_cast<std::byte*>(old_storage_block->datas[type_index]) + new_type_template[type_index].size * old_element_index;
 								function.destructor(data);
 								ite2->functions.mover(data, ite2->data);
 								function = ite2->functions;
-								m_state_template[type_index] = true;
+								state_template[type_index] = true;
 							}
 						}
 					}
 				}
 				else {
 					auto [new_block, new_element_index] = find_result->second->allocate_group(m_allocator);
-					for (size_t i = 0; i < m_new_type_template.size(); ++i)
+					for (size_t i = 0; i < new_type_template.size(); ++i)
 					{
-						size_t component_size = m_new_type_template[i].size;
+						size_t component_size = new_type_template[i].size;
 						auto& functions = new_block->functions[i][new_element_index];
 						auto data = reinterpret_cast<std::byte*>(new_block->datas[i]) + component_size * new_element_index;
-						auto& var = m_new_type_state_template[i];
+						auto& var = new_type_state_template[i];
 						if (std::holds_alternative<size_t>(var))
 						{
 							size_t target_index = std::get<size_t>(var);

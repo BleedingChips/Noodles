@@ -13,6 +13,8 @@ namespace Noodles
 		template<typename CompT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<CompT>>& create_gobal_component(Parameter&& ...p);
 		template<typename SystemT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<SystemT>>& create_system(Parameter&& ...p);
 		template<typename SystemT> void create_system(SystemT&& p, TickPriority priority = TickPriority::Normal, TickPriority layout = TickPriority::Normal);
+		template<typename SystemT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<SystemT>>& create_temporary_system(Parameter&& ...p);
+		template<typename SystemT> void create_temporary_system(SystemT&& p, TickPriority priority = TickPriority::Normal, TickPriority layout = TickPriority::Normal);
 		template<typename SystemT> void destory_system();
 		template<typename CompT> bool destory_component(Entity entity);
 		template<typename CompT> void destory_gobal_component();
@@ -85,6 +87,21 @@ namespace Noodles
 		Implement::SystemPoolInterface* SI = *this;
 		intrusive_ptr<Implement::SystemImplement<SystemT>> ptr = new Implement::SystemImplement<SystemT>{ this, [](const Implement::SystemImplement<SystemT>* in) noexcept {delete in; }, priority, layout, std::forward<SystemT>(p) };
 		SI->regedit_system(ptr);
+	}
+
+	template<typename SystemT, typename ...Parameter> std::remove_reference_t<std::remove_const_t<SystemT>>& Context::create_temporary_system(Parameter&& ...p)
+	{
+		Implement::SystemPoolInterface* SI = *this;
+		intrusive_ptr<Implement::SystemImplement<SystemT>> ptr = new Implement::SystemImplement<SystemT>{ this, [](const Implement::SystemImplement<SystemT>* in) noexcept {delete in; }, TickPriority::Normal, TickPriority::Normal, std::forward<Parameter>(p)... };
+		SI->regedit_template_system(ptr);
+		return *ptr;
+	}
+
+	template<typename SystemT> void Context::create_temporary_system(SystemT&& p, TickPriority priority, TickPriority layout)
+	{
+		Implement::SystemPoolInterface* SI = *this;
+		intrusive_ptr<Implement::SystemImplement<SystemT>> ptr = new Implement::SystemImplement<SystemT>{ this, [](const Implement::SystemImplement<SystemT>* in) noexcept {delete in; }, priority, layout, std::forward<SystemT>(p) };
+		SI->regedit_template_system(ptr);
 	}
 
 	template<typename SystemT> void Context::destory_system()

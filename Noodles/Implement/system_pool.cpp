@@ -18,11 +18,8 @@ namespace Noodles::Implement
 
 	void SystemPool::regedit_template_system(SystemInterface* in) noexcept
 	{
-		/*
-		assert(in != nullptr);
-		std::lock_guard lg(m_template_mutex);
-		m_template_system.push_back(in);
-		*/
+		std::lock_guard lg(m_log_mutex);
+		m_regedited_temporary_system.push_back(in);
 	}
 
 	void SystemPool::handle_relationship_component_conflig(SystemRelationShip& relationship, size_t component_size)
@@ -61,13 +58,16 @@ namespace Noodles::Implement
 		std::unique_lock up(m_systems_mutex);
 		std::lock_guard lg2(m_state_mutex);
 		cp.update_type_group_state(m_component_state);
-
+		std::swap(m_regedited_temporary_system, m_using_temporary);
+		m_regedited_temporary_system.clear();
 		if (!m_regedited_system.empty())
 		{
 			if (component_change || gobal_component_change)
 			{
 				for (auto& ite : m_systems)
 					ite.second.ptr->envirment_change(false, gobal_component_change, component_change);
+				for (auto& ite2 : m_using_temporary)
+					ite2->envirment_change(false, gobal_component_change, component_change);
 			}
 			for (auto& ite : m_regedited_system)
 			{
@@ -188,6 +188,8 @@ namespace Noodles::Implement
 					ite.second.relationship_length = 0;
 					ite.second.ptr->envirment_change(true, false, false);
 				}
+				for(auto& ite : m_using_temporary)
+					ite->envirment_change(true, false, false);
 				m_conflig_component_state.clear();
 				if (!m_relationships.empty())
 				{
@@ -352,6 +354,8 @@ namespace Noodles::Implement
 		{
 			for (auto& ite : m_systems)
 				ite.second.ptr->envirment_change(false, gobal_component_change, component_change);
+			for (auto& ite : m_using_temporary)
+				ite->envirment_change(false, gobal_component_change, component_change);
 			if (component_change)
 			{
 				m_conflig_component_state.clear();
@@ -403,7 +407,35 @@ namespace Noodles::Implement
 		for (auto& ite : m_state)
 			ite.state = RuningState::Ready;
 		m_all_done = false;
+		m_all_temporary_done = false;
 		return !m_systems.empty();
+	}
+
+	size_t SystemPool::asynchro_temporary_system(Context* in)
+	{
+		size_t used = 0;
+		while (true)
+		{
+			SystemInterfacePtr ptr;
+			std::lock_guard lg(m_state_mutex);
+			for (auto ite = m_using_temporary.begin(); ite != m_using_temporary.end(); ++ite)
+			{
+				if (*ite)
+				{
+					ptr = std::move(*ite);
+					break;
+				}
+			}
+			if(ptr)
+				ptr->apply(in);
+			else
+			{
+				m_using_temporary.clear();
+				m_all_temporary_done = true;
+				break;
+			}
+		}
+		return used;
 	}
 
 	SystemPool::ApplyResult SystemPool::asynchro_apply_system(Context* context, bool wait_for_lock)
@@ -415,7 +447,9 @@ namespace Noodles::Implement
 			else if (!m_state_mutex.try_lock())
 				return ApplyResult::Waitting;
 			std::lock_guard lg(m_state_mutex, std::adopt_lock);
-			if (!m_all_done)
+			if (!m_all_temporary_done)
+				return ApplyResult::Waitting;
+			else if (!m_all_done)
 			{
 				bool all_done = true;
 				for (size_t index = 0; index < m_state.size(); ++index)
