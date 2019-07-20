@@ -1,4 +1,5 @@
 #pragma once
+#include "tmp.h"
 namespace Potato::Tool
 {
 	// intrustive_ptr ***********************************************************
@@ -8,7 +9,26 @@ namespace Potato::Tool
 		static void add_ref(type* t) noexcept { t->add_ref(); }
 		template<typename type>
 		static void sub_ref(type* t) noexcept { t->sub_ref(); }
+
+		/*
+		//overwrite static_cast, call in operator X() or static cast
+		template<typename RequireType, typename SourceType>
+		static RequireType overwrite_static_cast(SourceType*& source, Tmp::type_placeholder<RequireType>);
+		*/
 	};
+
+	namespace Implement
+	{
+		template<typename T> T& ref_val();
+		template<typename SourceType, typename RequireType> struct static_cast_overwrite_exist_method
+		{
+			template<typename WrapperType, typename = decltype(WrapperType::overwrite_static_cast(ref_val<SourceType>(), Tmp::type_placeholder<RequireType>{})) >
+			struct method {};
+		};
+		template<typename source_type, typename require_type, typename wrapper_type> struct support_static_cast_overwrite :
+			std::integral_constant<bool, Tmp::member_exist<static_cast_overwrite_exist_method<source_type, require_type>::template method, wrapper_type>::value>
+		{};
+	}
 
 	template<typename type, typename wrapper = intrustive_ptr_default_wrapper>
 	struct intrusive_ptr
@@ -50,7 +70,28 @@ namespace Potato::Tool
 		bool operator> (const intrusive_ptr& ip) const noexcept { return !((*this) <= ip); }
 		bool operator>= (const intrusive_ptr& ip) const noexcept { return !((*this) < ip); }
 
-		operator type* () const noexcept { return m_ptr; }
+		template<typename require_type, typename = std::enable_if_t <
+			Implement::support_static_cast_overwrite<std::add_const_t<type*>, require_type, wrapper>::value
+			|| std::is_convertible_v<const type*, require_type>
+			>>
+		operator require_type() const noexcept {
+			if constexpr (Implement::support_static_cast_overwrite<std::add_const_t<type*>, require_type, wrapper>::value)
+				return wrapper::overwrite_static_cast(m_ptr, Tmp::type_placeholder<require_type>{});
+			else
+				return m_ptr;
+		}
+
+		template<typename require_type, typename = std::enable_if_t <
+			Implement::support_static_cast_overwrite<type*, require_type, wrapper>::value
+			|| std::is_convertible_v<type*, require_type>
+			>>
+			operator require_type() noexcept {
+			if constexpr (Implement::support_static_cast_overwrite<type*, require_type, wrapper>::value)
+				return wrapper::overwrite_static_cast(m_ptr, Tmp::type_placeholder<require_type>{});
+			else
+				return m_ptr;
+		}
+
 		type& operator*() const noexcept { return *m_ptr; }
 		type* operator->() const noexcept { return m_ptr; }
 
@@ -59,9 +100,6 @@ namespace Potato::Tool
 
 		template<typename o_type, typename = std::enable_if_t<std::is_base_of_v<type, o_type> || std::is_base_of_v<o_type, type>>>
 		intrusive_ptr<o_type, wrapper> cast_static() const noexcept { return intrusive_ptr<o_type, wrapper>{static_cast<o_type*>(m_ptr)}; }
-
-		template<typename TargetType, typename = std::enable_if_t<std::is_constructible_v<type*, TargetType*>>>
-		operator TargetType* () const noexcept { return static_cast<TargetType*>(m_ptr); }
 
 		template<typename TargetType> TargetType* cast_dynamic() const noexcept {
 			if constexpr (std::is_constructible_v<const type*, TargetType*>)

@@ -666,6 +666,10 @@ namespace Noodles::Implement
 		m_systems.clear();
 		m_relationships.clear();
 		m_regedited_system.clear();
+		m_using_temporary.clear();
+		m_regedited_temporary_system.clear();
+		m_state.clear();
+		m_running_relationship.clear();
 	}
 
 }
