@@ -1,6 +1,17 @@
 #include "system_pool.h"
 #include <algorithm>
 #include <vector>
+
+namespace Noodles::Error
+{
+	SystemOrderRecursion::SystemOrderRecursion(std::vector<const char*> inf, std::vector<const char*> ct, std::vector<std::array<size_t, 3>> cb)
+		: std::logic_error("System Order Recursion"), infos(std::move(inf)), conflig_type(std::move(ct)), conflig_type_bound(std::move(cb)) {}
+
+	SystemOrderConflig::SystemOrderConflig(const char* inf, const char* t, std::array<size_t, 3> cb, std::vector<const char*> ct)
+		: std::logic_error("System Order Conflig"), si(inf), ti(t), conflig_bound(cb), conflig_type(std::move(ct)) {}
+}
+
+
 namespace Noodles::Implement
 {
 	void SystemPool::regedit_system(SystemInterface* in) noexcept
@@ -137,7 +148,13 @@ namespace Noodles::Implement
 												break;
 											case TickOrder::Undefine:
 												release_system(layout);
-												throw Error::SystemOrderConflig{ layout.name, ite->second.ptr->layout().name };
+												{
+													Error::SystemOrderConflig tem{ layout.name, ite->second.ptr->layout().name,  index };
+													tem.conflig_type.reserve(v_info.size());
+													for (auto& ite : v_info)
+														tem.conflig_type.push_back(ite.name);
+													throw tem;
+												}
 												break;
 											default:
 												assert(false);
@@ -180,7 +197,7 @@ namespace Noodles::Implement
 			if (m_systems_change)
 			{
 				size_t i = 0;
-				// Í¬²½ m_relationship m_systems
+				// Í¬ï¿½ï¿½ m_relationship m_systems
 				for (auto& ite : m_systems)
 				{
 					ite.second.state_index = i++;
@@ -216,8 +233,8 @@ namespace Noodles::Implement
 					}
 				}
 
-				// ÕÒÒÀÀµ»·
-				// 0 £º Î´·ÃÎÊ£¬ 1 £º ·ÃÎÊÍ¾ÖÐ£¬ 2 £º·ÃÎÊÍê³É
+				// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+				// 0 ï¿½ï¿½ Î´ï¿½ï¿½ï¿½Ê£ï¿½ 1 ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Í¾ï¿½Ð£ï¿½ 2 ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
 				{
 					std::vector<size_t> searching_state(m_systems.size(), 0);
@@ -236,7 +253,7 @@ namespace Noodles::Implement
 									for (size_t i = 0; i < ite->second.relationship_length; ++i)
 									{
 										auto& relationship = m_relationships[ite->second.relationship_start_index + i];
-										// Mutex ¹ØÏµµÄ²¢²»ÊÇÒ»¸öÒÀÀµ
+										// Mutex ï¿½ï¿½Ïµï¿½Ä²ï¿½ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 										if (relationship.is_force || !relationship.is_mutex)
 										{
 											hard_relationship = true;
@@ -266,16 +283,23 @@ namespace Noodles::Implement
 									if (ref.is_force || !ref.is_mutex)
 									{
 										auto ite2 = ref.passtive;
-										++r_index;
 										size_t state = searching_state[ite2->second.state_index];
 										if (state == 1)
 										{
 											Error::SystemOrderRecursion sor;
+											sor.conflig_type_bound.push_back(ref.conflig_bound);
+											for (auto& ite : ref.conflig_type)
+												sor.conflig_type.push_back(ite.name);
 											sor.infos.push_back(ite2->second.ptr->layout().name);
 											for (auto ite3 = searching_stack.rbegin(); ite3 != searching_stack.rend(); ++ite3)
 											{
-												sor.infos.push_back(std::get<0>(*ite3)->second.ptr->layout().name);
-												if (std::get<0>(*ite3) == ite2)
+												auto [ret, index_r] = *ite3;
+												sor.infos.push_back(ret->second.ptr->layout().name);
+												auto& ref = m_relationships[ret->second.relationship_start_index + index_r];
+												sor.conflig_type_bound.push_back(ref.conflig_bound);
+												for (auto& ite : ref.conflig_type)
+													sor.conflig_type.push_back(ite.name);
+												if (ret == ite2)
 													break;
 											}
 											throw sor;
@@ -285,6 +309,7 @@ namespace Noodles::Implement
 											searching_stack.push_back({ ite2 , 0 });
 											searching_state[ite2->second.state_index] = 1;
 										}
+										++r_index;
 									}
 								}
 							}
@@ -299,18 +324,18 @@ namespace Noodles::Implement
 								}
 							}
 							if (searching_stack.empty())
-								// È«²¿ÂÖÑ¯ÍêÁË
+								// È«ï¿½ï¿½ï¿½ï¿½Ñ¯ï¿½ï¿½ï¿½ï¿½
 								break;
 						}
 					}
 				}
 				
-				// Í¬²½ m_state - m_systems
+				// Í¬ï¿½ï¿½ m_state - m_systems
 				m_state.resize(m_systems.size());
 				for (auto ite = m_systems.begin(); ite != m_systems.end(); ++ite)
 					m_state[ite->second.state_index] = SystemState{ RuningState::Ready, ite->second.relationship_start_index, ite->second.relationship_length, ite };
 
-				// Í¬²½ m_runingrelationship - m_relationship
+				// Í¬ï¿½ï¿½ m_runingrelationship - m_relationship
 				m_running_relationship.resize(m_relationships.size());
 				for (size_t i = 0; i < m_relationships.size(); ++i)
 				{
@@ -638,13 +663,9 @@ namespace Noodles::Implement
 		std::unique_lock ul1(m_systems_mutex);
 		std::lock_guard lg(m_state_mutex);
 		std::lock_guard lg2(m_log_mutex);
-		//std::lock_guard lg3(m_template_mutex);
 		m_systems.clear();
 		m_relationships.clear();
-		//m_state.clear();
-		//m_waitting_list.clear();
 		m_regedited_system.clear();
-		//m_template_system.clear();
 	}
 
 }

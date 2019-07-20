@@ -12,17 +12,31 @@
 
 namespace Noodles::Error
 {
-	struct SystemOrderRecursion
+	struct SystemOrderRecursion : std::logic_error
 	{
+		// conflig system types
 		std::vector<const char*> infos;
+		// conflig types count for each conflig system
+		std::vector<std::array<size_t, 3>> conflig_type_bound;
+		// all conflig types
+		std::vector<const char*> conflig_type;
+		SystemOrderRecursion(std::vector<const char*> inf = {}, std::vector<const char*> ct = {}, std::vector<std::array<size_t, 3>> cb = {});
+		SystemOrderRecursion(const SystemOrderRecursion&) = default;
+		SystemOrderRecursion(SystemOrderRecursion&&) = default;
 	};
 
-	struct SystemOrderConflig
+	struct SystemOrderConflig : std::logic_error
 	{
+		// conflig system type 1
 		const char* si;
+		// conflig system type 2
 		const char* ti;
-		std::vector<const char*> conflig_type;
+		// system conflig type count, gobal conflig type count, component conflig type count
 		std::array<size_t, 3> conflig_bound;
+		std::vector<const char*> conflig_type;
+		SystemOrderConflig(const char* inf = nullptr, const char* t = nullptr, std::array<size_t, 3> cb = {}, std::vector<const char*> ct = {});
+		SystemOrderConflig(const SystemOrderConflig&) = default;
+		SystemOrderConflig(SystemOrderConflig&&) = default;
 	};
 }
 
