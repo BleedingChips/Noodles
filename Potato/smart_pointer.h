@@ -11,36 +11,14 @@ namespace Potato::Tool
 		static void sub_ref(type* t) noexcept { t->sub_ref(); }
 
 		/*
-		//overwrite static_cast, call in operator X() or static cast
-		template<typename RequireType, typename SourceType>
-		static RequireType overwrite_static_cast(SourceType*& source, Tmp::type_placeholder<RequireType>);
+		//overwrite operator();
+		template<typename type, typename ...parameters>
+		decltype(auto) operator()(const intrusive_ptr<type, intrustive_ptr_default_wrapper>&, parameters&&... a);
+
+		template<typename type, typename ...parameters>
+		decltype(auto) operator()(intrusive_ptr<type, intrustive_ptr_default_wrapper>&, parameters&&... a);
 		*/
 	};
-
-	template<typename type, typename wrapper> struct intrusive_ptr;
-
-	namespace Implement
-	{
-		template<typename T> T& ref_val();
-		template<typename SourceType, typename RequireType> struct static_cast_overwrite_exist_method
-		{
-			template<typename WrapperType, typename = decltype(WrapperType::overwrite_static_cast(ref_val<SourceType>(), Tmp::type_placeholder<RequireType>{})) >
-			struct method {};
-		};
-		template<typename source_type, typename require_type, typename wrapper_type> struct support_static_cast_overwrite :
-			std::integral_constant<bool, Tmp::member_exist<static_cast_overwrite_exist_method<source_type, require_type>::template method, wrapper_type>::value>
-		{};
-
-		template<typename Type, typename Wrapper> struct is_intrusive_ptr : std::false_type {};
-		template<typename Type, typename Wrapper> struct is_intrusive_ptr<intrusive_ptr<Type, Wrapper>, Wrapper> : std::true_type {};
-	}
-
-	
-
-	namespace Implement
-	{
-		
-	}
 
 	template<typename type, typename wrapper = intrustive_ptr_default_wrapper>
 	struct intrusive_ptr
@@ -48,35 +26,10 @@ namespace Potato::Tool
 		static_assert(!std::is_reference_v<type>, "intrusive_ptr : type should not be reference type");
 
 		intrusive_ptr() noexcept : m_ptr(nullptr) {}
-
 		intrusive_ptr(type* t) noexcept : m_ptr(t) { if (t != nullptr) wrapper::add_ref(m_ptr); }
-
-		//template<typename in_type, typename = std::enable_if_t<std::is_convertible_v<in_type*, type*>>>
-		//intrusive_ptr(in_type* t) noexcept : m_ptr(t) { if (t != nullptr) wrapper::add_ref(m_ptr); }
-
-		/*
-		template<typename in_type, typename = std::enable_if_t<std::is_convertible_v<in_type*, type*>>>
-		intrusive_ptr(intrusive_ptr<in_type, wrapper>&& ip) noexcept : m_ptr(ip.m_ptr) { ip.m_ptr = nullptr; }
-		template<typename in_type, typename = std::enable_if_t<std::is_convertible_v<in_type*, type*>>>
-		intrusive_ptr(const intrusive_ptr<in_type, wrapper>& ip) noexcept : intrusive_ptr(ip.m_ptr) {}
-		*/
-
 		intrusive_ptr(intrusive_ptr&& ip) noexcept : m_ptr(ip.m_ptr) { ip.m_ptr = nullptr; }
 		intrusive_ptr(const intrusive_ptr& ip) noexcept : intrusive_ptr(ip.m_ptr) {}
-
 		~intrusive_ptr() noexcept { reset(); }
-
-		intrusive_ptr& operator=(intrusive_ptr&& ip) noexcept;
-		intrusive_ptr& operator=(const intrusive_ptr& ip) noexcept {
-			intrusive_ptr tem(ip);
-			return operator=(std::move(tem));
-		}
-
-		template<typename in_type, typename = std::enable_if_t<std::is_convertible_v<in_type*, type*>>>
-		intrusive_ptr& operator=(const intrusive_ptr<in_type, wrapper>& ip) noexcept {
-			intrusive_ptr tem(ip);
-			return this->operator=(std::move(tem));
-		}
 
 		bool operator== (const intrusive_ptr& ip) const noexcept { return m_ptr == ip.m_ptr; }
 		bool operator<(const intrusive_ptr& ip) const noexcept { return m_ptr < ip.m_ptr; }
@@ -86,33 +39,36 @@ namespace Potato::Tool
 		bool operator> (const intrusive_ptr& ip) const noexcept { return !((*this) <= ip); }
 		bool operator>= (const intrusive_ptr& ip) const noexcept { return !((*this) < ip); }
 
-		//operator std::add_const_t<type*>() const noexcept { return m_ptr; }
-		
-		/*
-		template<typename require_type, typename = std::enable_if_t <
-			Implement::support_static_cast_overwrite<std::add_const_t<type*>, require_type, wrapper>::value
-			|| std::is_convertible_v<const type*, require_type>
-			>>
-		operator require_type() const noexcept {
-			if constexpr (Implement::support_static_cast_overwrite<std::add_const_t<type*>, require_type, wrapper>::value)
-				return wrapper::overwrite_static_cast(m_ptr, Tmp::type_placeholder<require_type>{});
-			else
-				return m_ptr;
+		operator type* () const noexcept { return m_ptr; }
+
+		template<typename require_type, typename = std::enable_if_t<std::is_convertible_v<std::add_const_t<type*>, require_type*>>>
+		operator intrusive_ptr<require_type, wrapper>() const noexcept
+		{
+			return static_cast<require_type*>(m_ptr);
 		}
-		*/
+
+		template<typename require_type, typename = std::enable_if_t<std::is_convertible_v<type*, require_type*>>>
+		operator intrusive_ptr<require_type, wrapper>() noexcept
+		{
+			return static_cast<require_type*>(m_ptr);
+		}
+
+		intrusive_ptr& operator=(intrusive_ptr&& ip) noexcept;
+		intrusive_ptr& operator=(const intrusive_ptr& ip) noexcept {
+			intrusive_ptr tem(ip);
+			return operator=(std::move(tem));
+		}
+
+		template<typename ...parameter_types>
+		decltype(auto) operator()(parameter_types&& ... i)
+		{
+			return wrapper{}(*this, std::forward<parameter_types>(i)...);
+		}
 		
-		template<typename require_type, typename = std::enable_if_t <
-			(Implement::support_static_cast_overwrite<type*, require_type, wrapper>::value
-			|| 
-				std::is_convertible_v<type*, require_type>) 
-			&& !Implement::is_intrusive_ptr<require_type, wrapper>::value
-			>>
-		operator require_type() noexcept {
-			static_assert(false, "");
-			if constexpr (Implement::support_static_cast_overwrite<type*, require_type, wrapper>::value)
-				return wrapper::overwrite_static_cast(m_ptr, Tmp::type_placeholder<require_type>{});
-			else
-				return m_ptr;
+		template<typename ...parameter_types>
+		decltype(auto) operator()(parameter_types&& ... i) const
+		{
+			return wrapper{}(*this, std::forward<parameter_types>(i)...);
 		}
 
 		type& operator*() const noexcept { return *m_ptr; }
