@@ -197,7 +197,7 @@ namespace Noodles::Implement
 			if (m_systems_change)
 			{
 				size_t i = 0;
-				// ͬ�� m_relationship m_systems
+				// update m_relationship m_systems
 				for (auto& ite : m_systems)
 				{
 					ite.second.state_index = i++;
@@ -233,8 +233,8 @@ namespace Noodles::Implement
 					}
 				}
 
-				// ��������
-				// 0 �� δ���ʣ� 1 �� ����;�У� 2 ���������
+				// update searching state
+				// 0 unreach 1 handling 2 done
 
 				{
 					std::vector<size_t> searching_state(m_systems.size(), 0);
@@ -253,7 +253,7 @@ namespace Noodles::Implement
 									for (size_t i = 0; i < ite->second.relationship_length; ++i)
 									{
 										auto& relationship = m_relationships[ite->second.relationship_start_index + i];
-										// Mutex ��ϵ�Ĳ�����һ������
+										// find first searching system before any other system.
 										if (relationship.is_force || !relationship.is_mutex)
 										{
 											hard_relationship = true;
@@ -324,18 +324,18 @@ namespace Noodles::Implement
 								}
 							}
 							if (searching_stack.empty())
-								// ȫ����ѯ����
+								// done?
 								break;
 						}
 					}
 				}
 				
-				// ͬ�� m_state - m_systems
+				// ͬmapping m_state - m_systems
 				m_state.resize(m_systems.size());
 				for (auto ite = m_systems.begin(); ite != m_systems.end(); ++ite)
 					m_state[ite->second.state_index] = SystemState{ RuningState::Ready, ite->second.relationship_start_index, ite->second.relationship_length, ite };
 
-				// ͬ�� m_runingrelationship - m_relationship
+				// ͬmapping m_runingrelationship - m_relationship
 				m_running_relationship.resize(m_relationships.size());
 				for (size_t i = 0; i < m_relationships.size(); ++i)
 				{
@@ -519,10 +519,17 @@ namespace Noodles::Implement
 		}
 		if (ite.has_value())
 		{
-			(*ite)->second.ptr->apply(context);
-			std::lock_guard lg(m_state_mutex);
-			m_state[(*ite)->second.state_index].state = RuningState::Done;
-			return ApplyResult::Applied;
+			try {
+				(*ite)->second.ptr->apply(context);
+				std::lock_guard lg(m_state_mutex);
+				m_state[(*ite)->second.state_index].state = RuningState::Done;
+				return ApplyResult::Applied;
+			}
+			catch (...){
+				std::lock_guard lg(m_state_mutex);
+				m_state[(*ite)->second.state_index].state = RuningState::Ready;
+				throw;
+			}
 		}
 		return ApplyResult::Waitting;
 	}

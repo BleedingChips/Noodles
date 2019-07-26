@@ -13,10 +13,10 @@ namespace Potato::Tool
 		/*
 		//overwrite operator();
 		template<typename type, typename ...parameters>
-		decltype(auto) operator()(const intrusive_ptr<type, intrustive_ptr_default_wrapper>&, parameters&&... a);
+		decltype(auto) operator()(const type*&, parameters&&... a);
 
 		template<typename type, typename ...parameters>
-		decltype(auto) operator()(intrusive_ptr<type, intrustive_ptr_default_wrapper>&, parameters&&... a);
+		decltype(auto) operator()(type*&, parameters&&... a);
 		*/
 	};
 
@@ -62,13 +62,13 @@ namespace Potato::Tool
 		template<typename ...parameter_types>
 		decltype(auto) operator()(parameter_types&& ... i)
 		{
-			return wrapper{}(*this, std::forward<parameter_types>(i)...);
+			return wrapper{}(m_ptr, std::forward<parameter_types>(i)...);
 		}
 		
 		template<typename ...parameter_types>
 		decltype(auto) operator()(parameter_types&& ... i) const
 		{
-			return wrapper{}(*this, std::forward<parameter_types>(i)...);
+			return wrapper{}(m_ptr, std::forward<parameter_types>(i)...);
 		}
 
 		type& operator*() const noexcept { return *m_ptr; }
@@ -90,7 +90,6 @@ namespace Potato::Tool
 		template<typename TargetType> TargetType* cast_safe() const noexcept { return static_cast<TargetType*>(m_ptr); }
 		template<typename TargetType> TargetType* cast_reinterpret() const noexcept { return reinterpret_cast<TargetType*>(m_ptr); }
 	private:
-		template<typename o_type, typename wrapper> friend struct intrusive_ptr;
 		friend wrapper;
 		type* m_ptr;
 	};

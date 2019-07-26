@@ -5,6 +5,20 @@ namespace Noodles
 
 	void ContextImplement::loop()
 	{
+		{
+			std::lock_guard lg(m_exception_mutex);
+			for (auto& ite : m_exception_list)
+			{
+				if (ite)
+				{
+					auto re = std::move(ite);
+					std::rethrow_exception(re);
+				}
+				m_have_exceptions = true;
+			}
+			m_exception_list.clear();
+		}
+
 		size_t platform_thread_count = platform_info::instance().cpu_count() * 2 + 2;
 		size_t reserved = (m_thread_reserved > platform_thread_count) ? 0 : (platform_thread_count - m_thread_reserved);
 		std::vector<std::thread> mulity_thread(reserved);
@@ -96,8 +110,8 @@ namespace Noodles
 		return false;
 	}
 
-	ContextImplement::ContextImplement() noexcept : m_available(false), m_thread_reserved(0), m_target_duration(16), m_last_duration(duration_ms{ 0 }),
-		allocator(20), component_pool(allocator), gobal_component_pool(), event_pool(allocator), system_pool()
+	ContextImplement::ContextImplement() noexcept : m_available(false), m_thread_reserved(0), m_target_duration(duration_ms{ 0 }), m_last_duration(duration_ms{ 0 }),
+		allocator(20), component_pool(allocator), gobal_component_pool(), event_pool(allocator), system_pool(), m_have_exceptions(false)
 	{
 
 	}
@@ -109,19 +123,23 @@ namespace Noodles
 
 	void ContextImplement::append_execute_function(ContextImplement* con) noexcept
 	{
-		while (con->m_available)
-		{
-			while (true)
+		try {
+			while (con->m_available)
 			{
 				Implement::SystemPool::ApplyResult result = con->system_pool.asynchro_apply_system(con, false);
 				if (result != Implement::SystemPool::ApplyResult::Applied)
 				{
 					con->apply_asynchronous_work();
 					std::this_thread::yield();
-					break;
+					std::this_thread::sleep_for(Noodles::duration_ms{ 1 });
 				}
 			}
-			std::this_thread::sleep_for(Noodles::duration_ms{1});
+		}
+		catch (...)
+		{
+			std::lock_guard lg(con->m_exception_mutex);
+			con->m_exception_list.push_back(std::current_exception());
+			con->m_available = false;
 		}
 	}
 
