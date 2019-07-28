@@ -116,6 +116,18 @@ namespace Potato ::Doc
 		const char* what() const noexcept;
 	};
 
+	struct loader_text : protected loader_binary
+	{
+		loader_text() {}
+		loader_text(loader_text&& lt) {}
+	private:
+		size_t m_avilable_buffer;
+		char32_t m_buffer[2];
+	};
+
+
+
+
 	namespace Implement
 	{
 		struct loader_base : protected loader_binary

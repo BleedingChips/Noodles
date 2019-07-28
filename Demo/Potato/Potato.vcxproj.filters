@@ -5,7 +5,6 @@
     <ClInclude Include="..\..\Potato\character_encoding.h" />
     <ClInclude Include="..\..\Potato\document.h" />
     <ClInclude Include="..\..\Potato\lexical.h" />
-    <ClInclude Include="..\..\Potato\syntax.h" />
     <ClInclude Include="..\..\Potato\tmp.h" />
     <ClInclude Include="..\..\Potato\tmpcall.h" />
     <ClInclude Include="..\..\Potato\tool.h" />
@@ -15,7 +14,6 @@
     <ClCompile Include="..\..\Potato\character_encoding.cpp" />
     <ClCompile Include="..\..\Potato\document.cpp" />
     <ClCompile Include="..\..\Potato\lexical.cpp" />
-    <ClCompile Include="..\..\Potato\syntax.cpp" />
     <ClCompile Include="..\..\Potato\tool.cpp" />
   </ItemGroup>
 </Project>
