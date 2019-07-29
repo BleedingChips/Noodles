@@ -109,6 +109,10 @@ namespace Potato ::Doc
 	{
 		UTF8 = 0,
 		UTF8_WITH_BOM,
+		UTF16LE,
+		UTF16BE,
+		UTF32LE,
+		UTF32BE,
 		UnSupport,
 	};
 
@@ -117,9 +121,20 @@ namespace Potato ::Doc
 		const char* what() const noexcept;
 	};
 
+	namespace exception
+	{
+		struct bad_format : std::exception
+		{
+			const char* what() const noexcept override;
+			bad_format(std::streampos offset, Format format) : byte_offset(offset), format(format) {}
+			std::streampos byte_offset;
+			Format format;
+		};
+	}
+
 	struct loader_text
 	{
-		loader_text();
+		loader_text() = default;
 		loader_text(const std::filesystem::path&, Format default_format = Format::UTF8);
 		loader_text(loader_text&& lt);
 		loader_text& operator==(const loader_text&);
@@ -146,9 +161,15 @@ namespace Potato ::Doc
 		std::optional<size_t> read_line(char32_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read_line(count, buffer, buffer_count); }
 		std::optional<size_t> read_line(wchar_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read_line(count, buffer, buffer_count); }
 		void reset_cursor();
+		Format format() const noexcept { return m_format; }
+		void close() noexcept { m_file.close(); }
+		std::filesystem::path path() const noexcept { return m_path; }
 	private:
 		std::ifstream m_file;
+		std::filesystem::path m_path;
 		Format m_format;
+		bool (*read_implement)(std::ifstream& f, char32_t* output, size_t buffer_count, std::streampos& pos) noexcept;
+		std::streampos m_pos;
 		size_t m_avilable_buffer;
 		char32_t m_buffer[2];
 	};

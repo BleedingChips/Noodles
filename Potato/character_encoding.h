@@ -37,3 +37,17 @@ namespace Potato::Encoding
 	std::u32string utf8s_to_utf32s(const std::string& input);
 	std::string utf32s_to_utf8s(const std::u32string& input);
 }
+
+namespace Implement
+{
+	template<typename CharT> struct character_space;
+	template<> struct character_space<char> { size_t operator()(char input) const noexcept; };
+	template<> struct character_space<char16_t> { size_t operator()(char16_t input) const noexcept; };
+	template<> struct character_space<char32_t> { size_t operator()(char32_t input) const noexcept { return 1; } };
+
+	template<typename From, typename To> struct encoding_space;
+	template<> struct encoding_space<char, char> { std::tuple<size_t, size_t> operator()(const char* input, size_t input_lengt,  ) };
+	template<> struct encoding_space<char, char16_t> { size_t operator()(char input) const noexcept; };
+	template<> struct encoding_space<char, char32_t> { size_t operator()(char16_t input) const noexcept; };
+	template<> struct encoding_space<char32_t> { size_t operator()(char32_t input) const noexcept { return 1; } };
+}

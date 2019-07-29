@@ -53,7 +53,7 @@ namespace
 		}
 	}
 
-	int64_t calculate_bom_space(BomType format) noexcept
+	std::streamoff calculate_bom_space(BomType format) noexcept
 	{
 		switch (format)
 		{
@@ -70,6 +70,53 @@ namespace
 		}
 	}
 }
+
+namespace Potato::Doc
+{
+
+	namespace Implement
+	{
+		bool loader_text_utf8(std::ifstream& stream, char32_t* buffer, size_t count, std::streampos& pos)
+		{
+			assert(count >= 1);
+			char inside_buffer[6];
+			stream.read(inside_buffer, 1);
+			if (stream.eof())
+				return false;
+			size_t index = Encoding::utf8_require_space(inside_buffer[0]);
+			if (index == 0)
+				throw exception::bad_format{ pos, Format::UTF8 };
+			assert(index <= 6);
+			stream.read(inside_buffer + 1, index - 1);
+			Encoding::utf8_to_utf32(inside_buffer, index, *buffer)
+		}
+	}
+
+
+
+
+
+
+	loader_text::loader_text(const std::filesystem::path& path, Format default_format = Format::UTF8)
+		: m_file(path, std::ios_base::binary), m_path(path), m_format(default_format), m_avilable_buffer(0)
+	{
+		if (m_file.is_open())
+		{
+			char buffer[4];
+			m_file.read(buffer, 4);
+			BomType type = translate_binary_to_bomtype(reinterpret_cast<const unsigned char*>(buffer));
+			auto [str, space] = translate_bomtype_to_binary(type);
+			m_file.seekg(space, std::ios_base::beg);
+			switch (type)
+			{
+			case BomType::None: m_format = default_format; break;
+			case BomType::UTF16LE: m_format; break;
+			}
+		}
+	}
+}
+
+
 
 namespace Potato :: Doc
 {
