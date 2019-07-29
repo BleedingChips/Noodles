@@ -2,23 +2,17 @@
 #include "platform.h"
 namespace Noodles
 {
+	namespace Exception
+	{
+		const char* MultiExceptions::what() const noexcept
+		{
+			return "multi-exceptions";
+		}
+	}
+
 
 	void ContextImplement::loop()
 	{
-		{
-			std::lock_guard lg(m_exception_mutex);
-			for (auto& ite : m_exception_list)
-			{
-				if (ite)
-				{
-					auto re = std::move(ite);
-					std::rethrow_exception(re);
-				}
-				m_have_exceptions = true;
-			}
-			m_exception_list.clear();
-		}
-
 		size_t platform_thread_count = platform_info::instance().cpu_count() * 2 + 2;
 		size_t reserved = (m_thread_reserved > platform_thread_count) ? 0 : (platform_thread_count - m_thread_reserved);
 		std::vector<std::thread> mulity_thread(reserved);
@@ -62,27 +56,41 @@ namespace Noodles
 						m_available = false;
 				}
 			}
-			for (auto& ite : mulity_thread)
-				ite.join();
-			{
-				std::lock_guard lg(m_asynchronous_works_mutex);
-				m_asynchronous_works.clear();
-			}
-			system_pool.clean_all();
-			event_pool.clean_all();
-			gobal_component_pool.clean_all();
-			component_pool.clean_all();
 		}
 		catch (...)
 		{
 			m_available = false;
-			for (auto& ite : mulity_thread)
-				ite.join();
 			{
-				std::lock_guard lg(m_asynchronous_works_mutex);
-				m_asynchronous_works.clear();
+				std::lock_guard lg(m_exception_mutex);
+				m_exception_list.push_back(std::current_exception());
 			}
-			throw;
+		}
+		for (auto& ite : mulity_thread)
+			ite.join();
+		{
+			std::lock_guard lg(m_asynchronous_works_mutex);
+			m_asynchronous_works.clear();
+		}
+		system_pool.clean_all();
+		event_pool.clean_all();
+		gobal_component_pool.clean_all();
+		component_pool.clean_all();
+
+		{
+			std::lock_guard lg(m_exception_mutex);
+			if (!m_exception_list.empty())
+			{
+				if (m_exception_list.size() == 1)
+				{
+					auto p = std::move(*m_exception_list.begin());
+					assert(p);
+					m_exception_list.clear();
+					std::rethrow_exception(p);
+				}
+				else {
+					throw Exception::MultiExceptions{std::move(m_exception_list)};
+				}
+			}
 		}
 		
 	}
@@ -111,7 +119,7 @@ namespace Noodles
 	}
 
 	ContextImplement::ContextImplement() noexcept : m_available(false), m_thread_reserved(0), m_target_duration(duration_ms{ 0 }), m_last_duration(duration_ms{ 0 }),
-		allocator(20), component_pool(allocator), gobal_component_pool(), event_pool(allocator), system_pool(), m_have_exceptions(false)
+		allocator(20), component_pool(allocator), gobal_component_pool(), event_pool(allocator), system_pool()
 	{
 
 	}

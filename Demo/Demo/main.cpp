@@ -253,6 +253,10 @@ int main()
 		{
 			std::cout << "conflig : " << soc.si << " " << soc.ti << std::endl;
 		}
+		catch (...)
+		{
+			std::cout << " Balabala " <<  std::endl;
+		}
 
 		if (handle)
 		{

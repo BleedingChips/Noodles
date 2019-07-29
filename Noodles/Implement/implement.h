@@ -8,6 +8,15 @@ namespace Noodles
 {
 	using duration_ms = std::chrono::milliseconds;
 
+	namespace Exception {
+		struct MultiExceptions : std::exception
+		{
+			virtual const char* what() const noexcept override;
+			MultiExceptions(std::vector<std::exception_ptr> list) : errors(std::move(list)) {}
+			std::vector<std::exception_ptr> errors;
+		};
+	}
+
 	struct ContextImplement : Context
 	{
 		void loop();
@@ -38,6 +47,5 @@ namespace Noodles
 		std::deque<intrusive_ptr<Implement::AsynchronousWorkInterface>> m_asynchronous_works;
 		std::mutex m_exception_mutex;
 		std::vector<std::exception_ptr> m_exception_list;
-		bool m_have_exceptions;
 	};
 }

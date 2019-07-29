@@ -493,7 +493,7 @@ namespace Noodles::Implement
 							if (rel.is_force || (!rel.system_check || !rel.gobal_component_check || !rel.component_check))
 							{
 								auto& state2 = m_state[rel.passtive_index];
-								if (rel.is_mutex && state2.state == RuningState::Using || !rel.is_mutex && state2.state != RuningState::Done)
+								if (rel.is_mutex && state2.state == RuningState::Using || !rel.is_mutex && state2.state != RuningState::Done || state2.state == RuningState::Error)
 								{
 									able_to_apply = false;
 									break;
@@ -527,7 +527,7 @@ namespace Noodles::Implement
 			}
 			catch (...){
 				std::lock_guard lg(m_state_mutex);
-				m_state[(*ite)->second.state_index].state = RuningState::Ready;
+				m_state[(*ite)->second.state_index].state = RuningState::Error;
 				throw;
 			}
 		}

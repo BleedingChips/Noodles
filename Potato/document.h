@@ -5,6 +5,7 @@
 #include <vector>
 #include <map>
 #include <assert.h>
+#include <optional>
 
 namespace Potato ::Doc
 {
@@ -116,17 +117,41 @@ namespace Potato ::Doc
 		const char* what() const noexcept;
 	};
 
-	struct loader_text : protected loader_binary
+	struct loader_text
 	{
-		loader_text() {}
-		loader_text(loader_text&& lt) {}
+		loader_text();
+		loader_text(const std::filesystem::path&, Format default_format = Format::UTF8);
+		loader_text(loader_text&& lt);
+		loader_text& operator==(const loader_text&);
+		bool is_open() const noexcept { return m_file.is_open(); }
+		bool is_end_of_file() const noexcept { return m_file.eof(); }
+		std::optional<size_t> read_one(char* buffer, size_t buffer_count);
+		std::optional<size_t> read_one(char16_t* buffer, size_t buffer_count);
+		std::optional<size_t> read_one(char32_t* buffer, size_t buffer_count = 1);
+		std::optional<size_t> read_one(wchar_t* buffer, size_t buffer_count = 1);
+		std::optional<size_t> read(size_t& char_count, char* buffer, size_t buffer_count = 1);
+		std::optional<size_t> read(size_t& char_count, char16_t* buffer, size_t buffer_count = 1);
+		std::optional<size_t> read(size_t& char_count, char32_t* buffer, size_t buffer_count = 1);
+		std::optional<size_t> read(size_t& char_count, wchar_t* buffer, size_t buffer_count = 1);
+		std::optional<size_t> read(char* buffer, size_t buffer_count = 1) { size_t count = 0; return read(count, buffer, buffer_count); }
+		std::optional<size_t> read(char16_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read(count, buffer, buffer_count); }
+		std::optional<size_t> read(char32_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read(count, buffer, buffer_count); }
+		std::optional<size_t> read(wchar_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read(count, buffer, buffer_count); }
+		std::optional<size_t> read_line(size_t& char_count, char* buffer, size_t buffer_count);
+		std::optional<size_t> read_line(size_t& char_count, char16_t* buffer, size_t buffer_count = 1);
+		std::optional<size_t> read_line(size_t& char_count, char32_t* buffer, size_t buffer_count = 1);
+		std::optional<size_t> read_line(size_t& char_count, wchar_t* buffer, size_t buffer_count = 1);
+		std::optional<size_t> read_line(char* buffer, size_t buffer_count) { size_t count = 0; return read_line(count, buffer, buffer_count); }
+		std::optional<size_t> read_line(char16_t* buffer, size_t buffer_count) { size_t count = 0; return read_line(count, buffer, buffer_count); }
+		std::optional<size_t> read_line(char32_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read_line(count, buffer, buffer_count); }
+		std::optional<size_t> read_line(wchar_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read_line(count, buffer, buffer_count); }
+		void reset_cursor();
 	private:
+		std::ifstream m_file;
+		Format m_format;
 		size_t m_avilable_buffer;
 		char32_t m_buffer[2];
 	};
-
-
-
 
 	namespace Implement
 	{
