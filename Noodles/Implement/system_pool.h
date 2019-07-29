@@ -68,7 +68,8 @@ namespace Noodles::Implement
 		{
 			Ready,
 			Using,
-			Done
+			Done,
+			Error
 		};
 
 		struct SystemHolder

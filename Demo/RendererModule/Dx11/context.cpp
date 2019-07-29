@@ -37,7 +37,7 @@ namespace Dx11
 	void Renderer::push_command()
 	{
 		Potato::Tool::intrusive_ptr<DefaultCommandImplement> ptr = new DefaultCommandImplement{};
-		HRESULT re = device_context->FinishCommandList(0, ComWrapper::ref(ptr->m_command_list));
+		HRESULT re = device_context->FinishCommandList(0, ptr->m_command_list());
 		assert(SUCCEEDED(re));
 		m_context_ptr->insert_command(ptr);
 	}
@@ -61,7 +61,7 @@ namespace Dx11
 	{
 		
 		ComPtr<ID3D11CommandList> command;
-		HRESULT re = device_context->FinishCommandList(FALSE, ComWrapper::ref(command));
+		HRESULT re = device_context->FinishCommandList(FALSE, command());
 		assert(SUCCEEDED(re));
 		if (m_waitiing->m_mutex.try_lock())
 		{
@@ -126,9 +126,9 @@ namespace Dx11
 			lel,
 			1,
 			D3D11_SDK_VERSION,
-			ComWrapper::ref(device),
+			device(),
 			&final_level,
-			ComWrapper::ref(device_context)
+			device_context()
 		);
 		assert(SUCCEEDED(re));
 		ContextPtr ptr = new Context{ std::move(device), std::move(device_context) };
@@ -187,7 +187,7 @@ namespace Dx11
 	{
 		ComPtr<ID3D11DeviceContext> defer;
 		HRESULT re;
-		re = m_context->CreateDeferredContext(0, ComWrapper::ref(defer));
+		re = m_context->CreateDeferredContext(0, defer());
 		assert(SUCCEEDED(re));
 		
 		DXGI_SWAP_CHAIN_DESC1 desc{
@@ -204,25 +204,25 @@ namespace Dx11
 			0
 		};
 		ComPtr<IDXGIDevice> pDXGIDevice;
-		re = m_context->QueryInterface(__uuidof(IDXGIDevice), (void**)ComWrapper::ref(pDXGIDevice));
+		re = m_context->QueryInterface(__uuidof(IDXGIDevice), (void**)pDXGIDevice());
 		assert(SUCCEEDED(re));
 		ComPtr<IDXGIAdapter> pDXGIAdapter;
-		re = pDXGIDevice->GetParent(__uuidof(IDXGIAdapter), (void**)ComWrapper::ref(pDXGIAdapter));
+		re = pDXGIDevice->GetParent(__uuidof(IDXGIAdapter), (void**)pDXGIAdapter());
 		assert(SUCCEEDED(re));
 		ComPtr<IDXGIFactory2> pIDXGIFactory2;
-		re = pDXGIAdapter->GetParent(__uuidof(IDXGIFactory2), (void**)ComWrapper::ref(pIDXGIFactory2));
+		re = pDXGIAdapter->GetParent(__uuidof(IDXGIFactory2), (void**)pIDXGIFactory2());
 		assert(SUCCEEDED(re));
 		Win32::Form form = Win32::Form::create(pro);
 		ComPtr<IDXGISwapChain1> result;
-		re = pIDXGIFactory2->CreateSwapChainForHwnd(m_context, form, &desc, nullptr, nullptr, ComWrapper::ref(result));
+		re = pIDXGIFactory2->CreateSwapChainForHwnd(m_context, form, &desc, nullptr, nullptr, result());
 		assert(SUCCEEDED(re));
 		ComPtr<ID3D11Resource> resource;
-		re = (result)->GetBuffer(0, __uuidof(ID3D11Resource), reinterpret_cast<void**>(ComWrapper::ref(resource)));
+		re = (result)->GetBuffer(0, __uuidof(ID3D11Resource), reinterpret_cast<void**>(resource()));
 		assert(SUCCEEDED(re));
 		D3D11_RENDER_TARGET_VIEW_DESC rt_des{ pro.format, D3D11_RTV_DIMENSION_TEXTURE2D };
 		rt_des.Texture2D = D3D11_TEX2D_RTV{ 0 };
 		ComPtr<ID3D11RenderTargetView> out;
-		re = m_context->CreateRenderTargetView(resource, &rt_des, ComWrapper::ref(out));
+		re = m_context->CreateRenderTargetView(resource, &rt_des, out());
 		assert(SUCCEEDED(re));
 		FormRenderer result_form{std::move(form), std::move(result), out, defer, this };
 		return std::move(result_form);

@@ -197,7 +197,7 @@ namespace Noodles::Implement
 			if (m_systems_change)
 			{
 				size_t i = 0;
-				// 同步 m_relationship m_systems
+				// update m_relationship m_systems
 				for (auto& ite : m_systems)
 				{
 					ite.second.state_index = i++;
@@ -233,8 +233,8 @@ namespace Noodles::Implement
 					}
 				}
 
-				// 找依赖环
-				// 0 ： 未访问， 1 ： 访问途中， 2 ：访问完成
+				// update searching state
+				// 0 unreach 1 handling 2 done
 
 				{
 					std::vector<size_t> searching_state(m_systems.size(), 0);
@@ -253,7 +253,7 @@ namespace Noodles::Implement
 									for (size_t i = 0; i < ite->second.relationship_length; ++i)
 									{
 										auto& relationship = m_relationships[ite->second.relationship_start_index + i];
-										// Mutex 关系的并不是一个依赖
+										// find first searching system before any other system.
 										if (relationship.is_force || !relationship.is_mutex)
 										{
 											hard_relationship = true;
@@ -324,18 +324,18 @@ namespace Noodles::Implement
 								}
 							}
 							if (searching_stack.empty())
-								// 全部轮询完了
+								// done?
 								break;
 						}
 					}
 				}
 				
-				// 同步 m_state - m_systems
+				// 同mapping m_state - m_systems
 				m_state.resize(m_systems.size());
 				for (auto ite = m_systems.begin(); ite != m_systems.end(); ++ite)
 					m_state[ite->second.state_index] = SystemState{ RuningState::Ready, ite->second.relationship_start_index, ite->second.relationship_length, ite };
 
-				// 同步 m_runingrelationship - m_relationship
+				// 同mapping m_runingrelationship - m_relationship
 				m_running_relationship.resize(m_relationships.size());
 				for (size_t i = 0; i < m_relationships.size(); ++i)
 				{
@@ -493,7 +493,7 @@ namespace Noodles::Implement
 							if (rel.is_force || (!rel.system_check || !rel.gobal_component_check || !rel.component_check))
 							{
 								auto& state2 = m_state[rel.passtive_index];
-								if (rel.is_mutex && state2.state == RuningState::Using || !rel.is_mutex && state2.state != RuningState::Done)
+								if (rel.is_mutex && state2.state == RuningState::Using || !rel.is_mutex && state2.state != RuningState::Done || state2.state == RuningState::Error)
 								{
 									able_to_apply = false;
 									break;
@@ -519,10 +519,17 @@ namespace Noodles::Implement
 		}
 		if (ite.has_value())
 		{
-			(*ite)->second.ptr->apply(context);
-			std::lock_guard lg(m_state_mutex);
-			m_state[(*ite)->second.state_index].state = RuningState::Done;
-			return ApplyResult::Applied;
+			try {
+				(*ite)->second.ptr->apply(context);
+				std::lock_guard lg(m_state_mutex);
+				m_state[(*ite)->second.state_index].state = RuningState::Done;
+				return ApplyResult::Applied;
+			}
+			catch (...){
+				std::lock_guard lg(m_state_mutex);
+				m_state[(*ite)->second.state_index].state = RuningState::Error;
+				throw;
+			}
 		}
 		return ApplyResult::Waitting;
 	}
@@ -666,6 +673,10 @@ namespace Noodles::Implement
 		m_systems.clear();
 		m_relationships.clear();
 		m_regedited_system.clear();
+		m_using_temporary.clear();
+		m_regedited_temporary_system.clear();
+		m_state.clear();
+		m_running_relationship.clear();
 	}
 
 }

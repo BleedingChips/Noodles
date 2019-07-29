@@ -7,7 +7,16 @@ namespace Dx11
 	{
 		template<typename T> static void add_ref(T* com) { com->AddRef(); }
 		template<typename T> static void sub_ref(T* com) { com->Release(); }
-		template<typename T> static T** ref(Potato::Tool::intrusive_ptr<T, ComWrapper>& ptr) { assert(!ptr); return &ptr.m_ptr; }
+		template<typename T>
+		T** operator()(T*& pointer)
+		{
+			if (pointer != nullptr)
+			{
+				sub_ref(pointer);
+				pointer = nullptr;
+			}
+			return &pointer;
+		}
 	};
 
 	template<typename T> using ComPtr = Potato::Tool::intrusive_ptr<T, ComWrapper>;
