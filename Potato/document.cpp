@@ -3,6 +3,12 @@
 #include <assert.h>
 #include <array>
 
+/* 
+for cpp20
+#include <bit>
+*/
+
+
 namespace
 {
 	using namespace Potato::Encoding;
@@ -70,35 +76,34 @@ namespace
 		}
 	}
 }
-
+/*
 namespace Potato::Doc
 {
 
-	namespace Implement
+	bool loader_text::load_utf8()
 	{
-		bool loader_text_utf8(std::ifstream& stream, char32_t* buffer, size_t count, std::streampos& pos)
-		{
-			assert(count >= 1);
-			char inside_buffer[6];
-			stream.read(inside_buffer, 1);
-			if (stream.eof())
-				return false;
-			size_t index = Encoding::utf8_require_space(inside_buffer[0]);
-			if (index == 0)
-				throw exception::bad_format{ pos, Format::UTF8 };
-			assert(index <= 6);
-			stream.read(inside_buffer + 1, index - 1);
-			Encoding::utf8_to_utf32(inside_buffer, index, *buffer)
-		}
+		assert(m_file.is_open());
+		assert(m_avilable_buffer < 2);
+		char tem[6];
+		m_file.read(tem, 1);
+		if (m_file.gcount() == 0)
+			return false;
+		auto index = Encoding::encoding_wrapper<char>::require_space(tem[0]);
+		if(!*index)
+			throw exception::bad_format{ m_current_pos, Format::UTF8 };
+		assert(*index <= 6);
+		m_file.read(tem + 1, *index - 1);
+		if(m_file.gcount() != *index || !Encoding::encoding_wrapper<char>::check(tem, *index))
+			throw exception::bad_format{ m_current_pos, Format::UTF8 };
+		size_t result = Encoding::encoding_wrapper<char>::encoding(tem, *index, m_buffer.data() + m_avilable_buffer, 1);
+		assert(result != 0);
+		m_avilable_buffer += 1;
+		m_current_pos += *index;
+		return true;
 	}
 
-
-
-
-
-
-	loader_text::loader_text(const std::filesystem::path& path, Format default_format = Format::UTF8)
-		: m_file(path, std::ios_base::binary), m_path(path), m_format(default_format), m_avilable_buffer(0)
+	loader_text::loader_text(const std::filesystem::path& path, Format default_format)
+		: m_file(path, std::ios_base::binary), m_path(path), m_format(default_format), m_loader_imp(nullptr), m_current_pos(0), m_avilable_buffer(0)
 	{
 		if (m_file.is_open())
 		{
@@ -106,15 +111,36 @@ namespace Potato::Doc
 			m_file.read(buffer, 4);
 			BomType type = translate_binary_to_bomtype(reinterpret_cast<const unsigned char*>(buffer));
 			auto [str, space] = translate_bomtype_to_binary(type);
+			m_start_pos = space;
 			m_file.seekg(space, std::ios_base::beg);
+			m_current_pos = space;
 			switch (type)
 			{
 			case BomType::None: m_format = default_format; break;
-			case BomType::UTF16LE: m_format; break;
+			case BomType::UTF16LE: m_format = Format::UTF16LE; break;
+			case BomType::UTF16BE: m_format = Format::UTF16BE; break;
+			case BomType::UTF32LE: m_format = Format::UTF32LE; break;
+			case BomType::UTF32BE: m_format = Format::UTF32BE; break;
+			case BomType::UTF8: m_format = Format::UTF8_WITH_BOM; break;
+			default: assert(false); break;
+			}
+			switch (m_format)
+			{
+			case Potato::Doc::Format::UTF8:
+			case Potato::Doc::Format::UTF8_WITH_BOM:
+				m_loader_imp = &loader_text::load_utf8;
+				break;
+			default:
+				// unsupport yet
+				assert(false);
+				break;
 			}
 		}
 	}
+
+
 }
+*/
 
 
 
@@ -643,6 +669,63 @@ namespace Potato :: Doc
 					break;
 				}
 			}
+		}
+	}
+}
+
+namespace Potato::Doc2
+{
+	template<typename output_type>
+	std::optional<std::tuple<size_t, size_t>> load_one_template(std::ifstream& file, loading_method method, output_type* output, size_t output_length) noexcept
+	{
+		char32_t tem;
+		auto p = method(file, &tem, 1);
+		if (p)
+		{
+			auto [ou, cs] = *p;
+			if (cs != 0)
+			{
+				auto re = Encoding::encoding_wrapper<char32_t>::encoding(&tem, 1, output, output_length);
+				if (re != 0)
+					return { re, cs };
+				else {
+					file.seekg(-static_cast<std::streamoff>(cs), std::ios::cur);
+				}
+			}
+			return { 0, 0 };
+		}
+		else
+			return std::nullopt;
+	}
+
+	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, char* output, size_t output_length) noexcept
+	{
+		return load_one_template(file, method, output, output_length);
+	}
+
+	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, char16_t* output, size_t output_length) noexcept
+	{
+		return load_one_template(file, method, output, output_length);
+	}
+
+	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, char32_t* output, size_t output_length) noexcept
+	{
+		return load_one_template(file, method, output, output_length);
+	}
+
+	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, wchar_t* output, size_t output_length) noexcept
+	{
+		return load_one_template(file, method, output, output_length);
+	}
+
+	template<typename output_type>
+	std::optional<std::tuple<std::size_t, std::size_t, std::size_t>> load_line_template(std::ifstream& file, loading_method method, output_type* output, size_t output_length) noexcept
+	{
+		while (true)
+		{
+			char32_t tem;
+			auto p = load_one(file, method, output, output_length);
+
 		}
 	}
 }

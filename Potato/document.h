@@ -6,6 +6,7 @@
 #include <map>
 #include <assert.h>
 #include <optional>
+#include <array>
 
 namespace Potato ::Doc
 {
@@ -121,6 +122,7 @@ namespace Potato ::Doc
 		const char* what() const noexcept;
 	};
 
+	/*
 	namespace exception
 	{
 		struct bad_format : std::exception
@@ -132,6 +134,19 @@ namespace Potato ::Doc
 		};
 	}
 
+	struct text_loader_interface
+	{
+
+	};
+
+	struct text_loader_context
+	{
+		static 
+
+
+		text_file_interface& m_interface;
+	};
+
 	struct loader_text
 	{
 		loader_text() = default;
@@ -140,26 +155,19 @@ namespace Potato ::Doc
 		loader_text& operator==(const loader_text&);
 		bool is_open() const noexcept { return m_file.is_open(); }
 		bool is_end_of_file() const noexcept { return m_file.eof(); }
-		std::optional<size_t> read_one(char* buffer, size_t buffer_count);
-		std::optional<size_t> read_one(char16_t* buffer, size_t buffer_count);
-		std::optional<size_t> read_one(char32_t* buffer, size_t buffer_count = 1);
-		std::optional<size_t> read_one(wchar_t* buffer, size_t buffer_count = 1);
-		std::optional<size_t> read(size_t& char_count, char* buffer, size_t buffer_count = 1);
-		std::optional<size_t> read(size_t& char_count, char16_t* buffer, size_t buffer_count = 1);
-		std::optional<size_t> read(size_t& char_count, char32_t* buffer, size_t buffer_count = 1);
-		std::optional<size_t> read(size_t& char_count, wchar_t* buffer, size_t buffer_count = 1);
-		std::optional<size_t> read(char* buffer, size_t buffer_count = 1) { size_t count = 0; return read(count, buffer, buffer_count); }
-		std::optional<size_t> read(char16_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read(count, buffer, buffer_count); }
-		std::optional<size_t> read(char32_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read(count, buffer, buffer_count); }
-		std::optional<size_t> read(wchar_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read(count, buffer, buffer_count); }
-		std::optional<size_t> read_line(size_t& char_count, char* buffer, size_t buffer_count);
-		std::optional<size_t> read_line(size_t& char_count, char16_t* buffer, size_t buffer_count = 1);
-		std::optional<size_t> read_line(size_t& char_count, char32_t* buffer, size_t buffer_count = 1);
-		std::optional<size_t> read_line(size_t& char_count, wchar_t* buffer, size_t buffer_count = 1);
-		std::optional<size_t> read_line(char* buffer, size_t buffer_count) { size_t count = 0; return read_line(count, buffer, buffer_count); }
-		std::optional<size_t> read_line(char16_t* buffer, size_t buffer_count) { size_t count = 0; return read_line(count, buffer, buffer_count); }
-		std::optional<size_t> read_line(char32_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read_line(count, buffer, buffer_count); }
-		std::optional<size_t> read_line(wchar_t* buffer, size_t buffer_count = 1) { size_t count = 0; return read_line(count, buffer, buffer_count); }
+		
+		// output buffer used
+		template<typename output_type>
+		size_t read_one(output_type* buffer, size_t buffer_count);
+
+		// output buffer used, charactor count
+		template<typename output_type>
+		std::tuple<size_t, size_t> read(output_type* buffer, size_t buffer_count = 1);
+
+		// output buffer used, charactor count
+		template<typename output_type>
+		std::tuple<size_t, size_t> read_line(size_t& char_count, char* buffer, size_t buffer_count);
+
 		void reset_cursor();
 		Format format() const noexcept { return m_format; }
 		void close() noexcept { m_file.close(); }
@@ -168,11 +176,18 @@ namespace Potato ::Doc
 		std::ifstream m_file;
 		std::filesystem::path m_path;
 		Format m_format;
-		bool (*read_implement)(std::ifstream& f, char32_t* output, size_t buffer_count, std::streampos& pos) noexcept;
-		std::streampos m_pos;
+		bool (loader_text::* m_loader_imp)();
+		std::streampos m_start_pos;
+		std::streampos m_current_pos;
 		size_t m_avilable_buffer;
-		char32_t m_buffer[2];
+		std::array<char32_t, 2> m_buffer;
+		bool load_utf8();
+		bool load_utf16_swap();
+		bool load_utf16();
+		bool load_utf32_swap();
+		bool load_utf32();
 	};
+	*/
 
 	namespace Implement
 	{
@@ -483,3 +498,46 @@ namespace Potato ::Doc
 
 }
 
+namespace Potato::Doc2
+{
+
+	enum class BomType
+	{
+		None,
+		UTF8,
+		UTF16LE,
+		UTF16BE,
+		UTF32LE,
+		UTF32BE
+	};
+
+	enum class Format
+	{
+		UTF8 = 0,
+		UTF16LE,
+		UTF16BE,
+		UTF32LE,
+		UTF32BE,
+	};
+
+	BomType try_load_bom(std::ifstream& input_file, bool consume = true) noexcept;
+	Format translate_format(BomType bom, Format default_format = Format::UTF8) noexcept;
+
+	// null error code, first output_length, second consume size
+	using loading_method = std::optional<std::tuple<std::size_t, std::size_t>>(*)(std::ifstream&, char32_t* output, std::size_t output_length) noexcept;
+	loading_method pick_method(Format) noexcept;
+
+	// null error code, first output length, second consume size
+	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, char* output, size_t output_length) noexcept;
+	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, char16_t* output, size_t output_length) noexcept;
+	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, char32_t* output, size_t output_length) noexcept;
+	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, wchar_t* output, size_t output_length) noexcept;
+
+	template<typename output_type>
+	std::optional<std::tuple<std::size_t, std::size_t>> load_one(std::ifstream& file, Format format, output_type* output, size_t output_length) noexcept
+	{
+		return load_one(file, pick_method(format), output, output_length);
+	}
+
+	// null error code, first output_length, char count, second consume size
+}

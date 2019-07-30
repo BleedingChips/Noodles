@@ -174,6 +174,7 @@ struct Temporary2
 
 int main()
 {
+
 	{
 
 		ContextImplement imp;

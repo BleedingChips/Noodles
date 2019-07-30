@@ -38,16 +38,66 @@ namespace Potato::Encoding
 	std::string utf32s_to_utf8s(const std::u32string& input);
 }
 
-namespace Implement
+namespace Potato::Encoding
 {
-	template<typename CharT> struct character_space;
-	template<> struct character_space<char> { size_t operator()(char input) const noexcept; };
-	template<> struct character_space<char16_t> { size_t operator()(char16_t input) const noexcept; };
-	template<> struct character_space<char32_t> { size_t operator()(char32_t input) const noexcept { return 1; } };
+	template<typename type> struct encoding_wrapper;
 
-	template<typename From, typename To> struct encoding_space;
-	template<> struct encoding_space<char, char> { std::tuple<size_t, size_t> operator()(const char* input, size_t input_lengt,  ) };
-	template<> struct encoding_space<char, char16_t> { size_t operator()(char input) const noexcept; };
-	template<> struct encoding_space<char, char32_t> { size_t operator()(char16_t input) const noexcept; };
-	template<> struct encoding_space<char32_t> { size_t operator()(char32_t input) const noexcept { return 1; } };
+	template<> struct encoding_wrapper<char> {
+		static std::optional<size_t> require_space(char input) noexcept;
+		static bool check(const char* input, size_t input_length) noexcept;
+		static size_t encoding(const char* input, size_t input_length, char* output, size_t output_length) noexcept;
+		static size_t encoding(const char* input, size_t input_length, char32_t* output, size_t output_length) noexcept;
+		static size_t encoding(const char* input, size_t input_length, char16_t* output, size_t output_length) noexcept;
+	};
+
+	template<> struct encoding_wrapper<char16_t> {
+		static std::optional<size_t> require_space(char16_t input) noexcept;
+		static bool check(const char16_t* input, size_t input_length) noexcept;
+		static size_t encoding(const char16_t* input, size_t input_length, char* output, size_t output_length) noexcept;
+		static size_t encoding(const char16_t* input, size_t input_length, char32_t* output, size_t output_length) noexcept;
+		static size_t encoding(const char16_t* input, size_t input_length, char16_t* output, size_t output_length) noexcept;
+	};
+
+	template<> struct encoding_wrapper<char32_t> {
+		static std::optional<size_t> require_space(char32_t input) noexcept;
+		static bool check(const char32_t* input, size_t input_length) noexcept;
+		static size_t encoding(const char32_t* input, size_t input_length, char* output, size_t output_length) noexcept;
+		static size_t encoding(const char32_t* input, size_t input_length, char32_t* output, size_t output_length) noexcept;
+		static size_t encoding(const char32_t* input, size_t input_length, char16_t* output, size_t output_length) noexcept;
+	};
+
+	
+	template<typename wrapper, typename input_t, typename output_t> 
+	// output buffer used, input buffer used
+	std::tuple<size_t, size_t> encoding_one(const input_t* input, size_t input_length, output_t* output, size_t output_length) noexcept
+	{
+		if (input_length >= 1)
+		{
+			auto space = wrapper::require_space(input[0]);
+			if (space && *space <= input_length && wrapper::check(input, *space))
+				return { wrapper::encoding(input, input_length, output, output_length), *space };
+		}
+		return { 0,0 };
+	}
+
+	template<typename wrapper, typename input_t, typename output_t>
+	// output buffer used, charactor count, input buffer used
+	std::tuple<size_t, size_t, size_t> encoding_string(const input_t* input, size_t input_length, output_t* output, size_t output_length) noexcept
+	{
+		size_t total = 0;
+		size_t input_used = 0;
+		size_t output_used = 0;
+		while (true)
+		{
+			auto [ou, iu] = encoding_one<wrapper>(input, input_length, output, output_length);
+			if (ou != 0 && iu != 0)
+			{
+				total += 1;
+				input_used += iu;
+				output_used += ou;
+			}
+			else
+				return { output_used ,total, input_used };
+		}
+	}
 }
