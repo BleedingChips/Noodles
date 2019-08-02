@@ -675,8 +675,145 @@ namespace Potato :: Doc
 
 namespace Potato::Doc2
 {
+
+	const unsigned char utf8_bom[] = { 0xEF, 0xBB, 0xBF };
+	const unsigned char utf16_le_bom[] = { 0xFF, 0xFE };
+	const unsigned char utf16_be_bom[] = { 0xFE, 0xFF };
+	const unsigned char utf32_le_bom[] = { 0x00, 0x00, 0xFE, 0xFF };
+	const unsigned char utf32_be_bom[] = { 0xFF, 0xFe, 0x00, 0x00 };
+
+	BomType translate_binary_to_bomtype(const unsigned char* bom) noexcept
+	{
+		if (std::memcmp(bom, utf8_bom, 3) == 0)
+			return BomType::UTF8;
+		else if (std::memcmp(bom, utf32_le_bom, 4) == 0)
+			return BomType::UTF32LE;
+		else if (std::memcmp(bom, utf32_be_bom, 4) == 0)
+			return BomType::UTF32BE;
+		else if (std::memcmp(bom, utf16_le_bom, 2) == 0)
+			return BomType::UTF16LE;
+		else if (std::memcmp(bom, utf16_be_bom, 2) == 0)
+			return BomType::UTF16BE;
+		else
+			return BomType::None;
+	}
+
+	std::tuple<const unsigned char*, size_t> translate_bomtype_to_binary(BomType format) noexcept
+	{
+		switch (format)
+		{
+		case BomType::UTF8: return { utf8_bom, 3 };
+		case BomType::UTF16LE: return { utf16_le_bom, 2 };
+		case BomType::UTF16BE: return { utf16_be_bom, 2 };
+		case BomType::UTF32LE: return { utf32_le_bom, 4 };
+		case BomType::UTF32BE: return { utf32_be_bom, 4 };
+		default: return { nullptr, 0 };
+		}
+	}
+
+	std::streamoff calculate_bom_space(BomType format) noexcept
+	{
+		switch (format)
+		{
+		case BomType::UTF8:
+			return 3;
+		case BomType::UTF16LE:
+		case BomType::UTF16BE:
+			return 2;
+		case BomType::UTF32BE:
+		case BomType::UTF32LE:
+			return 4;
+		default:
+			return 0;
+		}
+	}
+
+	BomType try_load_bom(std::ifstream& input_file, bool consume = true) noexcept
+	{
+		assert(input_file.is_open());
+		unsigned char buffer[4];
+		input_file.read(reinterpret_cast<char*>(buffer), 4);
+		BomType type = translate_binary_to_bomtype(buffer);
+		int space = static_cast<int>(calculate_bom_space(type));
+		if (consume)
+			space = space - 4;
+		else
+			space = -4;
+		input_file.seekg(space, std::ios::cur);
+		return type;
+	}
+
+	Format translate_format(BomType bom, Format default_format = Format::UTF8) noexcept
+	{
+		switch (bom)
+		{
+		case BomType::None: return default_format;
+		case BomType::UTF8: return Format::UTF8;
+		case BomType::UTF16LE: return Format::UTF16LE;
+		case BomType::UTF16BE: return Format::UTF16BE;
+		case BomType::UTF32LE: return Format::UTF32LE;
+		case BomType::UTF32BE: return Format::UTF32BE;
+		default:
+			assert(false);
+			return Format::UTF8;
+		}
+	}
+
+	std::optional<std::tuple<std::size_t, std::size_t>> read_utf8_imp(std::ifstream& file, char32_t* output, std::size_t output_length) noexcept
+	{
+		char buffer[6] = { 0, 0, 0, 0, 0, 0 };
+		file.read(buffer, 6);
+		size_t count = file.gcount();
+		if (count >= 1)
+		{
+			try {
+				auto [ou, iu] = Encoding::encoding_one(buffer, count, output, output_length);
+				//return 
+			}
+			catch (Encoding::Exception::bad_format format)
+			{
+
+			}
+		}
+		
+		
+
+
+
+		/*
+		if (count > 1)
+		{
+			auto space = encoding_wrapper<char>::require_space(buffer[0]);
+			if (space)
+			{
+				assert(*space >= 1 && *space <= 6);
+				if(encoding_wrapper<char>::check()
+			}
+		}
+		else
+			return std::tuple<std::size_t, std::size_t>{ 0, 0 };
+
+		if (file.gcount() == 1)
+		{
+			auto space = encoding_wrapper<char>::require_space(buffer[0]);
+			if (space)
+			{
+				file.read(buffer + 1, *space - 1);
+				if (file.gcount() == *space - 1)
+				{
+
+				}else
+					throw 
+			}
+		}else
+			return { 0, 0 };
+			*/
+
+	}
+
+
 	template<typename output_type>
-	std::optional<std::tuple<size_t, size_t>> load_one_template(std::ifstream& file, loading_method method, output_type* output, size_t output_length) noexcept
+	std::tuple<size_t, size_t> load_one_template(std::ifstream& file, loading_method method, output_type* output, size_t output_length)
 	{
 		char32_t tem;
 		auto p = method(file, &tem, 1);
@@ -723,7 +860,7 @@ namespace Potato::Doc2
 	{
 		while (true)
 		{
-			char32_t tem;
+			char32_t tem[2];
 			auto p = load_one(file, method, output, output_length);
 
 		}

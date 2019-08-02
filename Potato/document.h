@@ -523,15 +523,15 @@ namespace Potato::Doc2
 	BomType try_load_bom(std::ifstream& input_file, bool consume = true) noexcept;
 	Format translate_format(BomType bom, Format default_format = Format::UTF8) noexcept;
 
-	// null error code, first output_length, second consume size
+	//first output_length, second consume size
 	using loading_method = std::optional<std::tuple<std::size_t, std::size_t>>(*)(std::ifstream&, char32_t* output, std::size_t output_length) noexcept;
 	loading_method pick_method(Format) noexcept;
 
 	// null error code, first output length, second consume size
-	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, char* output, size_t output_length) noexcept;
-	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, char16_t* output, size_t output_length) noexcept;
-	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, char32_t* output, size_t output_length) noexcept;
-	std::optional<std::tuple<size_t, size_t>> load_one(std::ifstream& file, loading_method method, wchar_t* output, size_t output_length) noexcept;
+	std::tuple<size_t, size_t> load_one(std::ifstream& file, loading_method method, char* output, size_t output_length);
+	std::tuple<size_t, size_t> load_one(std::ifstream& file, loading_method method, char16_t* output, size_t output_length);
+	std::tuple<size_t, size_t> load_one(std::ifstream& file, loading_method method, char32_t* output, size_t output_length);
+	std::tuple<size_t, size_t> load_one(std::ifstream& file, loading_method method, wchar_t* output, size_t output_length);
 
 	template<typename output_type>
 	std::optional<std::tuple<std::size_t, std::size_t>> load_one(std::ifstream& file, Format format, output_type* output, size_t output_length) noexcept
