@@ -95,27 +95,10 @@ namespace Potato::Encoding
 				static_assert(sizeof(wchar_t) == sizeof(char16_t) || sizeof(wchar_t) == sizeof(char32_t));
 		}
 	};
-
-	namespace Exception
-	{
-
-		struct file_bad_format : std::exception
-		{
-			std::streampos pos;
-			std::streamoff offset;
-			const char* what() const noexcept;
-		};
-		struct bad_format : std::exception
-		{
-			size_t charactor_index;
-			const char* what() const noexcept;
-			bad_format(size_t index) : charactor_index(index) {}
-		};
-	}
 	
-	// output buffer used, input buffer used
+	// length of output buffer used, length of input buffer used, state
 	template<typename input_t, typename output_t>
-	std::tuple<size_t, size_t> encoding_one(const input_t* input, size_t input_length, output_t* output, size_t output_length)
+	std::tuple<size_t, size_t, bool> encoding_one(const input_t* input, size_t input_length, output_t* output, size_t output_length) noexcept
 	{
 		if (input_length >= 1)
 		{
@@ -123,25 +106,25 @@ namespace Potato::Encoding
 			if (space && encoding_wrapper<input_t>::check(input, *space))
 			{
 				if (*space <= input_length)
-					return { encoding_wrapper<input_t>::encoding(input, input_length, output, output_length), *space };
+					return { encoding_wrapper<input_t>::encoding(input, input_length, output, output_length), *space, true };
 			}
-			else
-				Exception::bad_format{ 0 };
+			return { 0, *space, false };
 		}
-		return { 0,0 };
+		return { 0, 0, true };
 	}
 
 	template<typename input_t, typename output_t>
-	// output buffer used, charactor count, input buffer used
-	std::tuple<size_t, size_t, size_t> encoding_string(const input_t* input, size_t input_length, output_t* output, size_t output_length)
+	// output buffer used, charactor count, input buffer used, state
+	std::tuple<size_t, size_t, size_t, bool> encoding_string(const input_t* input, size_t input_length, output_t* output, size_t output_length) noexcept
 	{
 		size_t total = 0;
 		size_t input_used = 0;
 		size_t output_used = 0;
-		try {
-			while (true)
+		while (true)
+		{
+			auto [ou, iu, state] = encoding_one(input + input_used, input_length - input_used, output + output_used, output_length - output_used);
+			if (state)
 			{
-				auto [ou, iu] = encoding_one(input + input_used, input_length - input_used, output + output_used, output_length - output_used);
 				if (ou != 0 && iu != 0)
 				{
 					total += 1;
@@ -149,40 +132,52 @@ namespace Potato::Encoding
 					output_used += ou;
 				}
 				else
-					return { output_used ,total, input_used };
+					return { output_used ,total, input_used, true };
 			}
-		}
-		catch (Exception::bad_format& bf)
-		{
-			bf.charactor_index = input_length;
-			throw bf;
+			else
+				return { output_used , total ,input_used, false };
 		}
 	}
 
+	// output string, input used, state
 	template<typename char_type, typename traits = std::char_traits<char_type>, typename allocatpr = std::allocator<char_type>, typename input_t>
-	std::basic_string<char_type, traits, allocatpr> encoding_string(const input_t* input, size_t input_length) noexcept
+	std::tuple<std::basic_string<char_type, traits, allocatpr>, size_t, bool> encoding_string(const input_t* input, size_t input_length) noexcept
 	{
 		std::basic_string<char_type, traits, allocatpr> result;
 		char_type tem_buffer[encoding_wrapper<input_t>::max_space];
 		size_t current_index = 0;
-		try {
-			while (true)
+		while (true)
+		{
+			auto [iu, ou, state] = encoding_one(input + current_index, input_length - current_index, tem_buffer, encoding_wrapper<input_t>::max_space);
+			if (state)
 			{
-				auto [iu, ou] = encoding_one(input + current_index, input_length - current_index, tem_buffer, encoding_wrapper<input_t>::max_space);
 				if (iu != 0 && ou != 0)
 				{
 					current_index += iu;
 					result.insert(result.end(), tem_buffer, tem_buffer + ou);
 				}
 				else
-					return std::move(result);
+					return { std::move(result), current_index, true };
 			}
+			else
+				return { std::move(result), current_index, false };
 		}
-		catch (Exception::bad_format& bf)
-		{
-			bf.charactor_index = current_index;
-			throw bf;
-		}
-		
 	}
+
+	enum class BomType
+	{
+		None,
+		UTF8,
+		UTF16LE,
+		UTF16BE,
+		UTF32LE,
+		UTF32BE
+	};
+
+	static constexpr size_t bom_length = 4;
+
+	// bom type, bom length
+	std::tuple<BomType, size_t>translate_binary_to_bomtype(const std::byte* bom, size_t bom_length) noexcept;
+
+	std::tuple<const std::byte*, size_t> translate_bomtype_to_binary(BomType format) noexcept;
 }

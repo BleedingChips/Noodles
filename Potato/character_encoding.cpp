@@ -612,4 +612,40 @@ namespace Potato::Encoding
 		}
 		return 0;
 	}
+
+	const unsigned char utf8_bom[] = { 0xEF, 0xBB, 0xBF };
+	const unsigned char utf16_le_bom[] = { 0xFF, 0xFE };
+	const unsigned char utf16_be_bom[] = { 0xFE, 0xFF };
+	const unsigned char utf32_le_bom[] = { 0x00, 0x00, 0xFE, 0xFF };
+	const unsigned char utf32_be_bom[] = { 0xFF, 0xFe, 0x00, 0x00 };
+
+	std::tuple<BomType, size_t>translate_binary_to_bomtype(const std::byte* bom, size_t bom_length) noexcept
+	{
+		assert(bom_length >= 4);
+		if (std::memcmp(bom, utf8_bom, 3) == 0)
+			return { BomType::UTF8, 3 };
+		else if (std::memcmp(bom, utf32_le_bom, 4) == 0)
+			return { BomType::UTF32LE, 4 };
+		else if (std::memcmp(bom, utf32_be_bom, 4) == 0)
+			return { BomType::UTF32BE, 4 };
+		else if (std::memcmp(bom, utf16_le_bom, 2) == 0)
+			return { BomType::UTF16LE, 2 };
+		else if (std::memcmp(bom, utf16_be_bom, 2) == 0)
+			return { BomType::UTF16BE, 2 };
+		else
+			return { BomType::None, 0 };
+	}
+
+	std::tuple<const std::byte*, size_t> translate_bomtype_to_binary(BomType format) noexcept
+	{
+		switch (format)
+		{
+		case BomType::UTF8: return { reinterpret_cast<const std::byte*>(utf8_bom), 3 };
+		case BomType::UTF16LE: return { reinterpret_cast<const std::byte*>(utf16_le_bom), 2 };
+		case BomType::UTF16BE: return { reinterpret_cast<const std::byte*>(utf16_be_bom), 2 };
+		case BomType::UTF32LE: return { reinterpret_cast<const std::byte*>(utf32_le_bom), 4 };
+		case BomType::UTF32BE: return { reinterpret_cast<const std::byte*>(utf32_be_bom), 4 };
+		default: return { nullptr, 0 };
+		}
+	}
 }
