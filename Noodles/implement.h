@@ -1,8 +1,9 @@
 #pragma once
-#include "component_pool.h"
-#include "gobal_component_pool.h"
-#include "event_pool.h"
-#include "system_pool.h"
+#include "interface.h"
+#include "implement/component_pool.h"
+#include "implement/gobal_component_pool.h"
+#include "implement/event_pool.h"
+#include "implement/system_pool.h"
 
 namespace Noodles
 {

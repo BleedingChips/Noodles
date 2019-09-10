@@ -9,9 +9,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Noodles\Interface\interface.h">
-      <Filter>Interface</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\Noodles\Implement\component_pool.h">
       <Filter>Implement</Filter>
     </ClInclude>
@@ -22,9 +19,6 @@
       <Filter>Implement</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Noodles\Implement\gobal_component_pool.h">
-      <Filter>Implement</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Noodles\Implement\implement.h">
       <Filter>Implement</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Noodles\Implement\memory.h">
@@ -54,6 +48,8 @@
     <ClInclude Include="..\..\Noodles\Interface\system_interface.h">
       <Filter>Interface</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Noodles\implement.h" />
+    <ClInclude Include="..\..\Noodles\interface.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Noodles\Implement\component_pool.cpp">

@@ -1,6 +1,6 @@
 ﻿// dllmain.cpp : 定义 DLL 应用程序的入口点。
 #include <Windows.h>
-#include "..//..//Noodles/interface/interface.h"
+#include "..//..//Noodles/interface.h"
 #include "Dx11/context.h"
 #include "..//..//Potato/character_encoding.h"
 #include <filesystem>

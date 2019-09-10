@@ -1,8 +1,8 @@
 #pragma once
-#include "component_interface.h"
-#include "entity_interface.h"
-#include "event_interface.h"
-#include "system_interface.h"
+#include "interface/component_interface.h"
+#include "interface/entity_interface.h"
+#include "interface/event_interface.h"
+#include "interface/system_interface.h"
 
 namespace Noodles
 {
