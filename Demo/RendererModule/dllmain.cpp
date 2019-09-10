@@ -1,12 +1,14 @@
 ﻿// dllmain.cpp : 定义 DLL 应用程序的入口点。
 #include <Windows.h>
-#include "..//..//Noodles/interface/interface.h"
+#include "..//..//Noodles/interface.h"
 #include "Dx11/context.h"
-#include "..//..//Potato/document.h"
+#include "..//..//Potato/character_encoding.h"
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <array>
 #include <mutex>
-
+#undef max
 std::mutex* gobal_mutex;
 using namespace Noodles;
 
@@ -94,7 +96,7 @@ struct RenderSystem
 				D3D11_BUFFER_DESC DBD{ static_cast<UINT>(sizeof(Poi) * data.size()), D3D11_USAGE_IMMUTABLE , D3D11_BIND_VERTEX_BUFFER, 0, 0, static_cast<UINT>(sizeof(Poi)) };
 				ComPtr<ID3D11Buffer> ins_buffer;
 				D3D11_SUBRESOURCE_DATA DSD{ data.data(), 0, 0 };
-				HRESULT re = (*context)->CreateBuffer(&DBD, &DSD, ComWrapper::ref(ins_buffer));
+				HRESULT re = (*context)->CreateBuffer(&DBD, &DSD, ins_buffer());
 				assert(SUCCEEDED(re));
 
 				(*render)->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -132,21 +134,33 @@ struct RenderSystem
 		}
 		D3D11_BUFFER_DESC DBD{ sizeof(Point) * 13 * 3, D3D11_USAGE_IMMUTABLE , D3D11_BIND_VERTEX_BUFFER, 0, 0, sizeof(Point) };
 		D3D11_SUBRESOURCE_DATA DSD{ all_buffer.data(), 0, 0 };
-		HRESULT re = (*context)->CreateBuffer(&DBD, &DSD, ComWrapper::ref(buffer));
+		HRESULT re = (*context)->CreateBuffer(&DBD, &DSD, buffer());
 		assert(SUCCEEDED(re));
-		Potato::Doc::loader_binary vsb_doc(L"VertexShader.cso");
+
+		std::filesystem::path vs_path = L"VertexShader.cso";
+		std::filesystem::path ps_path = L"PixelShader.cso";
+
+		assert(std::filesystem::exists(vs_path));
+		assert(std::filesystem::exists(ps_path));
+		std::ifstream vsb_doc(vs_path, std::ios::binary);
 		assert(vsb_doc.is_open());
+		uintmax_t total_size = std::filesystem::file_size(vs_path);
+		assert(total_size <= std::numeric_limits<size_t>::max());
+		size_t file_size = static_cast<size_t>(total_size);
 		std::vector<std::byte> vsb;
-		vsb.resize(vsb_doc.last_size());
-		vsb_doc.read(vsb.data(), vsb.size());
-		re = (*context)->CreateVertexShader(vsb.data(), vsb.size(), nullptr, ComWrapper::ref(vs));
+		vsb.resize(file_size);
+		vsb_doc.read(reinterpret_cast<char*>(vsb.data()), vsb.size());
+		re = (*context)->CreateVertexShader(vsb.data(), vsb.size(), nullptr, vs());
 		assert(SUCCEEDED(re));
-		Potato::Doc::loader_binary psb_doc(L"PixelShader.cso");
+		std::ifstream psb_doc(ps_path, std::ios::binary);
 		assert(psb_doc.is_open());
+		total_size = std::filesystem::file_size(ps_path);
+		assert(total_size <= std::numeric_limits<size_t>::max());
+		file_size = static_cast<size_t>(total_size);
 		std::vector<std::byte> psb;
-		psb.resize(psb_doc.last_size());
-		psb_doc.read(psb.data(), psb.size());
-		re = (*context)->CreatePixelShader(psb.data(), psb.size(), nullptr, ComWrapper::ref(ps));
+		psb.resize(file_size);
+		psb_doc.read(reinterpret_cast<char*>(psb.data()), psb.size());
+		re = (*context)->CreatePixelShader(psb.data(), psb.size(), nullptr, ps());
 		assert(SUCCEEDED(re));
 		D3D11_INPUT_ELEMENT_DESC input_desc[] = {
 			D3D11_INPUT_ELEMENT_DESC {"VERPOSITION", 0, DXGI_FORMAT::DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
@@ -154,7 +168,7 @@ struct RenderSystem
 			D3D11_INPUT_ELEMENT_DESC {"RANGE", 0, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, 1, sizeof(float) * 2, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
 			D3D11_INPUT_ELEMENT_DESC {"PROPERTY", 0, DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT, 1, sizeof(float) * 3, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
 		};
-		re = (*context)->CreateInputLayout(input_desc, 4, vsb.data(), vsb.size(), ComWrapper::ref(layout));
+		re = (*context)->CreateInputLayout(input_desc, 4, vsb.data(), vsb.size(), layout());
 		assert(SUCCEEDED(re));
 	}
 private:

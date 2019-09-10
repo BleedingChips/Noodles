@@ -19,20 +19,20 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Noodles\implement.h" />
     <ClInclude Include="..\..\Noodles\Implement\component_pool.h" />
     <ClInclude Include="..\..\Noodles\Implement\entity.h" />
     <ClInclude Include="..\..\Noodles\Implement\event_pool.h" />
     <ClInclude Include="..\..\Noodles\Implement\gobal_component_pool.h" />
-    <ClInclude Include="..\..\Noodles\Implement\implement.h" />
     <ClInclude Include="..\..\Noodles\Implement\memory.h" />
     <ClInclude Include="..\..\Noodles\Implement\platform.h" />
     <ClInclude Include="..\..\Noodles\Implement\system_pool.h" />
+    <ClInclude Include="..\..\Noodles\interface.h" />
     <ClInclude Include="..\..\Noodles\Interface\aid.h" />
     <ClInclude Include="..\..\Noodles\Interface\component_interface.h" />
     <ClInclude Include="..\..\Noodles\Interface\entity_interface.h" />
     <ClInclude Include="..\..\Noodles\Interface\event_interface.h" />
     <ClInclude Include="..\..\Noodles\Interface\gobal_component_interface.h" />
-    <ClInclude Include="..\..\Noodles\Interface\interface.h" />
     <ClInclude Include="..\..\Noodles\Interface\system_interface.h" />
   </ItemGroup>
   <ItemGroup>

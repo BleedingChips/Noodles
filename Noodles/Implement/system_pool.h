@@ -1,5 +1,5 @@
 #pragma once
-#include "../Interface/interface.h"
+#include "../interface.h"
 #include "component_pool.h"
 #include "gobal_component_pool.h"
 #include <map>

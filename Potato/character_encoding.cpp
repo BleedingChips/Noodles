@@ -378,3 +378,274 @@ namespace Potato::Encoding
 		return temporary;
 	}
 }
+
+namespace Potato::Encoding
+{
+
+	std::optional<size_t> encoding_wrapper<char>::require_space(char input) noexcept
+	{
+		if ((input & 0xFE) == 0xFC)
+			return 6;
+		else if ((input & 0xFC) == 0xF8)
+			return 5;
+		else if ((input & 0xF8) == 0xF0)
+			return 4;
+		else if ((input & 0xF0) == 0xE0)
+			return 3;
+		else if ((input & 0xE0) == 0xC0)
+			return 2;
+		else if ((input & 0x80) == 0)
+			return 1;
+		else
+			return std::nullopt;
+	}
+
+	bool encoding_wrapper<char>::check(const char* input, size_t input_length) noexcept
+	{
+		assert(input_length >= 1);
+		auto p = require_space(input[0]);
+		assert(p && *p == input_length);
+		for (size_t i = 1; i < input_length; ++i)
+			if ((input[i] & 0B11000000) != 0B10000000)
+				return false;
+		return true;
+	};
+
+	size_t encoding_wrapper<char>::encoding(const char* input, size_t input_length, char* output, size_t output_length) noexcept
+	{
+		if (input_length >= output_length)
+		{
+			for (size_t i = 0; i < input_length; ++i)
+				output[i] = input[i];
+			return input_length;
+		}
+		else
+			return 0;
+	}
+
+	size_t encoding_wrapper<char>::encoding(const char* input, size_t input_length, char32_t* output, size_t output_length) noexcept
+	{
+		if (output_length >= 1)
+		{
+			switch (input_length)
+			{
+			case 1: *output = input[0]; break;
+			case 2: *output = ((input[0] & 0x1F) << 6) | (input[1] & 0x3F); break;
+			case 3: *output = ((input[0] & 0x0F) << 12) | ((input[1] & 0x3F) << 6) | (input[2] & 0x3F); break;
+			case 4: *output = ((input[0] & 0x07) << 18) | ((input[1] & 0x3F) << 12) | ((input[2] & 0x3F) << 6) | (input[3] & 0x3F); break;
+			case 5: *output = ((input[0] & 0x03) << 24) | ((input[1] & 0x3F) << 18) | ((input[2] & 0x3F) << 12) | ((input[3] & 0x3F) << 6) | (input[4] & 0x3F); break;
+			case 6: *output = ((input[0] & 0x01) << 30) | ((input[1] & 0x3F) << 24) | ((input[2] & 0x3F) << 18) | ((input[3] & 0x3F) << 12) | ((input[4] & 0x3F) << 6) | (input[5] & 0x3F); break;
+			}
+			return 1;
+		}
+		return 0;
+	}
+
+	size_t encoding_wrapper<char>::encoding(const char* input, size_t input_length, char16_t* output, size_t output_length) noexcept
+	{
+		char32_t tem;
+		size_t re = encoding(input, input_length, &tem, 1);
+		assert(re == 1);
+		return encoding_wrapper<char32_t>::encoding(&tem, 1, output, output_length);
+	}
+
+	std::optional<size_t> encoding_wrapper<char16_t>::require_space(char16_t input) noexcept
+	{
+		if (input <= 0x00ffff)
+			return 1;
+		else if ((input & 0B11011000) == 0B11011000)
+			return 2;
+		else
+			return std::nullopt;
+	}
+
+	bool encoding_wrapper<char16_t>::check(const char16_t* input, size_t input_length) noexcept
+	{
+		assert(input_length >= 1);
+		auto p = require_space(input[0]);
+		assert(p && *p == input_length);
+		if (input_length == 2)
+			return (input[2] & 0B11011100) == 0B11011100;
+		return true;
+	}
+
+	size_t encoding_wrapper<char16_t>::encoding(const char16_t* input, size_t input_length, char* output, size_t output_length) noexcept
+	{
+		char32_t tem;
+		size_t re = encoding_wrapper<char16_t>::encoding(input, input_length, &tem, 1);
+		assert(re == input_length);
+		return encoding_wrapper<char32_t>::encoding(&tem, 1, output, output_length);
+	}
+
+	size_t encoding_wrapper<char16_t>::encoding(const char16_t* input, size_t input_length, char32_t* output, size_t output_length) noexcept
+	{
+		if (output_length >= 1)
+		{
+			switch (input_length)
+			{
+			case 1: *output = *input; break;
+			case 2: *output = (char32_t(input[0] & 0B0000001111111111) << 10) + char32_t(input[1] & 0B0000001111111111) + 0x10000; break;
+			}
+			return 1;
+		}
+		return 0;
+	}
+
+	size_t encoding_wrapper<char16_t>::encoding(const char16_t* input, size_t input_length, char16_t* output, size_t output_length) noexcept
+	{
+		if (input_length <= output_length)
+		{
+			for (size_t i = 0; i < input_length; ++i)
+				output[i] = input[i];
+			return input_length;
+		}
+		return 0;
+	}
+
+	std::optional<size_t> encoding_wrapper<char32_t>::require_space(char32_t input) noexcept
+	{
+		if (input <= 0x10ffff)
+			return 1;
+		return std::nullopt;
+	}
+
+	bool encoding_wrapper<char32_t>::check(const char32_t* input, size_t input_length) noexcept { return input_length == 1; }
+
+	size_t encoding_wrapper<char32_t>::encoding(const char32_t* input, size_t input_length, char* output, size_t output_length) noexcept
+	{
+		if ((input[0] & 0xFFFFFF80) == 0)
+		{
+			if (output_length >= 1)
+			{
+				output[0] = static_cast<char>(input[0] & 0x0000007F);
+				return 1;
+			}
+		}
+		else if ((input[0] & 0xFFFF'F800) == 0)
+		{
+			if (output_length >= 2)
+			{
+				output[0] = 0xC0 | static_cast<char>((*input & 0x07C0) >> 6);
+				output[1] = 0x80 | static_cast<char>((*input & 0x3F));
+				return 2;
+			}
+		}
+		else if ((input[0] & 0xFFFF'0000) == 0)
+		{
+			if (output_length >= 3)
+			{
+				output[0] = 0xE0 | static_cast<char>((*input & 0xF000) >> 12);
+				output[1] = 0x80 | static_cast<char>((*input & 0xFC0) >> 6);
+				output[2] = 0x80 | static_cast<char>((*input & 0x3F));
+				return 3;
+			}
+		}
+		else if ((input[0] & 0xFFE0'0000) == 0)
+		{
+			if (output_length >= 4)
+			{
+				output[0] = 0x1E | static_cast<char>((*input & 0x1C0000) >> 18);
+				output[1] = 0x80 | static_cast<char>((*input & 0x3F000) >> 12);
+				output[2] = 0x80 | static_cast<char>((*input & 0xFC0) >> 6);
+				output[3] = 0x80 | static_cast<char>((*input & 0x3F));
+				return 4;
+			}
+		}
+		else if ((input[0] & 0xFC00'0000) == 0)
+		{
+			if (output_length >= 5)
+			{
+				output[0] = 0xF8 | static_cast<char>((*input & 0x300'0000) >> 24);
+				output[1] = 0x80 | static_cast<char>((*input & 0xFC'0000) >> 18);
+				output[2] = 0x80 | static_cast<char>((*input & 0x3'F000) >> 12);
+				output[3] = 0x80 | static_cast<char>((*input & 0xFC0) >> 6);
+				output[4] = 0x80 | static_cast<char>((*input & 0x3F));
+				return 5;
+			}
+
+		}
+		else if ((input[0] & 0x8000'0000) == 0)
+		{
+			if (output_length >= 6)
+			{
+				output[0] = 0xFC | static_cast<char>((*input & 0x4000'0000) >> 30);
+				output[1] = 0x80 | static_cast<char>((*input & 0x3F00'0000) >> 24);
+				output[2] = 0x80 | static_cast<char>((*input & 0xFC'0000) >> 18);
+				output[3] = 0x80 | static_cast<char>((*input & 0x3'F000) >> 12);
+				output[4] = 0x80 | static_cast<char>((*input & 0xFC0) >> 6);
+				output[5] = 0x80 | static_cast<char>((*input & 0x3F));
+				return 6;
+			}
+		}
+		else
+			assert(false);
+		return 0;
+	}
+
+	size_t encoding_wrapper<char32_t>::encoding(const char32_t* input, size_t input_length, char32_t* output, size_t output_length) noexcept
+	{
+		assert(input_length == 1);
+		if (output_length >= 1)
+			output[0] = input[0];
+		return 1;
+	}
+
+	size_t encoding_wrapper<char32_t>::encoding(const char32_t* input, size_t input_length, char16_t* output, size_t output_length) noexcept
+	{
+		if (input[0] >= 0x10000)
+		{
+			if (output_length >= 2)
+			{
+				char32_t tem = input[0] - 0x10000;
+				output[0] = ((tem & 0xFFC00) >> 10) & 0xD800;
+				output[1] = (tem & 0x3FF) & 0xDC00;
+				return 2;
+			}
+		}
+		else
+		{
+			if (output_length >= 1)
+			{
+				output[0] = static_cast<char16_t>(input[0]);
+				return 1;
+			}
+		}
+		return 0;
+	}
+
+	const unsigned char utf8_bom[] = { 0xEF, 0xBB, 0xBF };
+	const unsigned char utf16_le_bom[] = { 0xFF, 0xFE };
+	const unsigned char utf16_be_bom[] = { 0xFE, 0xFF };
+	const unsigned char utf32_le_bom[] = { 0x00, 0x00, 0xFE, 0xFF };
+	const unsigned char utf32_be_bom[] = { 0xFF, 0xFe, 0x00, 0x00 };
+
+	std::tuple<BomType, size_t>translate_binary_to_bomtype(const std::byte* bom, size_t bom_length) noexcept
+	{
+		assert(bom_length >= 4);
+		if (std::memcmp(bom, utf8_bom, 3) == 0)
+			return { BomType::UTF8, 3 };
+		else if (std::memcmp(bom, utf32_le_bom, 4) == 0)
+			return { BomType::UTF32LE, 4 };
+		else if (std::memcmp(bom, utf32_be_bom, 4) == 0)
+			return { BomType::UTF32BE, 4 };
+		else if (std::memcmp(bom, utf16_le_bom, 2) == 0)
+			return { BomType::UTF16LE, 2 };
+		else if (std::memcmp(bom, utf16_be_bom, 2) == 0)
+			return { BomType::UTF16BE, 2 };
+		else
+			return { BomType::None, 0 };
+	}
+
+	std::tuple<const std::byte*, size_t> translate_bomtype_to_binary(BomType format) noexcept
+	{
+		switch (format)
+		{
+		case BomType::UTF8: return { reinterpret_cast<const std::byte*>(utf8_bom), 3 };
+		case BomType::UTF16LE: return { reinterpret_cast<const std::byte*>(utf16_le_bom), 2 };
+		case BomType::UTF16BE: return { reinterpret_cast<const std::byte*>(utf16_be_bom), 2 };
+		case BomType::UTF32LE: return { reinterpret_cast<const std::byte*>(utf32_le_bom), 4 };
+		case BomType::UTF32BE: return { reinterpret_cast<const std::byte*>(utf32_be_bom), 4 };
+		default: return { nullptr, 0 };
+		}
+	}
+}
