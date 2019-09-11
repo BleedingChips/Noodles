@@ -7,7 +7,7 @@ Demo code in `Demo/demo.sln (vs2019)`.
 
 #### How to use
 
-1. Include `Noodles/implement/implement.h`.
+1. Include `Noodles/implement.h`.
 
 1. Define your Components and Systems.
 
@@ -84,7 +84,7 @@ Demo code in `Demo/demo.sln (vs2019)`.
 
 	```cpp
 	// Include interface
-	#include "Noodles/Interface/interface.h"
+	#include "Noodles/interface.h"
 	// Define Components or Systems
 	
 	// using namespace, optional
