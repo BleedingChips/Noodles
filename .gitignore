@@ -32,12 +32,19 @@
 *.app
 
 # vs file
-/demo/.vs
+.vs/
+
+Demo/NoodlesDemo/x64/
+Demo/NoodlesDemo/Debug/
+Demo/NoodlesDemo/Release/
+
+Project/Noodles/x64/
 
 # Demo Project File
-/Demo/Debug
-/Demo/Release
-/Demo/x64
-/Demo/*/Debug
-/Demo/*/Release
-/Demo/*/x64
+/NoodlesDemo/Debug
+/NoodlesDemo/Release
+/NoodlesDemo/x64
+/NoodlesDemo/*/Debug
+/NoodlesDemo/*/Release
+/NoodlesDemo/*/x64
+
