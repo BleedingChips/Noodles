@@ -2,8 +2,9 @@
 #include <typeinfo>
 #include <string_view>
 #include <span>
+#include "Potato/Public/PotatoMisc.h"
 
-namespace Noodle
+namespace Noodles
 {
 	struct TypeInfo
 	{
@@ -17,11 +18,17 @@ namespace Noodle
 		constexpr std::strong_ordering operator<=>(TypeInfo const&) const = default;
 	};
 
+	struct TypeDesc
+	{
+		TypeInfo Info;
+
+	};
+
 	struct TypeGroup
 	{
 		std::span<TypeInfo> GroupInfos;
 		std::byte* MemoryPageStart;
-		std::byte* 
+		//std::byte* 
 	};
 
 }

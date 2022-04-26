@@ -13,13 +13,18 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Noodles\Public\NoodleTypeInfo.h">
+    <ClCompile Include="..\..\Private\NoodlesMemory.cpp">
+      <Filter>Private</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\Public\NoodlesEntity.h">
       <Filter>Public</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Noodles\Public\NoodleEntity.h">
+    <ClInclude Include="..\..\Public\NoodlesMemory.h">
       <Filter>Public</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Noodles\Public\NoodleMemory.h">
+    <ClInclude Include="..\..\Public\NoodlesTypeInfo.h">
       <Filter>Public</Filter>
     </ClInclude>
   </ItemGroup>
