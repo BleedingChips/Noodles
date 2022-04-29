@@ -24,7 +24,7 @@
     <ClInclude Include="..\..\Public\NoodlesMemory.h">
       <Filter>Public</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Public\NoodlesTypeInfo.h">
+    <ClInclude Include="..\..\Public\NoodlesTypeGroup.h">
       <Filter>Public</Filter>
     </ClInclude>
   </ItemGroup>

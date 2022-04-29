@@ -152,7 +152,7 @@
   <ItemGroup>
     <ClInclude Include="..\..\Public\NoodlesEntity.h" />
     <ClInclude Include="..\..\Public\NoodlesMemory.h" />
-    <ClInclude Include="..\..\Public\NoodlesTypeInfo.h" />
+    <ClInclude Include="..\..\Public\NoodlesTypeGroup.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\Potato\Project\Potato\Potato.vcxproj">
