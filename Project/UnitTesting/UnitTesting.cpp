@@ -1,5 +1,8 @@
+#include "../../Public/NoodlesMemory.h"
+
 
 int main()
 {
-    return 0;
+	auto Ptr = Noodles::Memory::Page::Create(800);
+	return 0;
 }

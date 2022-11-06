@@ -1,48 +1,65 @@
 #include "../Public/NoodlesMemory.h"
 
 
-namespace Noodles::PageMemory
+namespace Noodles::Memory
 {
-	// 暂时先不管内存分配的，以后慢慢调优
-
-	void PageWrapper::AddRef(Page* Ptr)
+	void Page::Wrapper::AddRef(Page const* Ptr)
 	{
 		assert(Ptr != nullptr);
-		Ptr->ReferenceCount.AddRef();
+		Ptr->Count.AddRef();
 	}
 
-	void PageWrapper::SubRef(Page* Ptr)
+	void Page::Wrapper::SubRef(Page const* Ptr)
 	{
 		assert(Ptr != nullptr);
-		if (Ptr->ReferenceCount.SubRef())
+		if (Ptr->Count.SubRef())
 		{
 			Ptr->~Page();
-			delete Ptr;
+			delete[] (reinterpret_cast<std::byte const*>(Ptr));
 		}
 	}
 
-	void PageWrapper::AddRef(SubPage* Ptr)
-	{
-		assert(Ptr != nullptr);
-		Ptr->ReferenceCount.AddRef();
-	}
+	constexpr std::size_t MinPageSize = 4 * 1024;
+	constexpr std::size_t MemoryDescription = 20 * sizeof(nullptr);
 
-	void PageWrapper::SubRef(SubPage* Ptr)
+	auto Page::Create(std::size_t MinSize)->Ptr
 	{
-		assert(Ptr != nullptr);
-		if (Ptr->ReferenceCount.SubRef())
+		std::size_t RequireSize = MemoryDescription + MinSize + sizeof(Page);
+		auto Mod = (RequireSize % MinPageSize);
+		if (Mod == 0)
 		{
-			Ptr->PagePtr.Reset();
+			RequireSize = RequireSize;
+		}
+		else {
+			RequireSize = RequireSize + (MinPageSize - Mod);
+		}
+
+		std::byte* Data = new std::byte[RequireSize];
+
+		Ptr P = new (Data) Page{};
+
+		P->AvailableData = {Data + sizeof(Page), RequireSize - sizeof(Page)};
+
+		return P;
+	}
+
+	void ChunkManager::Wrapper::AddRef(ChunkManager const* Ptr)
+	{
+		assert(Ptr != nullptr);
+		Ptr->Count.AddRef();
+	}
+
+	void ChunkManager::Wrapper::SubRef(ChunkManager const* Ptr)
+	{
+		assert(Ptr != nullptr);
+		if (Ptr->Count.SubRef())
+		{
+			Ptr->~ChunkManager();
 		}
 	}
 
-	SubPage ChunkAllocator::Allocator(std::size_t MinChunkSize, std::size_t Aligna)
+	auto ChunkManager::Create(std::size_t MinSize)->Ptr
 	{
-		std::size_t Size = sizeof(SubPage) + sizeof(Page);
-		if(Aligna > alignof(Size))
-			Size += Aligna - alignof(Size);
-		std::byte* Data = new std::byte[Size];
-		auto PagePtr = new (Data) Page;
-
+		
 	}
 }
