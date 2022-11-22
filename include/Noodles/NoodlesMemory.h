@@ -1,6 +1,6 @@
 #pragma once
-#include "Potato/Public/PotatoMisc.h"
-#include "Potato/Public/PotatoIntrusivePointer.h"
+#include "Potato/PotatoMisc.h"
+#include "Potato/PotatoIntrusivePointer.h"
 #include <mutex>
 
 namespace Noodles::Memory
@@ -78,8 +78,8 @@ namespace Noodles::Memory
 	{
 		struct Wrapper
 		{
-			void AddRef(ChunkAllocator const* Ptr);
-			void SubRef(ChunkAllocator const* Ptr);
+			void AddRef(ChunkAllocator const* Ptr) {}
+			void SubRef(ChunkAllocator const* Ptr) {}
 		};
 
 		struct Element
