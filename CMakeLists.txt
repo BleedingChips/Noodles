@@ -7,13 +7,8 @@ project(
 	LANGUAGES C CXX
 )
 
-set(Potato_DIR "../Potato/cmake")
-
-find_package(Potato
-	CONFIG
-)
 
 
-add_subdirectory(${Potato_SUBDIRECTORY} "Potato")
+add_subdirectory("../Potato" "Potato")
 add_subdirectory("src")
 add_subdirectory("test")
