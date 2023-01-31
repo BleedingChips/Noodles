@@ -1,49 +1,77 @@
 #pragma once
+#include "Potato/PotatoIR.h"
+#include "NoodlesMemory.h"
 #include <typeinfo>
 #include <string_view>
 #include <span>
-#include "Potato/Public/PotatoIR.h"
+#include <typeIndex>
+#include <type_traits>
+#include <tuple>
 
 namespace Noodles::TypeGroup
 {
 
-	struct Info
+	struct TypeInfo
 	{
-		Info(Info const&) = default;
+		using Layout = Potato::IR::Layout;
+
+		enum class MethodT
+		{
+			Destruct,
+			MoveContruct,
+		};
+
+		enum class PropertyT
+		{
+			Static,
+			Dynamic
+		};
+
 		template<typename Type>
-		static constexpr Info Get() { 
-			using RT = std::remove_cvref_t<Type>;
+		static TypeInfo Get() {
+			using RT = std::remove_cv_t<std::remove_reference_t<Type>>;
 			return {
+				PropertyT::Static,
 				typeid(RT).hash_code(),
-				Potato::IR::ClassLayout::Get<RT>(), 
-				[](std::byte* Source, std::byte* Target){
-					new (Source) RT { std::move(*reinterpret_cast<RT*>(Target)};
-				},
-				[](std::byte* Source){ reinterpret_cast<RT*>(Source)->~RT(); }
+				Layout::Get<RT>(),
+				[](MethodT Method, std::byte* Target, std::byte* Source) {
+					switch (Method)
+					{
+					case MethodT::Destruct:
+						reinterpret_cast<RT*>(Target)->~RT();
+						break;
+					case MethodT::MoveContruct:
+						new (Target) RT{std::move(reinterpret_cast<RT*>(Source))};
+						break;
+					}
+				}
 			};
 		};
+
+		TypeInfo(PropertyT Pro, std::size_t HashCode, Layout TypeLayout, void (*MethodFunction) (MethodT, std::byte*, std::byte*))
+			: Property(Pro), HashCode(HashCode), TypeLayout(TypeLayout), MethodFunction(MethodFunction) {}
+		TypeInfo(TypeInfo const&) = default;
+
+		void MoveContruct(std::byte* Target, std::byte* Source) const {  (*MethodFunction)(MethodT::MoveContruct, Target, Source); }
+
+		void Destruct(std::byte* Target) const { (*MethodFunction)(MethodT::MoveContruct, Target, nullptr); }
+
+		std::size_t GetHashCode() const { return HashCode; }
+		Layout const& GetLayout() const { return TypeLayout; }
+
 	private:
-		Info(std::size_t HashCode, Potato::IR::ClassLayout Layout, void (*MovementFunction) (std::byte* Source, std::byte* Target), void (*Destructor)(std::byte* Source))
-			: HashCode(HashCode), Layout(Layout), MovementFunction(MovementFunction), Destructor(Destructor)
-		{
-		}
+		
+		PropertyT Property;
 		std::size_t HashCode;
-		Potato::IR::ClassLayout Layout;
-		void (*MovementFunction) (std::byte* Source, std::byte* Target);
-		void (*Destructor)(std::byte* Source);
+		Layout TypeLayout;
+		void (*MethodFunction) (MethodT Met, std::byte* Target, std::byte* Source);
 	};
 
 	struct Group
 	{
-		struct Order 
-		{
-			std::size_t Offset;
-			Info TypeInfo;
-		};
-
-		Potato::IR::ClassLayout ElementLayout;
-		std::span<Order const> Order;
-		std::byte* TopData;
+		using Layout = TypeInfo::Layout;
+		Layout TotalLayout;
+		std::span<std::tuple<std::size_t, TypeInfo>> Infos;
 	};
 
 }
