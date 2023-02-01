@@ -5,39 +5,58 @@
 
 namespace Noodles::Memory
 {
-	struct PageManager : public Potato::Misc::DefaultIntrusiveObjectInterface<PageManager>
+
+	struct HugePage
+	{
+		using PtrT = Potato::Misc::IntrusivePtr<HugePage>;
+
+		static auto Create(std::size_t MinSize) -> PtrT;
+
+		std::span<std::byte> GetBuffer() const { return Buffer; }
+		void AddRef() const { Ref.AddRef(); }
+		
+		template<typename Func>
+		void SubRef(Func Fun) const { if(Ref.SubRef()) { Fun(); ReleaseExe(); }};
+
+		void SubRef() const;
+
+	private:
+
+		HugePage(std::span<std::byte> Buffer) : Buffer(Buffer) {}
+
+		void ReleaseExe() const;
+
+		mutable Potato::Misc::AtomicRefCount Ref;
+		std::span<std::byte> Buffer;
+
+	};
+
+	struct PageManager
 	{
 		using PtrT = Potato::Misc::IntrusivePtr<PageManager>;
 
-		static auto Create() ->PtrT { return new PageManager{}; }
-
+		static auto CreateInstance(std::size_t MaxCacheSize = 10) -> PtrT;
 
 		struct Page
 		{
-			std::span<std::byte> GetBuffer() const { return Buffer; }
-			void AddRef() const { Ref.AddRef(); }
-			void SubRef() const;
-		protected:
-			~Page();
-			Page(PtrT Owner) : Owner(std::move(Owner)) {};
-			mutable Potato::Misc::AtomicRefCount Ref;
-			std::span<std::byte> Buffer;
-			PtrT Owner;
-
-			friend struct PageManager;
+			using PtrT = Potato::Misc::IntrusivePtr<Page>;
+			void AddRef() {}
+			void SubRef() {}
 		};
 
-		using PPtrT = Potato::Misc::IntrusivePtr<Page>;
+		void AddRef() const { Ref.AddRef(); }
 
-		PPtrT Allocate(std::size_t MinSize);
-		
-	protected:
+		void SubRef() const;
 
-		void Release(Page const* Page);
-		friend struct Page;
+	private:
 
 		PageManager() = default;
-	};
 
+		std::span<Page::PtrT> Pages;
+		std::span<HugePage::PtrT> CachedPage;
+
+		mutable Potato::Misc::AtomicRefCount Ref;
+		HugePage::PtrT Owner;
+	};
 
 }
