@@ -41,7 +41,7 @@ namespace Noodles::TypeGroup
 						reinterpret_cast<RT*>(Target)->~RT();
 						break;
 					case MethodT::MoveContruct:
-						new (Target) RT{std::move(reinterpret_cast<RT*>(Source))};
+						new (Target) RT{std::move(*reinterpret_cast<RT*>(Source))};
 						break;
 					}
 				}

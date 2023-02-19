@@ -4,6 +4,7 @@ add_library(
 	NoodlesLib
 	STATIC
 	NoodlesMemory.cpp
+	NoodlesEntity.cpp
 )
 
 target_compile_features(NoodlesLib PUBLIC cxx_std_23)

@@ -1,6 +1,6 @@
 #pragma once
 #include "Potato/PotatoMisc.h"
-#include "Potato/PotatoIntrusivePointer.h"
+#include "Potato/PotatoSmartPtr.h"
 #include <mutex>
 
 namespace Noodles::Memory
@@ -8,15 +8,12 @@ namespace Noodles::Memory
 
 	struct HugePage
 	{
-		using PtrT = Potato::Misc::IntrusivePtr<HugePage>;
+		using Ptr = Potato::Misc::IntrusivePtr<HugePage>;
 
-		static auto Create(std::size_t MinSize) -> PtrT;
+		static auto CreateInstance(std::size_t MinSize) -> Ptr;
 
 		std::span<std::byte> GetBuffer() const { return Buffer; }
 		void AddRef() const { Ref.AddRef(); }
-		
-		template<typename Func>
-		void SubRef(Func Fun) const { if(Ref.SubRef()) { Fun(); ReleaseExe(); }};
 
 		void SubRef() const;
 
@@ -27,36 +24,89 @@ namespace Noodles::Memory
 		void ReleaseExe() const;
 
 		mutable Potato::Misc::AtomicRefCount Ref;
-		std::span<std::byte> Buffer;
+		std::span<std::byte> const Buffer;
 
 	};
 
-	struct PageManager
+
+	struct ChunkPage
 	{
-		using PtrT = Potato::Misc::IntrusivePtr<PageManager>;
+		using Ptr = Potato::Misc::IntrusivePtr<ChunkPage>;
 
-		static auto CreateInstance(std::size_t MaxCacheSize = 10) -> PtrT;
-
-		struct Page
+		struct ChunkStatus
 		{
-			using PtrT = Potato::Misc::IntrusivePtr<Page>;
-			void AddRef() {}
-			void SubRef() {}
+			bool BeingUsed = false;
+			std::size_t Index = 0;
+			std::size_t StartupChunkStatusIndex = 0;
+			std::size_t UsedChunkStatusCount = 0;
+			std::byte* Adress = nullptr;
 		};
 
-		void AddRef() const { Ref.AddRef(); }
+		struct Chunk
+		{
+			void AddRef() const { Ref.AddRef(); }
+			void SubRef();
+			using Ptr = Potato::Misc::IntrusivePtr<Chunk>;
 
+			std::span<std::byte> GetBuffer() const { return Buffer; }
+			ChunkPage::Ptr GetOwner() const { return Owner; };
+
+		private:
+
+			Chunk(ChunkPage::Ptr Owner, std::size_t ChunkIndex, std::span<std::byte> Buffer)
+				: Owner(std::move(Owner)), ChunkIndex(ChunkIndex), Buffer(Buffer) {}
+
+			ChunkPage::Ptr Owner;
+			mutable Potato::Misc::AtomicRefCount Ref;
+
+			std::size_t const ChunkIndex;
+			std::span<std::byte> const Buffer;
+			friend struct ChunkPage;
+		};
+
+		static auto CreateInstance(HugePage::Ptr PagePtr, std::size_t MinChunkSize = 128) -> Ptr {
+			if (PagePtr)
+			{
+				auto Span = PagePtr->GetBuffer();
+				return CreateInstance(std::move(PagePtr), Span, MinChunkSize);
+			}
+			return {};
+		}
+
+		static auto CreateInstance(HugePage::Ptr PagePtr, std::span<std::byte> UsedBuffer, std::size_t MinChunkSize = 128) -> Ptr;
+		static auto CreateInstance(std::size_t MinChunkSize = 128, std::size_t MinPageSize = 1024) -> Ptr;
+
+		void AddRef() const { Ref.AddRef(); }
 		void SubRef() const;
 
-	private:
+		auto TryAllocate(std::size_t RequireSize) -> Chunk::Ptr;
 
-		PageManager() = default;
+	protected:
+		
 
-		std::span<Page::PtrT> Pages;
-		std::span<HugePage::PtrT> CachedPage;
+		ChunkPage(HugePage::Ptr Owner, std::size_t ChunkSize, std::byte* Buffer, std::size_t ChunksCount);
+		~ChunkPage();
 
+		HugePage::Ptr Owner;
 		mutable Potato::Misc::AtomicRefCount Ref;
-		HugePage::PtrT Owner;
+		std::mutex Mutex;
+		std::size_t const ChunkSize = 0;
+		std::span<ChunkStatus> const Chunks;
+
+		void Release(std::size_t ChunkIndex);
 	};
+
+	struct ChunkManager
+	{
+		struct ChunkPageMapping
+		{
+			ChunkPage::Ptr Front;
+			ChunkPage::Ptr Cur;
+			ChunkPage::Ptr Next;
+		};
+
+
+	};
+
 
 }
