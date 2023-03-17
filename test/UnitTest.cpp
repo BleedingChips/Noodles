@@ -1,11 +1,8 @@
-#include "Noodles/NoodlesMemory.h"
-#include "Noodles/NoodlesTypeGroup.h"
-#include <chrono>
-#include <iostream>
+import Noodles.Memory;
 
 int main()
 {
-
+	/*
 	{
 		Noodles::Memory::ChunkManager::Chunk::Ptr P;
 		{
@@ -20,6 +17,7 @@ int main()
 		}
 		volatile int i = 0;
 	}
+	*/
 	
 	
 
