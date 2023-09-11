@@ -1,38 +1,43 @@
 module;
 
-export module Noodles.Memory;
-export import Potato.SmartPtr;
+export module NoodlesMemory;
+
+import std;
+import PotatoPointer;
+import PotatoMisc;
+import PotatoIR;
+
 
 export namespace Noodles::Memory
 {
 
-	struct AllocatorInterfaceT
+	struct HugePageMemoryResource : public std::pmr::memory_resource, public Potato::Pointer::DefaultIntrusiveInterface
 	{
-		using PtrT = Potato::Misc::IntrusivePtr<AllocatorInterfaceT>;
+		using Ptr = Potato::Pointer::IntrusivePtr<HugePageMemoryResource>;
 
-		virtual void AddRef() const = 0;
-		virtual void SubRef() const = 0;
-		virtual std::byte* allocate(std::size_t ByteCount) = 0;
-		virtual void deallocate(std::byte* Adress, std::size_t ByteCount) = 0;
-	};
+		static std::size_t GetPageSize();
 
-	struct AllocatorT
-	{
-		AllocatorT() = default;
-		AllocatorT(AllocatorInterfaceT::PtrT Ptr) : Ptr(std::move(Ptr)) {}
-		AllocatorT(AllocatorT const&) = default;
-		AllocatorT(AllocatorT&&) = default;
-		std::byte* allocate(std::size_t ByteCount);
-		void deallocate(std::byte* Adress, std::size_t ByteCount);
+		static Ptr Create(std::pmr::memory_resource* UpResource = std::pmr::get_default_resource());
+
 	protected:
-		AllocatorInterfaceT::PtrT Ptr;
+
+		HugePageMemoryResource(std::pmr::memory_resource* UpStreamResource = std::pmr::get_default_resource());
+
+		virtual void* do_allocate(size_t _Bytes, size_t _Align) override;
+		virtual void do_deallocate(void* _Ptr, size_t _Bytes, size_t _Align) override;
+		virtual bool do_is_equal(const memory_resource& _That) const noexcept override;
+
+		virtual void Release() override;
+
+		std::pmr::synchronized_pool_resource PoolResource;
 	};
+
+	/*
+
 
 	struct HugePageT
 	{
-		using PtrT = Potato::Misc::IntrusivePtr<HugePageT>;
-
-		static auto CreateInstance(std::size_t MinSize, AllocatorT Allocator) -> PtrT;
+		static auto CreateInstance(std::size_t MinSize, std::pmr::memory_resource* Resource) -> PtrT;
 
 		std::span<std::byte> GetBuffer() const { return Buffer; }
 
@@ -41,9 +46,9 @@ export namespace Noodles::Memory
 
 	private:
 
-		HugePageT(AllocatorT Allocator, std::span<std::byte> Buffer) : Allocator(std::move(Allocator)), Buffer(Buffer) {}
+		HugePageT(std::pmr::memory_resource* Resource, std::span<std::byte> Buffer) : Resource(Resource), Buffer(Buffer) {}
 
-		AllocatorT Allocator;
+		std::pmr::memory_resource* Resource;
 		mutable Potato::Misc::AtomicRefCount Ref;
 		std::span<std::byte> const Buffer;
 
@@ -129,5 +134,5 @@ export namespace Noodles::Memory
 
 	};
 
-
+*/
 }

@@ -2,12 +2,52 @@ module;
 
 #include <cassert>
 
-module Noodles.Memory;
-import Potato.STD;
+module NoodlesMemory;
 
 namespace Noodles::Memory
 {
+	void* HugePageMemoryResource::do_allocate(size_t _Bytes, size_t _Align)
+	{
+		DefaultIntrusiveInterface::AddRef();
+		PoolResource.allocate(_Bytes, _Align);
+	}
 
+	void HugePageMemoryResource::do_deallocate(void* _Ptr, size_t _Bytes, size_t _Align)
+	{
+		PoolResource.deallocate(_Ptr, _Bytes, _Align);
+		DefaultIntrusiveInterface::SubRef();
+	}
+
+	bool HugePageMemoryResource::do_is_equal(const memory_resource& _That) const noexcept
+	{
+		return this == static_cast<HugePageMemoryResource const*>(&_That);
+	}
+
+	void HugePageMemoryResource::Release()
+	{
+		auto MR = PoolResource.upstream_resource();
+		this->~HugePageMemoryResource();
+		MR->deallocate(this, sizeof(HugePageMemoryResource), alignof(HugePageMemoryResource));
+	}
+
+	HugePageMemoryResource::HugePageMemoryResource(std::pmr::memory_resource* UpStreamResource)
+		: PoolResource(UpStreamResource)
+	{
+		
+	}
+	auto HugePageMemoryResource::Create(Optional Optional, std::pmr::memory_resource* UpResource) -> Ptr
+	{
+		if(UpResource != nullptr)
+		{
+			auto Adress = UpResource->allocate(sizeof(HugePageMemoryResource), alignof(HugePageMemoryResource));
+			if(Adress != nullptr)
+			{
+				return new (Adress) HugePageMemoryResource{ UpResource };
+			}
+		}
+		return {};
+	}
+	/*
 	std::byte* AllocatorT::allocate(std::size_t ByteCount)
 	{
 		if (Ptr)
@@ -171,4 +211,5 @@ namespace Noodles::Memory
 			Ref.BeingUsed = false;
 		}
 	}
+	*/
 }

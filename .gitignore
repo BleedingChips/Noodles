@@ -432,3 +432,8 @@ FodyWeavers.xsd
 
 # CMake For Visual Studio
 out/*
+
+# xmake
+.xmake
+build/*
+vsxmake*/

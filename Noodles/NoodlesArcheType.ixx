@@ -1,16 +1,55 @@
-#pragma once
-#include "Potato/PotatoIR.h"
-#include "NoodlesMemory.h"
-#include <typeinfo>
-#include <string_view>
-#include <span>
-#include <typeIndex>
-#include <type_traits>
-#include <tuple>
+module;
 
-namespace Noodles::TypeGroup
+export module NoodlesArcheType;
+
+import std;
+import PotatoIR;
+import PotatoPointer;
+
+export namespace Noodles
 {
 
+	struct TypeInfo
+	{
+		Potato::IR::TypeID ID;
+		Potato::IR::Layout Layout;
+		void (*MoveConstructor)(void* Source, void* Target);
+		void (*Destructor)(void* Target);
+
+		template<typename Type>
+		static TypeInfo Create()
+		{
+			return {
+			Potato::IR::TypeID::CreateTypeID<Type>(),
+				Potato::IR::Layout::Get<Type>(),
+				[](void* Source, void* Target){ new (Target) Type{ static_cast<Type&&>(*Source) }; },
+				[](void* Target) { static_cast<Type*>(Target)->~Type(); }
+			};
+		}
+	};
+
+	struct ArcheType : public Potato::Pointer::DefaultIntrusiveInterface
+	{
+		using Ptr = Potato::Pointer::IntrusivePtr<ArcheType>;
+		bool HasType(Potato::IR::TypeID ID) const;
+		void* LocateType(Potato::IR::TypeID ID) const;
+		void* Copy(Potato::IR::TypeID RequireID) const;
+		virtual std::size_t HashID() const = 0;
+		static Ptr Create(std::span<TypeInfo const> InputSpan, std::pmr::memory_resource* IResource);
+
+	protected:
+
+		virtual void Release() override;
+
+		std::pmr::memory_resource* Resource;
+		std::span<TypeInfo const> TypeInfos;
+	};
+
+
+
+
+
+	/*
 	struct TypeInfo
 	{
 		using Layout = Potato::IR::Layout;
@@ -73,5 +112,6 @@ namespace Noodles::TypeGroup
 		Layout TotalLayout;
 		std::span<std::tuple<std::size_t, TypeInfo>> Infos;
 	};
+	*/
 
 }

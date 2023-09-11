@@ -1,9 +1,38 @@
-#pragma once
-#include "NoodlesMemory.h"
-#include <mutex>
+module;
+
+export module NoodlesContext;
+
+import std;
+import PotatoMisc;
+import PotatoPointer;
+import PotatoTaskSystem;
+import NoodlesMemory;
+
 
 namespace Noodles
 {
+
+	struct Context : Potato::Task::Task
+	{
+		using Ptr = Potato::Task::ControlPtr<Context>;
+
+		static Ptr Create(std::pmr::memory_resource* UpstreamResource);
+		static Ptr RegisterTask(Potato::Task::TaskContext::Ptr TaskContext);
+
+	protected:
+
+		virtual void operator()(Potato::Task::ExecuteStatus Status, Potato::Task::TaskContext&) override;
+
+		Context(std::pmr::memory_resource* Resource);
+
+		virtual void ControlRelease() override;
+
+		~Context();
+		std::pmr::memory_resource* MemoryResource;
+		Memory::HugePageMemoryResource::Ptr EntityResource;
+		std::pmr::synchronized_pool_resource ArcheTypeResource;
+		std::pmr::synchronized_pool_resource ComponentResource;
+	};
 
 
 	/*
