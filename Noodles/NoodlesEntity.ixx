@@ -6,7 +6,7 @@ import std;
 import PotatoMisc;
 import PotatoPointer;
 
-import NoodlesArcheType;
+//import NoodlesArcheType;
 
 export namespace Noodles
 {
@@ -15,19 +15,28 @@ export namespace Noodles
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<EntityStorage>;
 
-		static Ptr Create(std::pmr::memory_resource* Resource = std::pmr::get_default_resource());
-
 	protected:
 
+		EntityStorage(std::pmr::memory_resource* Resource);
+
+		static Ptr Create(std::pmr::memory_resource* Resource = std::pmr::get_default_resource());
+		virtual void Release() override;
+
+		std::pmr::memory_resource* Resource;
+
+		/*
 		std::mutex CurrentDataMutex;
 		ArcheType::Ptr ArcheType;
 
 
 		std::shared_mutex TemporaryDataMutex;
 		ArcheType::Ptr TempArcheType;
+		*/
+
+		friend struct Context;
 	};
 
-
+	using Entity = EntityStorage::Ptr;
 
 
 

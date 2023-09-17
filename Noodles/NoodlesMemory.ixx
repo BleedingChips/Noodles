@@ -15,7 +15,7 @@ export namespace Noodles::Memory
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<HugePageMemoryResource>;
 
-		static std::size_t GetPageSize();
+		//static std::size_t GetPageSize();
 
 		static Ptr Create(std::pmr::memory_resource* UpResource = std::pmr::get_default_resource());
 

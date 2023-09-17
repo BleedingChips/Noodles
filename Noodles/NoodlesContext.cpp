@@ -2,33 +2,32 @@ module;
 
 module NoodlesContext;
 
-
 namespace Noodles
 {
 
-	auto Context::Create(std::pmr::memory_resource* UpstreamResource)->Ptr
+	auto Context::Create(Potato::Task::TaskContext::Ptr TaskPtr, std::pmr::memory_resource* UpstreamResource)->Ptr
 	{
-		if(UpstreamResource != nullptr)
+		if(TaskPtr && UpstreamResource != nullptr)
 		{
 			auto Adress = UpstreamResource->allocate(sizeof(Context), alignof(Context));
 			if(Adress != nullptr)
 			{
-				return {};
+				return new (Adress) Context{ std::move(TaskPtr), UpstreamResource };
 			}else
 			{
-				return new (Adress) Context{ UpstreamResource };
+				return {};
 			}
 		}
 		return {};
 	}
 
-	Context::Context(std::pmr::memory_resource* Resource)
-		: MemoryResource(Resource),
+	Context::Context(Potato::Task::TaskContext::Ptr TaskPtr, std::pmr::memory_resource* Resource)
+		: TaskContext(std::move(TaskPtr)), MemoryResource(Resource),
 	EntityResource(Memory::HugePageMemoryResource::Create(Resource)),
 	ArcheTypeResource(Resource),
 	ComponentResource(Resource)
 	{
-		
+		volatile int i = 0;
 	}
 
 	Context::~Context()
@@ -41,7 +40,7 @@ namespace Noodles
 		
 	}
 
-	void Context::ControlRelease()
+	void Context::Release()
 	{
 		auto OldResource = MemoryResource;
 		this->~Context();
@@ -50,6 +49,11 @@ namespace Noodles
 			sizeof(Context),
 			alignof(Context)
 		);
+	}
+
+	Entity Context::CreateEntity(EntityPolicy const& Policy)
+	{
+		return EntityStorage::Create(EntityResource.GetPointer());
 	}
 
 	/*

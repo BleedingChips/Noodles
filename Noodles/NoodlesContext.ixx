@@ -7,27 +7,37 @@ import PotatoMisc;
 import PotatoPointer;
 import PotatoTaskSystem;
 import NoodlesMemory;
+import NoodlesEntity;
 
 
-namespace Noodles
+export namespace Noodles
 {
+
+	struct EntityPolicy
+	{
+		//virtual void Create();
+	};
 
 	struct Context : Potato::Task::Task
 	{
 		using Ptr = Potato::Task::ControlPtr<Context>;
 
-		static Ptr Create(std::pmr::memory_resource* UpstreamResource);
-		static Ptr RegisterTask(Potato::Task::TaskContext::Ptr TaskContext);
+		static Ptr Create(Potato::Task::TaskContext::Ptr Ptr, std::pmr::memory_resource* UpstreamResource = std::pmr::get_default_resource());
+
+		Entity CreateEntity(EntityPolicy const& Policy);
 
 	protected:
 
 		virtual void operator()(Potato::Task::ExecuteStatus Status, Potato::Task::TaskContext&) override;
 
-		Context(std::pmr::memory_resource* Resource);
+		Context(Potato::Task::TaskContext::Ptr TaskPtr, std::pmr::memory_resource* Resource);
 
-		virtual void ControlRelease() override;
-
+		//virtual void ControlRelease() override;
+		virtual void Release() override;
 		~Context();
+
+		Potato::Task::TaskContext::Ptr TaskContext;
+
 		std::pmr::memory_resource* MemoryResource;
 		Memory::HugePageMemoryResource::Ptr EntityResource;
 		std::pmr::synchronized_pool_resource ArcheTypeResource;

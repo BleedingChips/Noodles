@@ -9,7 +9,7 @@ namespace Noodles::Memory
 	void* HugePageMemoryResource::do_allocate(size_t _Bytes, size_t _Align)
 	{
 		DefaultIntrusiveInterface::AddRef();
-		PoolResource.allocate(_Bytes, _Align);
+		return PoolResource.allocate(_Bytes, _Align);
 	}
 
 	void HugePageMemoryResource::do_deallocate(void* _Ptr, size_t _Bytes, size_t _Align)
@@ -35,7 +35,8 @@ namespace Noodles::Memory
 	{
 		
 	}
-	auto HugePageMemoryResource::Create(Optional Optional, std::pmr::memory_resource* UpResource) -> Ptr
+
+	auto HugePageMemoryResource::Create(std::pmr::memory_resource* UpResource) -> Ptr
 	{
 		if(UpResource != nullptr)
 		{

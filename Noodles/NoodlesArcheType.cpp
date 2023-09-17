@@ -1,57 +1,11 @@
 module;
 
-export module NoodlesArcheType;
+module NoodlesArcheType;
 
-import std;
-import PotatoIR;
-import PotatoPointer;
-
-export namespace Noodles
+namespace Noodles
 {
 
-	struct TypeInfo
-	{
-		Potato::IR::TypeID ID;
-		Potato::IR::Layout Layout;
-		void (*MoveConstructor)(void* Source, void* Target);
-		void (*Destructor)(void* Target);
-
-		template<typename Type>
-		static TypeInfo Create()
-		{
-			return {
-			Potato::IR::TypeID::CreateTypeID<Type>(),
-				Potato::IR::Layout::Get<Type>(),
-				[](void* Source, void* Target) { new (Target) Type{ std::move(*static_cast<Type*>(Source)) }; },
-				[](void* Target) { static_cast<Type*>(Target)->~Type(); }
-			};
-		}
-	};
-
-	struct ArcheType : public Potato::Pointer::DefaultIntrusiveInterface
-	{
-		using Ptr = Potato::Pointer::IntrusivePtr<ArcheType>;
-		bool HasType(Potato::IR::TypeID ID) const;
-		void* LocateType(Potato::IR::TypeID ID) const;
-		void* Copy(Potato::IR::TypeID RequireID) const;
-
-		struct Element
-		{
-			TypeInfo Info;
-			std::size_t Offset;
-		};
-
-	protected:
-
-		static Ptr Create(std::span<Element const> Infos, std::pmr::memory_resource* IResource);
-
-		virtual void Release() override;
-
-		std::pmr::memory_resource* Resource;
-		std::span<Element const> TypeInfos;
-
-		friend struct Context;
-	};
+	
 
 
 	/*
