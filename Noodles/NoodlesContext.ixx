@@ -3,93 +3,92 @@ module;
 export module NoodlesContext;
 
 import std;
+
 import PotatoMisc;
 import PotatoPointer;
 import PotatoTaskSystem;
+
 import NoodlesMemory;
-import NoodlesEntity;
+import NoodlesSystem;
+//import NoodlesEntity;
+
 
 
 export namespace Noodles
 {
 
-	struct EntityPolicy
+	struct Context final : public Potato::Task::Task
 	{
-		//virtual void Create();
-	};
 
-	struct Context : Potato::Task::Task
-	{
+		struct Config
+		{
+			std::size_t MaxFPS = 140;
+		};
+
 		using Ptr = Potato::Task::ControlPtr<Context>;
 
-		static Ptr Create(Potato::Task::TaskContext::Ptr Ptr, std::pmr::memory_resource* UpstreamResource = std::pmr::get_default_resource());
+		static Ptr Create(Config config, Potato::Task::TaskContext::Ptr ptr, std::pmr::memory_resource* UpstreamResource = std::pmr::get_default_resource());
 
-		Entity CreateEntity(EntityPolicy const& Policy);
+		struct ExecuteStatus
+		{
+			Context& context;
+		};
+
+		void StartLoop();
+
+		bool AddRawSystem(
+			void (*sysfunc)(void* object, ExecuteStatus& status),
+			void* object,
+			std::span<SystemRWInfo const> Infos, 
+			SystemProperty system_property, 
+			std::strong_ordering (*priority_detect)(void* Object, SystemProperty& )
+			);
 
 	protected:
 
-		virtual void operator()(Potato::Task::ExecuteStatus Status, Potato::Task::TaskContext&) override;
+		virtual void operator()(Potato::Task::ExecuteStatus& Status) override;
 
-		Context(Potato::Task::TaskContext::Ptr TaskPtr, std::pmr::memory_resource* Resource);
+		Context(Config config, Potato::Task::TaskContext::Ptr TaskPtr, std::pmr::memory_resource* Resource);
 
 		//virtual void ControlRelease() override;
 		virtual void Release() override;
 		~Context();
 
+		
+		std::mutex property_mutex;
+		std::chrono::system_clock::time_point current_time;
 		Potato::Task::TaskContext::Ptr TaskContext;
+		Config config;
 
 		std::pmr::memory_resource* MemoryResource;
+
+
 		Memory::HugePageMemoryResource::Ptr EntityResource;
 		std::pmr::synchronized_pool_resource ArcheTypeResource;
 		std::pmr::synchronized_pool_resource ComponentResource;
-	};
+		std::pmr::synchronized_pool_resource SystemResource;
 
-
-	/*
-	struct EntityManager
-	{
-
-		using Ptr = Potato::Misc::IntrusivePtr<EntityManager>;
-
-		static auto CreateInstance(std::size_t UniqueContentID, std::size_t MinEntityCountInOnePage) -> Ptr;
-
-		struct EntityStorge
+		enum class SystemExecuteStatus
 		{
-			bool InUsed;
-			std::byte* Buffer;
+			Ready,
+			Waiting,
+			Running,
+			Abandon
 		};
 
-		struct EntityStorage
+		struct SystemBlock
 		{
-			std::mutex Mutex;
-			mutable Potato::Misc::AtomicRefCount Ref;
+			SystemExecuteStatus status;
+			SystemProperty property;
+			SystemObject object;
 		};
 
-
-		struct EntityChunk
-		{
-			void AddRef() const { Ref.AddRef(); }
-			void SubRef() const;
-
-			mutable Potato::Misc::AtomicRefCount Ref;
-
-			std::span<EntityStorge> Storages;
-		};
-
-	private:
-
-		EntityManager(std::size_t UniqueID, std::size_t MinEntityCount) : UniqueID(UniqueID) {}
 		
-		Noodles::Memory::HugePage::Ptr Owner;
-		std::size_t const UniqueID;
-		std::mutex Mutex;
-		mutable Potato::Misc::AtomicRefCount Ref;
-	};
 
-	struct Entity
-	{
-		
+		std::mutex system_mutex;
+		std::pmr::vector<SystemBlock> systems;
+		std::pmr::vector<SystemBlock> immediately_system;
+		std::pmr::vector<SystemBlock> temporary_systems;
 	};
-	*/
 
 }
