@@ -6,10 +6,10 @@ import std;
 
 import PotatoMisc;
 import PotatoPointer;
-import PotatoTaskSystem;
+export import PotatoTaskSystem;
 
 import NoodlesMemory;
-import NoodlesSystem;
+export import NoodlesSystem;
 //import NoodlesEntity;
 
 
@@ -31,6 +31,7 @@ export namespace Noodles
 
 		struct ExecuteStatus
 		{
+			SystemProperty property;
 			Context& context;
 		};
 
@@ -39,9 +40,10 @@ export namespace Noodles
 		bool AddRawSystem(
 			void (*sysfunc)(void* object, ExecuteStatus& status),
 			void* object,
+			void (*destructor)(void* object),
 			std::span<SystemRWInfo const> Infos, 
 			SystemProperty system_property, 
-			std::strong_ordering (*priority_detect)(void* Object, SystemProperty& )
+			std::partial_ordering(*priority_detect)(void* Object, SystemProperty const&, SystemProperty const&)
 			);
 
 	protected:
@@ -83,10 +85,11 @@ export namespace Noodles
 			SystemObject object;
 		};
 
-		
-
 		std::mutex system_mutex;
 		std::pmr::vector<SystemBlock> systems;
+
+		std::mutex 
+
 		std::pmr::vector<SystemBlock> immediately_system;
 		std::pmr::vector<SystemBlock> temporary_systems;
 	};

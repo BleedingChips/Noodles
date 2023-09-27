@@ -2,8 +2,27 @@ import std;
 import PotatoTaskSystem;
 import NoodlesContext;
 
-
 using namespace Noodles;
+
+std::mutex PrintMutex;
+
+void UniquePrint(std::u8string_view Name)
+{
+	{
+		std::lock_guard lg(PrintMutex);
+		std::println("Begin Func : {0}", Name);
+	}
+
+	std::this_thread::sleep_for(std::chrono::milliseconds{200});
+
+	{
+		std::lock_guard lg(PrintMutex);
+		std::println("End Func : {0}", Name);
+	}
+}
+
+
+
 
 int main()
 {
@@ -12,6 +31,33 @@ int main()
 
 	auto NContext = Context::Create({}, TSystem);
 
+	/*
+	void (*sysfunc)(void* object, ExecuteStatus & status),
+		void* object,
+		std::span<SystemRWInfo const> Infos,
+		SystemProperty system_property,
+		std::partial_ordering(*priority_detect)(void* Object, SystemProperty const&, SystemProperty const&)
+	*/
+
+
+
+	NContext->AddRawSystem(
+		[](void* object, Noodles::Context::ExecuteStatus& status)
+		{
+			UniquePrint(status.property.system_name);
+		},
+		nullptr,
+		nullptr,
+		{},
+		{
+			SystemProperty::Category::Tick,
+			*Potato::Task::TaskPriority::Normal,
+			0, 0, {}, u8"Test Lambda1"
+		},
+		nullptr
+	);
+
+	/*
 	std::chrono::time_zone tz{
 				std::string_view{"Asia/BeiJing"}
 	};
@@ -27,6 +73,7 @@ int main()
 	auto ymd = std::chrono::year_month_day {day};
 
 	ymd.day()
+	*/
 
 	//zt.get_local_time();
 
@@ -36,7 +83,7 @@ int main()
 
 	//std::chrono::hh_mm_ss dur = ltime;
 
-	std::cout << ltime << std::endl;
+	//std::cout << ltime << std::endl;
 
 	//std::chrono::local_days ld{ltime};
 

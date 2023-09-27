@@ -27,7 +27,6 @@ namespace Noodles
 	ArcheTypeResource(Resource),
 	ComponentResource(Resource), config(config)
 	{
-		volatile int i = 0;
 	}
 
 	Context::~Context()

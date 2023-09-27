@@ -35,9 +35,9 @@ export namespace Noodles
 	{
 		enum class Category
 		{
+			Tick = 0,
 			Init,
 			PreDestroy,
-			Tick
 		};
 
 		Category category = Category::Tick;
