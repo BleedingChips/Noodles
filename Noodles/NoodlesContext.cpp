@@ -56,7 +56,7 @@ namespace Noodles
 					std::lock_guard lg2(property_mutex);
 					last_execute_time = std::chrono::system_clock::now();
 				}
-				TryFireTickSystem(status.Context, status.Property.AppendData);
+				TryFireNextLevelZeroDegreeTickSystem(status.Context, {});
 			}else
 			{
 				status.Context.CommitTask(this, status.Property);
@@ -80,7 +80,9 @@ namespace Noodles
 				}else if(ite.status == SystemStatus::Running)
 				{
 					ite.status = SystemStatus::Done;
-					TryFireTickSystem(status.Context, status.Property.AppendData);
+					--current_level_system_waiting;
+					TryFireBeDependenceTickSystem(status.Context, index);
+					TryFireNextLevelZeroDegreeTickSystem(status.Context, index);
 				}
 			}else
 			{
@@ -101,7 +103,9 @@ namespace Noodles
 						std::lock_guard lg(tick_system_running_mutex, std::adopt_lock);
 						assert(tick_system_context.size() > index);
 						tick_system_context[index].status = SystemStatus::Done;
-						TryFireTickSystem(status.Context, status.Property.AppendData);
+						--current_level_system_waiting;
+						TryFireBeDependenceTickSystem(status.Context, index);
+						TryFireNextLevelZeroDegreeTickSystem(status.Context, index);
 					}else
 					{
 						status.Context.CommitTask(this, status.Property);
@@ -139,116 +143,72 @@ namespace Noodles
 		}
 	}
 
-	void Context::TryFireTickSystem(Potato::Task::TaskContext& task_context, std::size_t index)
+	void Context::TryFireNextLevelZeroDegreeTickSystem(Potato::Task::TaskContext& context, std::optional<std::size_t> current_context_index)
 	{
-		if(index == 0)
+		if(current_level_system_waiting == 0)
 		{
-			std::size_t i = 0;
-			for(auto& ite : tick_system_context)
+			auto start = tick_system_context.begin();
+			if (current_context_index.has_value())
 			{
-				if(ite.layer == current_layer)
-				{
-					if(ite.status == SystemStatus::Ready && ite.in_degree == 0)
+				assert(*current_context_index < tick_system_context.size());
+				auto re_level = tick_system_context[*current_context_index].layer;
+				start = std::find_if(
+					tick_system_context.begin(),
+					tick_system_context.end(),
+					[=](SystemRunningContext const& c)
 					{
-						ite.status = SystemStatus::Waitting;
-						Potato::Task::TaskProperty new_pro{
-							ite.property.task_priority,
-							ite.property.system_name,
-					i + 1
-						};
-						std::size_t e = 0;
-						while (!running_task.compare_exchange_strong(
-							e, e + 1
-						))
-						{
-
-						}
-						task_context.CommitTask(this, new_pro);
+						return c.layer < re_level;
 					}
-				}else
-					break;
-				++i;
+				);
 			}
-		}else
+			if (start != tick_system_context.end())
+			{
+				std::size_t dis = std::distance(tick_system_context.begin(), start);
+				auto re_level = start->layer;
+				while (start != tick_system_context.end() && start->layer == re_level)
+				{
+					++current_level_system_waiting;
+					if (start->in_degree == 0)
+					{
+						FireSingleTickSystem(context, dis);
+					}
+					++start;
+					++dis;
+				}
+			}
+		}
+	}
+
+	void Context::TryFireBeDependenceTickSystem(Potato::Task::TaskContext& context, std::size_t start_ite)
+	{
+		assert(start_ite < tick_system_context.size());
+		auto& cur = tick_system_context[start_ite];
+		for (auto& ite : cur.graphic_line)
 		{
-			std::size_t real_index = index - 1;
-			systems_count -= 1;
-			if(systems_count == 0)
+			assert(ite.from_node == start_ite);
+			auto& tar = tick_system_context[ite.to_node];
+			bool need_commit = true;
+			for (auto& ite2 : tar.reverse_graphic_line)
 			{
-				runs_system_count += current_layer_system_count;
-				auto last_span = std::span(tick_system_context).subspan(runs_system_count);
-				if(!last_span.empty())
+				assert(ite2.from_node == ite.to_node);
+				auto status = tick_system_context[ite2.to_node].status;
+				if (ite2.is_mutex && (status == SystemStatus::Running || status == SystemStatus::Waitting))
 				{
-					current_layer = last_span[0].layer;
-					systems_count = 0;
-					std::size_t i = runs_system_count;
-					for(auto& ite : last_span)
-					{
-						if(ite.layer == current_layer)
-						{
-							systems_count += 1;
-							if(ite.in_degree == 0 && ite.status == SystemStatus::Ready)
-							{
-								ite.status = SystemStatus::Waitting;
-								Potato::Task::TaskProperty new_pro{
-									ite.property.task_priority,
-									ite.property.system_name,
-							i + 1
-								};
-								std::size_t e = 0;
-								while (!running_task.compare_exchange_strong(
-									e, e + 1
-								))
-								{
-
-								}
-								task_context.CommitTask(this, new_pro);
-							}
-						}
-						i += 1;
-					}
-					current_layer_system_count = systems_count;
+					need_commit = false;
+					break;
 				}
-			}else
+				else if (status != SystemStatus::Done)
+				{
+					need_commit = false;
+					break;
+				}
+			}
+			if (need_commit)
 			{
-				auto& cur = tick_system_context[real_index];
-				for(auto& ite : cur.graphic_line)
-				{
-					assert(ite.from_node == real_index);
-					auto& tar = tick_system_context[ite.to_node];
-					bool need_commit = true;
-					for(auto& ite2 : tar.reverse_graphic_line)
-					{
-						assert(ite2.from_node == ite.to_node);
-						auto status = tick_system_context[ite2.to_node].status;
-						if(ite2.is_mutex && (status == SystemStatus::Running || status == SystemStatus::Waitting))
-						{
-							need_commit = false;
-							break;
-						}else if(status != SystemStatus::Done)
-						{
-							need_commit = false;
-							break;
-						}
-					}
-					if(need_commit)
-					{
-						tar.status = SystemStatus::Waitting;
-						Potato::Task::TaskProperty new_pro{
-							tar.property.task_priority,
-							tar.property.system_name,
-							ite.to_node + 1
-						};
-						std::size_t e = 0;
-						while (!running_task.compare_exchange_strong(
-							e, e + 1
-						))
-						{
-
-						}
-						task_context.CommitTask(this, new_pro);
-					}
-				}
+				FireSingleTickSystem(
+					context,
+					ite.to_node
+				);
 			}
 		}
 	}
@@ -284,6 +244,29 @@ namespace Noodles
 			return true;
 		}
 		return false;
+	}
+
+
+	void Context::FireSingleTickSystem(Potato::Task::TaskContext& context, std::size_t cur_index)
+	{
+		assert(cur_index < tick_system_context.size());
+		auto& tar = tick_system_context[cur_index];
+
+		assert(tar.status == SystemStatus::Ready);
+		tar.status = SystemStatus::Waitting;
+		Potato::Task::TaskProperty new_pro{
+			tar.property.task_priority,
+			tar.property.system_name,
+			cur_index + 1
+		};
+		std::size_t e = 0;
+		while (!running_task.compare_exchange_strong(
+			e, e + 1
+		))
+		{
+
+		}
+		context.CommitTask(this, new_pro);
 	}
 
 	std::optional<std::size_t> Context::CheckConflict(System::Priority priority,
@@ -588,21 +571,7 @@ namespace Noodles
 	{
 		for(auto& ite : tick_system_context)
 			ite.status = SystemStatus::Ready;
-		current_layer = 0;
-		systems_count = 0;
-		runs_system_count = 0;
-		if(!tick_system_context.empty())
-		{
-			current_layer = tick_system_context[0].layer;
-			for(auto& ite : tick_system_context)
-			{
-				if(ite.layer == current_layer)
-					++systems_count;
-				else
-					break;
-			}
-		}
-		current_layer_system_count = systems_count;
+		current_level_system_waiting = 0;
 	}
 
 	/*

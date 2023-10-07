@@ -57,9 +57,9 @@ export namespace Noodles
 		virtual void Release() override;
 		~Context();
 
-		void TryFireTickSystem(Potato::Task::TaskContext& task_context, std::size_t Index);
 		void InitTickSystem();
 		void FlushTickSystem();
+		
 
 		std::optional<std::size_t> CheckConflict(System::Priority priority,
 			System::Property sys_property,
@@ -116,6 +116,10 @@ export namespace Noodles
 			std::size_t in_degree = 0;
 		};
 
+		void FireSingleTickSystem(Potato::Task::TaskContext& context, std::size_t cur_index);
+		void TryFireNextLevelZeroDegreeTickSystem(Potato::Task::TaskContext& context, std::optional<std::size_t> current_context_index);
+		void TryFireBeDependenceTickSystem(Potato::Task::TaskContext& context, std::size_t start_ite);
+
 		std::mutex tick_system_mutex;
 		std::pmr::vector<SystemStorage> tick_systems;
 		std::pmr::vector<GraphicLine> tick_systems_graphic_line;
@@ -124,10 +128,7 @@ export namespace Noodles
 		std::mutex tick_system_running_mutex;
 		std::pmr::vector<SystemRunningContext> tick_system_context;
 		std::pmr::vector<GraphicLine> tick_systems_running_graphic_line;
-		std::size_t current_layer = 0;
-		std::size_t runs_system_count = 0;
-		std::size_t current_layer_system_count = 0;
-		std::size_t systems_count = 0;
+		std::size_t current_level_system_waiting = 0;
 		
 	};
 }
