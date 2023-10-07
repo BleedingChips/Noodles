@@ -6,22 +6,30 @@ using namespace Noodles;
 
 std::mutex PrintMutex;
 
-void UniquePrint(std::u8string_view Name)
+void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration dua = std::chrono::milliseconds{ 200 })
 {
 	{
 		std::lock_guard lg(PrintMutex);
-		std::println("Begin Func : {0}", Name);
+		std::println("Begin Func : {0}", std::string_view{
+			reinterpret_cast<char const*>(Name.data()),
+			Name.size()
+		});
 	}
 
-	std::this_thread::sleep_for(std::chrono::milliseconds{200});
+	std::this_thread::sleep_for(dua);
 
 	{
 		std::lock_guard lg(PrintMutex);
-		std::println("End Func : {0}", Name);
+		std::println("End Func : {0}", std::string_view{
+			reinterpret_cast<char const*>(Name.data()),
+			Name.size()
+		});
 	}
 }
 
+struct A{};
 
+struct B{};
 
 
 int main()
@@ -29,7 +37,22 @@ int main()
 	auto TSystem = Potato::Task::TaskContext::Create();
 	TSystem->FireThreads();
 
-	auto NContext = Context::Create({}, TSystem);
+	Noodles::Context::Config config;
+	config.min_frame_time = std::chrono::seconds{10};
+
+	auto NContext = Context::Create(config, TSystem);
+
+	std::vector<Noodles::System::RWInfo> rw_infos1 ={
+		{
+			System::RWInfo::GetComponent<A>()
+		}
+	};
+
+	std::vector<Noodles::System::RWInfo> rw_infos2 = {
+		{
+			System::RWInfo::GetComponent<A const>()
+		}
+	};
 
 	/*
 	void (*sysfunc)(void* object, ExecuteStatus & status),
@@ -39,23 +62,51 @@ int main()
 		std::partial_ordering(*priority_detect)(void* Object, SystemProperty const&, SystemProperty const&)
 	*/
 
+	{
+		Noodles::System::Object obj {
+			[](void* object, Noodles::ExecuteContext& status)
+			{
+				UniquePrint(status.property.system_name, std::chrono::milliseconds { 400 });
+			}
+		};
 
+		NContext->AddRawTickSystem(
+			{},
+			{
+				u8"Test Lambda1"
+			},
+			{
+				std::span(rw_infos1)
+			},
+			std::move(obj)
+		);
+	}
 
-	NContext->AddRawSystem(
-		[](void* object, Noodles::Context::ExecuteStatus& status)
-		{
-			UniquePrint(status.property.system_name);
-		},
-		nullptr,
-		nullptr,
-		{},
-		{
-			SystemProperty::Category::Tick,
-			*Potato::Task::TaskPriority::Normal,
-			0, 0, {}, u8"Test Lambda1"
-		},
-		nullptr
-	);
+	
+	{
+		Noodles::System::Object obj{
+			[](void* object, Noodles::ExecuteContext& status)
+			{
+				UniquePrint(status.property.system_name, std::chrono::milliseconds { 400 });
+			}
+		};
+
+		NContext->AddRawTickSystem(
+			{
+				1, -1
+			},
+			{
+				u8"Test Lambda2"
+			},
+			{
+				std::span(rw_infos2)
+			}, std::move(obj)
+		);
+	}
+	
+
+	NContext->StartLoop();
+	TSystem->WaitTask();
 
 	/*
 	std::chrono::time_zone tz{
