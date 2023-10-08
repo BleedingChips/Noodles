@@ -59,11 +59,6 @@ export namespace Noodles
 
 		void InitTickSystem();
 		void FlushTickSystem();
-		
-
-		std::optional<std::size_t> CheckConflict(System::Priority priority,
-			System::Property sys_property,
-			System::MutexProperty mutex_property);
 
 		std::atomic_size_t running_task;
 
@@ -112,8 +107,9 @@ export namespace Noodles
 			System::Property property;
 			std::size_t layer = 0;
 			std::span<GraphicLine const> graphic_line;
-			std::span<GraphicLine const> reverse_graphic_line;
 			std::size_t in_degree = 0;
+			std::size_t cur_in_degree = 0;
+			std::size_t mutex_degree = 0;
 		};
 
 		void FireSingleTickSystem(Potato::Task::TaskContext& context, std::size_t cur_index);

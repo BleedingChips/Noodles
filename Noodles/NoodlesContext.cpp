@@ -187,23 +187,18 @@ namespace Noodles
 		{
 			assert(ite.from_node == start_ite);
 			auto& tar = tick_system_context[ite.to_node];
-			bool need_commit = true;
-			for (auto& ite2 : tar.reverse_graphic_line)
+
+			if(ite.is_mutex)
 			{
-				assert(ite2.from_node == ite.to_node);
-				auto status = tick_system_context[ite2.to_node].status;
-				if (ite2.is_mutex && (status == SystemStatus::Running || status == SystemStatus::Waitting))
-				{
-					need_commit = false;
-					break;
-				}
-				else if (status != SystemStatus::Done)
-				{
-					need_commit = false;
-					break;
-				}
+				assert(tar.mutex_degree >= 1);
+				tar.mutex_degree -= 1;
+			}else
+			{
+				assert(tar.in_degree >= 1);
+				tar.cur_in_degree -= 1;
 			}
-			if (need_commit)
+
+			if(tar.mutex_degree == 0 && tar.cur_in_degree == 0)
 			{
 				FireSingleTickSystem(
 					context,
@@ -253,6 +248,16 @@ namespace Noodles
 		auto& tar = tick_system_context[cur_index];
 
 		assert(tar.status == SystemStatus::Ready);
+
+
+		for(auto& ite : tar.graphic_line)
+		{
+			if(ite.is_mutex)
+			{
+				tick_system_context[ite.to_node].mutex_degree += 1;
+			}
+		}
+		
 		tar.status = SystemStatus::Waitting;
 		Potato::Task::TaskProperty new_pro{
 			tar.property.task_priority,
@@ -269,14 +274,22 @@ namespace Noodles
 		context.CommitTask(this, new_pro);
 	}
 
-	std::optional<std::size_t> Context::CheckConflict(System::Priority priority,
+	bool Context::AddRawTickSystem(
+		System::Priority priority,
 		System::Property sys_property,
-		System::MutexProperty mutex_property)
+		System::MutexProperty mutex_property,
+		System::Object&& obj
+	)
 	{
+		if (!obj || sys_property.system_name.empty())
+			return false;
+
+		std::lock_guard lg(tick_system_mutex);
+
 		for (auto& ite : tick_systems)
 		{
 			if (ite.property.IsSameSystem(sys_property))
-				return std::nullopt;
+				return false;
 		}
 
 		std::size_t old_dependence_size = tick_systems_graphic_line.size();
@@ -290,7 +303,7 @@ namespace Noodles
 
 		for (auto& ite : tick_systems)
 		{
-			if(ite.priority.layer == priority.layer)
+			if (ite.priority.layer == priority.layer)
 			{
 				if (mutex_property.IsConflig(ite.mutex_property))
 				{
@@ -309,164 +322,141 @@ namespace Noodles
 					{
 						tick_systems_graphic_line.push_back({
 							false, priority.layer,i, tar_index
-						});
+							});
 						in_degree += 1;
 					}
 					else if (K == std::partial_ordering::equivalent)
 					{
 						tick_systems_graphic_line.push_back({
 							true, priority.layer,i, tar_index
-						});
+							});
 						tick_systems_graphic_line.push_back({
 							true, priority.layer,tar_index, i
-						});
+							});
 					}
 					else
 					{
 						tick_systems_graphic_line.resize(old_dependence_size);
-						return std::nullopt;
+						return false;
 					}
 				}
 			}
 			++i;
 		}
 
-		if(has_to_node && in_degree != 0)
+		if (has_to_node && in_degree != 0)
 		{
 			auto f1 = std::find_if(tick_systems_graphic_line.begin(), tick_systems_graphic_line.end(), [=](GraphicLine const& l)
-			{
-				return l.layer == priority.layer;
-			});
+				{
+					return l.layer == priority.layer;
+				});
 
 			auto f2 = std::find_if(tick_systems_graphic_line.begin(), tick_systems_graphic_line.end(), [=](GraphicLine const& l)
-			{
-				return l.layer > priority.layer;
-			});
+				{
+					return l.layer > priority.layer;
+				});
 
 			auto old_span = std::span(f1, f2);
 			auto new_span = std::span(tick_systems_graphic_line).subspan(old_dependence_size);
 
 			std::vector<std::size_t> search_stack;
-			for(auto& ite : new_span)
+
+			for (auto& ite : new_span)
 			{
-				if(!ite.is_mutex && ite.from_node == tar_index)
+				if (!ite.is_mutex && ite.from_node == tar_index)
 				{
 					search_stack.push_back(ite.to_node);
 				}
 			}
 
-			while(!search_stack.empty())
+			while (!search_stack.empty())
 			{
 				auto top = *search_stack.rbegin();
 				search_stack.pop_back();
-				for(auto& ite : old_span)
+				for (auto& ite : old_span)
 				{
-					if(!ite.is_mutex && ite.from_node == top)
+					if (!ite.is_mutex && ite.from_node == top)
 					{
 						auto tar = ite.to_node;
-						for(auto& ite2 : new_span)
+						for (auto& ite2 : new_span)
 						{
-							if(!ite2.is_mutex && ite2.from_node == tar)
+							if (!ite2.is_mutex && ite2.from_node == tar)
 							{
 								tick_systems_graphic_line.resize(old_dependence_size);
-								return std::nullopt;
+								return false;
 							}
 						}
 
 						auto find = std::find(search_stack.begin(), search_stack.end(), tar);
-						if(find == search_stack.end())
+						if (find == search_stack.end())
 							search_stack.push_back(tar);
 					}
 				}
 			}
 
-			for(auto& ite : new_span)
+		}
+
+		auto new_span = std::span(tick_systems_graphic_line).subspan(old_dependence_size);
+
+		for (auto& ite : new_span)
+		{
+			if (!ite.is_mutex && ite.to_node != tar_index)
 			{
-				if(!ite.is_mutex && ite.to_node != tar_index)
-				{
-					assert(ite.to_node < tick_systems.size());
-					tick_systems[ite.to_node].in_degree += 1;
-				}
+				assert(ite.to_node < tick_systems.size());
+				tick_systems[ite.to_node].in_degree += 1;
 			}
 		}
 
-		return in_degree;
-	}
-
-	bool Context::AddRawTickSystem(
-		System::Priority priority,
-		System::Property sys_property,
-		System::MutexProperty mutex_property,
-		System::Object&& obj
-	)
-	{
-		if (!obj || sys_property.system_name.empty())
-			return false;
-
-		std::lock_guard lg(tick_system_mutex);
-
-		auto in_degree = CheckConflict(
-			priority,
-			sys_property,
-			mutex_property
+		auto find = std::find_if(
+			tick_systems.begin(),
+			tick_systems.end(),
+			[=](SystemStorage const& ss)
+			{
+				return ss.priority.layer < priority.layer;
+			}
 		);
 
-		if (in_degree.has_value())
+		std::size_t dis = std::distance(tick_systems.begin(), find);
+
+		for (auto& ite : tick_systems_graphic_line)
 		{
-			auto find = std::find_if(
-				tick_systems.begin(),
-				tick_systems.end(),
-				[=](SystemStorage const& ss)
-				{
-					return ss.priority.layer < priority.layer;
-				}
-			);
+			if (ite.from_node == tar_index)
+				ite.from_node = dis;
+			else if (ite.from_node >= dis)
+				ite.from_node += 1;
 
-			std::size_t dis = std::distance(tick_systems.begin(), find);
-
-			auto tar_index = tick_systems.size();
-
-			for(auto& ite : tick_systems_graphic_line)
-			{
-				if(ite.from_node == tar_index)
-					ite.from_node = dis;
-				else if(ite.from_node >= dis)
-					ite.from_node += 1;
-
-				if (ite.to_node == tar_index)
-					ite.to_node = dis;
-				else if (ite.to_node >= dis)
-					ite.to_node += 1;
-			}
-
-			tick_systems.emplace(
-				find,
-				priority,
-				sys_property,
-				mutex_property,
-				std::move(obj),
-				*in_degree
-			);
-
-			std::sort(
-				tick_systems_graphic_line.begin(),
-				tick_systems_graphic_line.end(),
-				[](GraphicLine const& i1, GraphicLine const& i2)
-				{
-					if(i1.layer == i2.layer)
-					{
-						return i1.from_node < i2.from_node;
-					}else
-						return i1.layer > i2.layer;
-				}
-			);
-
-			need_refresh_dependence = true;
-
-			return true;
+			if (ite.to_node == tar_index)
+				ite.to_node = dis;
+			else if (ite.to_node >= dis)
+				ite.to_node += 1;
 		}
 
-		return false;
+		tick_systems.emplace(
+			find,
+			priority,
+			sys_property,
+			mutex_property,
+			std::move(obj),
+			in_degree
+		);
+
+		std::sort(
+			tick_systems_graphic_line.begin(),
+			tick_systems_graphic_line.end(),
+			[](GraphicLine const& i1, GraphicLine const& i2)
+			{
+				if (i1.layer == i2.layer)
+				{
+					return i1.from_node < i2.from_node;
+				}
+				else
+					return i1.layer > i2.layer;
+			}
+		);
+
+		need_refresh_dependence = true;
+
+		return true;
 	}
 
 	void Context::FlushTickSystem()
@@ -489,14 +479,13 @@ namespace Noodles
 						ite.property,
 						ite.priority.layer,
 						std::span<GraphicLine const> {},
-						std::span<GraphicLine const>{},
-						ite.in_degree
+						ite.in_degree,
+						0,
+						0
 					);
 				}
 
 				tick_systems_running_graphic_line.clear();
-				auto gl_size = tick_systems_graphic_line.size();
-				tick_systems_running_graphic_line.reserve(gl_size * 2);
 
 				tick_systems_running_graphic_line.insert(
 					tick_systems_running_graphic_line.end(),
@@ -504,32 +493,7 @@ namespace Noodles
 					tick_systems_graphic_line.end()
 				);
 
-				tick_systems_running_graphic_line.insert(
-					tick_systems_running_graphic_line.end(),
-					tick_systems_graphic_line.begin(),
-					tick_systems_graphic_line.end()
-				);
-
-				auto normal_span = std::span(tick_systems_running_graphic_line).subspan(0, gl_size);
-				auto reverse_span = std::span(tick_systems_running_graphic_line).subspan(gl_size);
-
-				for(auto& ite : reverse_span)
-				{
-					std::swap(ite.from_node, ite.to_node);
-				}
-
-				std::sort(reverse_span.begin(), reverse_span.end(), [](GraphicLine const& l1, GraphicLine const& l2)
-				{
-					if(l1.layer == l2.layer)
-					{
-						if(l1.from_node == l2.from_node)
-						{
-							return l1.to_node < l2.to_node;
-						}else
-							return l1.from_node < l2.from_node;
-					}else
-						return l1.layer > l2.layer;
-				});
+				auto normal_span = std::span(tick_systems_running_graphic_line);
 
 				auto start = normal_span.begin();
 				auto ite = start;
@@ -546,22 +510,6 @@ namespace Noodles
 				{
 					tick_system_context[start->from_node].graphic_line = { start, ite };
 				}
-
-				start = reverse_span.begin();
-				ite = start;
-				while (ite != reverse_span.end())
-				{
-					if (ite->from_node != start->from_node)
-					{
-						tick_system_context[start->from_node].reverse_graphic_line = { start, ite };
-						start = ite;
-					}
-					++ite;
-				}
-				if (start != ite && start != reverse_span.end())
-				{
-					tick_system_context[start->from_node].reverse_graphic_line = { start, ite };
-				}
 			}
 		}
 	}
@@ -570,7 +518,12 @@ namespace Noodles
 	void Context::InitTickSystem()
 	{
 		for(auto& ite : tick_system_context)
+		{
 			ite.status = SystemStatus::Ready;
+			ite.cur_in_degree = ite.in_degree;
+			ite.mutex_degree = 0;
+		}
+			
 		current_level_system_waiting = 0;
 	}
 
