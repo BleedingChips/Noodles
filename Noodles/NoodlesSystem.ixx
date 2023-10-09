@@ -12,7 +12,7 @@ import NoodlesArcheType;
 
 export namespace Noodles
 {
-	struct ExecuteContext;
+	extern struct ExecuteContext;
 }
 
 export namespace Noodles::System

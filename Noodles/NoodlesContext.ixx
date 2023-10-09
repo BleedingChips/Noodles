@@ -40,12 +40,29 @@ export namespace Noodles
 
 		bool StartLoop();
 
-		bool AddRawTickSystem(
+		bool AddTickSystemDefer(
+			System::Priority priority,
+			System::Property sys_property,
+			System::MutexProperty mutex_property,
+			System::Object (*func)(void* obj),
+			void* append_obj
+			);
+
+		bool AddTickSystemDefer(
 			System::Priority priority,
 			System::Property sys_property,
 			System::MutexProperty mutex_property,
 			System::Object&& obj
-			);
+		);
+
+		template<typename Func>
+		bool AddTickSystemDefer(
+			System::Priority priority,
+			System::Property sys_property,
+			System::MutexProperty mutex_property,
+			Func&& cb,
+			std::pmr::memory_resource* resource = std::pmr::get_default_resource()
+		) requires(std::is_invocable_v<Func, ExecuteContext&>);
 
 	protected:
 
@@ -105,7 +122,7 @@ export namespace Noodles
 			SystemStatus status = SystemStatus::Ready;
 			System::Object::Ref object;
 			System::Property property;
-			std::size_t layer = 0;
+			std::int32_t layer = 0;
 			std::span<GraphicLine const> graphic_line;
 			std::size_t in_degree = 0;
 			std::size_t cur_in_degree = 0;
@@ -127,6 +144,33 @@ export namespace Noodles
 		std::size_t current_level_system_waiting = 0;
 		
 	};
+
+	template<typename Func>
+	bool Context::AddTickSystemDefer(
+		System::Priority priority,
+		System::Property sys_property,
+		System::MutexProperty mutex_property,
+		Func&& cb,
+		std::pmr::memory_resource* resource
+	) requires(std::is_invocable_v<Func, ExecuteContext&>)
+	{
+		if constexpr (sizeof(cb) == sizeof(void*))
+		{
+			return AddTickSystemDefer(
+				std::move(priority),
+				std::move(sys_property),
+				std::move(mutex_property),
+				System::Object{
+					[](void* obj, ExecuteContext& context)
+					{
+						static_cast<Func*>(obj)(context);
+					},
+					reinterpret_cast<void*>(cb)
+				}
+			);
+		}
+		return false;
+	}
 }
 
 namespace Noodles

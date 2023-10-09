@@ -274,14 +274,15 @@ namespace Noodles
 		context.CommitTask(this, new_pro);
 	}
 
-	bool Context::AddRawTickSystem(
+	bool Context::AddTickSystemDefer(
 		System::Priority priority,
 		System::Property sys_property,
 		System::MutexProperty mutex_property,
-		System::Object&& obj
+		System::Object(*func)(void* obj),
+		void* append_obj
 	)
 	{
-		if (!obj || sys_property.system_name.empty())
+		if (func == nullptr || sys_property.system_name.empty())
 			return false;
 
 		std::lock_guard lg(tick_system_mutex);
@@ -396,6 +397,14 @@ namespace Noodles
 
 		}
 
+		auto sobj = func(append_obj);
+
+		if(!sobj)
+		{
+			tick_systems_graphic_line.resize(old_dependence_size);
+			return false;
+		}
+
 		auto new_span = std::span(tick_systems_graphic_line).subspan(old_dependence_size);
 
 		for (auto& ite : new_span)
@@ -436,7 +445,7 @@ namespace Noodles
 			priority,
 			sys_property,
 			mutex_property,
-			std::move(obj),
+			std::move(sobj),
 			in_degree
 		);
 
@@ -457,6 +466,25 @@ namespace Noodles
 		need_refresh_dependence = true;
 
 		return true;
+	}
+
+	bool Context::AddTickSystemDefer(
+		System::Priority priority,
+		System::Property sys_property,
+		System::MutexProperty mutex_property,
+		System::Object&& obj
+	)
+	{
+		return AddTickSystemDefer(
+			std::move(priority),
+			std::move(sys_property),
+			std::move(mutex_property),
+			[](void* da)->System::Object
+			{
+				return std::move(*static_cast<System::Object*>(da));
+			},
+			&obj
+		);
 	}
 
 	void Context::FlushTickSystem()
