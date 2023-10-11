@@ -92,6 +92,8 @@ export namespace Noodles
 		std::pmr::synchronized_pool_resource SystemResource;
 		*/
 
+		std::pmr::unsynchronized_pool_resource system_obj_resource;
+
 		struct SystemStorage
 		{
 			System::Priority priority;
@@ -154,7 +156,7 @@ export namespace Noodles
 		std::pmr::memory_resource* resource
 	) requires(std::is_invocable_v<Func, ExecuteContext&>)
 	{
-		if constexpr (sizeof(cb) == sizeof(void*))
+		if constexpr (std::is_convertible_v<Func, void(*)(ExecuteContext&)>)
 		{
 			return AddTickSystemDefer(
 				std::move(priority),
@@ -163,9 +165,9 @@ export namespace Noodles
 				System::Object{
 					[](void* obj, ExecuteContext& context)
 					{
-						static_cast<Func*>(obj)(context);
+						static_cast<void(*)(ExecuteContext&)>(obj)(context);
 					},
-					reinterpret_cast<void*>(cb)
+					reinterpret_cast<void*>(static_cast<void(*)(ExecuteContext&)>(cb))
 				}
 			);
 		}

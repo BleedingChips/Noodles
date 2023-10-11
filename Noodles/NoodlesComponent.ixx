@@ -26,4 +26,17 @@ export namespace Noodles
 		std::size_t AvailableCount = 0;
 		std::size_t AppendCount = 0;
 	};
+
+	template<typename ...Components>
+	struct ComponentFilter
+	{
+		static_assert(sizeof...(Components) >= 1, "Component Filter Require At Least One Component");
+	};
+
+	template<typename GlobalComponent>
+	struct GlobalComponentFilter
+	{
+		
+	};
+
 }

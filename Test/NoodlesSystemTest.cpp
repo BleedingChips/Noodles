@@ -6,7 +6,7 @@ using namespace Noodles;
 
 std::mutex PrintMutex;
 
-void PrintMark(void* obj, Noodles::ExecuteContext& context)
+void PrintMark(Noodles::ExecuteContext& context)
 {
 	std::lock_guard lg(PrintMutex);
 	std::println("---{0}---", std::string_view{
@@ -52,7 +52,7 @@ int main()
 	TSystem->FireThreads();
 
 	Noodles::Context::Config config;
-	config.min_frame_time = std::chrono::seconds{10};
+	config.min_frame_time = std::chrono::milliseconds{10};
 
 	auto NContext = Context::Create(config, TSystem);
 
@@ -85,7 +85,7 @@ int main()
 		},
 		{
 		},
-		System::Object{ PrintMark }
+		PrintMark
 	);
 
 	auto r2 = NContext->AddTickSystemDefer(
@@ -97,7 +97,7 @@ int main()
 		},
 		{
 		},
-		System::Object{ PrintMark }
+		PrintMark
 	);
 
 	auto r3 = NContext->AddTickSystemDefer(

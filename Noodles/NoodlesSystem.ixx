@@ -3,6 +3,7 @@ module;
 export module NoodlesSystem;
 
 import std;
+import PotatoTMP;
 import PotatoMisc;
 import PotatoPointer;
 import PotatoTaskSystem;
@@ -106,6 +107,7 @@ export namespace Noodles::System
 	struct MutexProperty
 	{
 		std::span<RWInfo> component_rw_infos;
+		std::span<RWInfo> global_component_rw_infos;
 
 		bool IsConflig(MutexProperty const& p2) const;
 	};
