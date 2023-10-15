@@ -148,10 +148,39 @@ namespace Noodles::System
 		}
 	};
 
+	template<typename FuncT>
+	concept HasCertainlyOperatorParentheses = requires(FuncT fun)
+	{
+		{&FuncT::operator()};
+	};
+
+	template<typename FuncT>
+	struct CallableObjectParameter
+	{
+		using Type = Potato::TMP::FunctionInfo<decltype(&FuncT::operator())>;
+	};
+
+	template<typename FuncT>
+	struct FunctionPointerParameter
+	{
+		using Type = Potato::TMP::FunctionInfo<FuncT>;
+	};
+
+	template<typename FuncT>
+	using ExtractFunctionParameterTypeT = typename std::conditional_t<
+		std::is_function_v<FuncT>,
+		Potato::TMP::Instant<FunctionPointerParameter>,
+		Potato::TMP::Instant<CallableObjectParameter>
+	>:: template AppendT<FuncT>;
+
 
 	export template<typename Func>
-	RunningContext* CreateObjFromCallableObject(Func&& func, std::pmr::memory_resource* resource) requires(true)
+		RunningContext* CreateObjFromCallableObject(Func&& func, std::pmr::memory_resource* resource) requires(
+			std::is_function_v<std::remove_cvref_t<Func>> || HasCertainlyOperatorParentheses<std::remove_cvref_t<Func>>
+		)
 	{
+		using ExtractType = ExtractFunctionParameterTypeT<std::remove_cvref_t<Func>>;
+		int o = ExtractType{};
 		if (resource != nullptr)
 		{
 			using OT = RunningContextCallableObject<std::remove_cvref_t<Func>>;
@@ -163,13 +192,6 @@ namespace Noodles::System
 		}
 		return {};
 	}
-
-	template<typename FuncT>
-	concept HasCertainlyOperatorParentheses = requires(FuncT fun)
-	{
-		{&fun.operator()};
-	};
-
 
 
 	/*
