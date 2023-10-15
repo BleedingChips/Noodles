@@ -36,7 +36,7 @@ void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration du
 	}
 }
 
-void PrintSystem(void* obj, Noodles::ExecuteContext& context)
+void PrintSystem(Noodles::ExecuteContext& context)
 {
 	UniquePrint(context.property.system_name);
 }
@@ -51,8 +51,8 @@ int main()
 	auto TSystem = Potato::Task::TaskContext::Create();
 	TSystem->FireThreads();
 
-	Noodles::Context::Config config;
-	config.min_frame_time = std::chrono::milliseconds{10};
+	Noodles::ContextConfig config;
+	config.min_frame_time = std::chrono::seconds{10};
 
 	auto NContext = Context::Create(config, TSystem);
 
@@ -101,45 +101,53 @@ int main()
 	);
 
 	auto r3 = NContext->AddTickSystemDefer(
-		{},
+		{
+			0,0,0,
+		},
 		{
 			u8"S1"
 		},
 		{
-			
+				std::span(rw_infos1)
 		},
-		System::Object{ PrintSystem }
+		PrintSystem
 	);
 
 	auto r4 = NContext->AddTickSystemDefer(
-		{},
+		{
+			0,0,1,
+		},
 			{
 					u8"S2"
 			},
 			{
-				//std::span(rw_infos1)
+				std::span(rw_infos1)
 			},
-		System::Object{ PrintSystem }
+		PrintSystem
 	);
 
 	auto r5 = NContext->AddTickSystemDefer(
-		{},
+		{
+			0,0,2,
+		},
 			{
 					u8"S3"
 			},
 			{
-				//std::span(rw_infos1)
+				std::span(rw_infos1)
 			},
-			System::Object{ PrintSystem }
+			PrintSystem
 	);
 
 	auto r6 = NContext->AddTickSystemDefer(
-		{},
+		{
+			0,0,3,
+		},
 			{
 					u8"S4"
 			},
 			{
-				//std::span(rw_infos1)
+				std::span(rw_infos1)
 			},
 			[](ExecuteContext& context)
 			{

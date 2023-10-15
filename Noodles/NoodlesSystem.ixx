@@ -10,11 +10,7 @@ import PotatoTaskSystem;
 import PotatoIR;
 
 import NoodlesArcheType;
-
-export namespace Noodles
-{
-	extern struct ExecuteContext;
-}
+import NoodlesComponent;
 
 export namespace Noodles::System
 {
@@ -66,50 +62,127 @@ export namespace Noodles::System
 		}
 	};
 
-	struct Object
-	{
-		struct Ref
-		{
-			void (*func)(void* object, ExecuteContext& status) = nullptr;
-			void* object = nullptr;
-
-			operator bool() const { return func != nullptr; }
-			void Execute(ExecuteContext& status) { func(object, status); }
-
-			Ref(
-				void (*func)(void* object, ExecuteContext& status) = nullptr,
-				void* object = nullptr
-			) : func(func), object(object) {}
-
-			Ref(Ref const&) = default;
-			Ref& operator=(Ref const&) = default;
-		};
-
-		Ref object;
-		void (*destructor)(void*) = nullptr;
-
-		Object(
-			void (*func)(void*, ExecuteContext&),
-			void* object = nullptr,
-			void (*destructor)(void*) = nullptr
-		);
-
-		Object() = default;
-
-		Object(Object&& obj);
-		~Object();
-
-		Object& operator=(Object&& obj);
-
-		operator bool() const { return object; }
-	};
-
 	struct MutexProperty
 	{
 		std::span<RWInfo> component_rw_infos;
 		std::span<RWInfo> global_component_rw_infos;
 
-		bool IsConflig(MutexProperty const& p2) const;
+		bool IsConflict(MutexProperty const& p2) const;
 	};
+
+}
+
+export namespace Noodles
+{
+	struct Context;
+
+	struct ExecuteContext
+	{
+		System::Property property;
+		Context& context;
+	};
+}
+
+namespace Noodles::System
+{
+
+	template<typename Func>
+	concept AcceptableSystemObject = true;
+
+	export enum class RunningStatus
+	{
+		PreInit,
+		Waiting,
+
+		Ready,
+		Running,
+		Done,
+	};
+
+	export struct RunningContext
+	{
+		RunningStatus status;
+		std::size_t startup_in_degree = 0;
+		std::size_t current_in_degree = 0;
+		std::size_t mutex_degree = 0;
+
+		Property property;
+		Potato::Misc::IndexSpan<> reference_trigger_line;
+		
+		
+		virtual void Execute(ExecuteContext& context) = 0;
+		virtual void Release(std::pmr::memory_resource* resource) = 0;
+	};
+
+	export struct TriggerLine
+	{
+		bool is_mutex = false;
+		RunningContext* target = nullptr;
+	};
+
+	export template<typename Func>
+	struct RunningContextCallableObject : public RunningContext
+	{
+		std::conditional_t<
+			std::is_function_v<Func>,
+			Func*,
+			Func
+		> fun;
+		RunningContextCallableObject(Func&& fun, std::pmr::memory_resource* resource)
+			: fun(std::move(fun))
+		{
+
+		}
+		void Execute(ExecuteContext& con) override
+		{
+			fun(con);
+		}
+		void Release(std::pmr::memory_resource* resource)
+		{
+			this->~RunningContextCallableObject();
+			resource->deallocate(
+				this,
+				sizeof(RunningContextCallableObject),
+				alignof(RunningContextCallableObject)
+			);
+		}
+	};
+
+
+	export template<typename Func>
+	RunningContext* CreateObjFromCallableObject(Func&& func, std::pmr::memory_resource* resource) requires(true)
+	{
+		if (resource != nullptr)
+		{
+			using OT = RunningContextCallableObject<std::remove_cvref_t<Func>>;
+			auto adress = resource->allocate(sizeof(OT), alignof(OT));
+			if (adress != nullptr)
+			{
+				return new (adress) OT{ std::forward<Func>(func), resource };
+			}
+		}
+		return {};
+	}
+
+	template<typename FuncT>
+	concept HasCertainlyOperatorParentheses = requires(FuncT fun)
+	{
+		{&fun.operator()};
+	};
+
+
+
+	/*
+	template<bool IsFunctionPointer, typename FuncT>
+	struct FunctionTypeFilter
+	{
+		using T = Potato::TMP::
+	};
+
+	export template<typename FuncT>
+	MutexProperty const& GetMutexPropertyFromFunction()
+	{
+		static_assert();
+	}*/
 
 }

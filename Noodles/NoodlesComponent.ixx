@@ -39,4 +39,27 @@ export namespace Noodles
 		
 	};
 
+	export template<typename T>
+	struct IsAcceptableComponentFilter
+	{
+		static constexpr bool Value = false;
+	};
+
+	export template<typename ...T>
+	struct IsAcceptableComponentFilter<ComponentFilter<T...>>
+	{
+		static constexpr bool Value = true;
+	};
+
+	export template<typename T>
+	constexpr bool IsAcceptableComponentFilterV = IsAcceptableComponentFilter<T>::Value;
+
+	/*
+	template<typename T>
+	struct IsAcceptableGobalComponentFilter
+	{
+		static constexpr bool Value = false;
+	};
+	*/
+
 }

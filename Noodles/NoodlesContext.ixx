@@ -17,165 +17,139 @@ export import NoodlesSystem;
 export namespace Noodles
 {
 
-	struct Context;
-
-	struct ExecuteContext
+	struct ContextConfig
 	{
-		System::Property property;
-		Context& context;
+		std::size_t priority = *Potato::Task::TaskPriority::Normal;
+		std::chrono::milliseconds min_frame_time = std::chrono::milliseconds{ 13 };
 	};
 
-	struct Context final : public Potato::Task::Task
+	struct Context : public Potato::Task::Task
 	{
-
-		struct Config
-		{
-			std::size_t priority = *Potato::Task::TaskPriority::Normal;
-			std::chrono::milliseconds min_frame_time = std::chrono::milliseconds{13};
-		};
 
 		using Ptr = Potato::Task::ControlPtr<Context>;
 
-		static Ptr Create(Config config, Potato::Task::TaskContext::Ptr ptr, std::pmr::memory_resource* UpstreamResource = std::pmr::get_default_resource());
+		static Ptr Create(ContextConfig config, Potato::Task::TaskContext::Ptr ptr, std::pmr::memory_resource* UpstreamResource = std::pmr::get_default_resource());
 
 		bool StartLoop();
-
-		bool AddTickSystemDefer(
-			System::Priority priority,
-			System::Property sys_property,
-			System::MutexProperty mutex_property,
-			System::Object (*func)(void* obj),
-			void* append_obj
-			);
-
-		bool AddTickSystemDefer(
-			System::Priority priority,
-			System::Property sys_property,
-			System::MutexProperty mutex_property,
-			System::Object&& obj
-		);
 
 		template<typename Func>
 		bool AddTickSystemDefer(
 			System::Priority priority,
 			System::Property sys_property,
 			System::MutexProperty mutex_property,
-			Func&& cb,
-			std::pmr::memory_resource* resource = std::pmr::get_default_resource()
-		) requires(std::is_invocable_v<Func, ExecuteContext&>);
+			Func&& fun
+		)
+		{
+			std::lock_guard lg(tick_system_mutex);
+			auto re = TickSystemDependenceCheck(
+				sys_property,
+				priority,
+				mutex_property
+			);
+			if(re)
+			{
+				auto context = System::CreateObjFromCallableObject(std::forward<Func>(fun), &system_running_context_resource);
+				if(context != nullptr)
+				{
+					TickSystemInsert(re, sys_property, priority, mutex_property, context);
+					return true;
+				}
+			}
+			return false;
+		}
 
 	protected:
 
 		virtual void operator()(Potato::Task::ExecuteStatus& Status) override;
 
-		Context(Config config, Potato::Task::TaskContext::Ptr TaskPtr, std::pmr::memory_resource* Resource);
+		Context(ContextConfig config, Potato::Task::TaskContext::Ptr TaskPtr, std::pmr::memory_resource* Resource);
 
 		//virtual void ControlRelease() override;
 		virtual void Release() override;
 		~Context();
 
-		void InitTickSystem();
-		void FlushTickSystem();
+		void FlushAndInitTickSystem();
 
 		std::atomic_size_t running_task;
 
 		std::mutex property_mutex;
 		Potato::Task::TaskContext::Ptr task_context;
-		Config config;
+		ContextConfig config;
 		std::chrono::system_clock::time_point last_execute_time;
 
 		std::pmr::memory_resource* m_resource;
-		/*
-		Memory::HugePageMemoryResource::Ptr EntityResource;
-		std::pmr::synchronized_pool_resource ArcheTypeResource;
-		std::pmr::synchronized_pool_resource ComponentResource;
-		std::pmr::synchronized_pool_resource SystemResource;
-		*/
+		std::pmr::synchronized_pool_resource system_running_context_resource;
 
-		std::pmr::unsynchronized_pool_resource system_obj_resource;
-
-		struct SystemStorage
-		{
-			System::Priority priority;
-			System::Property property;
-			System::MutexProperty mutex_property;
-			System::Object object;
-			std::size_t in_degree = 0;
-		};
-
-		enum class SystemStatus
-		{
-			Waitting,
-			Ready,
-			Running,
-			Done,
-		};
-
-		struct GraphicLine
+		struct NewLogicDependenceLine
 		{
 			bool is_mutex = false;
-			std::int32_t layer = 0;
 			std::size_t from_node = 0;
 			std::size_t to_node = 0;
 		};
 
-		struct SystemRunningContext
+		struct CircleDependenceCheckResult
 		{
-			SystemStatus status = SystemStatus::Ready;
-			System::Object::Ref object;
-			System::Property property;
-			std::int32_t layer = 0;
-			std::span<GraphicLine const> graphic_line;
+			enum class Status
+			{
+				Available,
+				EmptyName,
+				ExistName,
+				ConfuseDependence,
+				CircleDependence,
+			};
+
+			Status status = Status::Available;
+			std::size_t ite_index = 0;
 			std::size_t in_degree = 0;
-			std::size_t cur_in_degree = 0;
-			std::size_t mutex_degree = 0;
+			std::pmr::vector<NewLogicDependenceLine> dependence_line;
+			operator bool() const { return status == Status::Available; }
 		};
 
-		void FireSingleTickSystem(Potato::Task::TaskContext& context, std::size_t cur_index);
-		void TryFireNextLevelZeroDegreeTickSystem(Potato::Task::TaskContext& context, std::optional<std::size_t> current_context_index);
-		void TryFireBeDependenceTickSystem(Potato::Task::TaskContext& context, std::size_t start_ite);
+		CircleDependenceCheckResult TickSystemDependenceCheck(System::Property const& pro, System::Priority const& priority, System::MutexProperty const& mutex_property);
+		void TickSystemInsert(CircleDependenceCheckResult const& result, System::Property const& pro, System::Priority const& priority, System::MutexProperty const& mutex_property, System::RunningContext* context);
+
+		struct LogicDependenceLine
+		{
+			bool is_mutex = false;
+			std::size_t to_node = 0;
+		};
+
+		struct LogicSystemRunningContext
+		{
+			System::Property property;
+			System::Priority priority;
+			System::MutexProperty mutex_property;
+			System::RunningContext* system_obj;
+			std::size_t in_degree = 0;
+			std::pmr::vector<LogicDependenceLine> dependence_line;
+		};
+
+		struct StartupSystemContext
+		{
+			std::int32_t layout = 0;
+			System::RunningContext* system_obj;
+		};
+
+		void FireSingleTickSystem(Potato::Task::TaskContext& context, System::RunningContext* ptr);
+		void TryFireNextLevelZeroDegreeTickSystem(Potato::Task::TaskContext& context);
+		void TryFireBeDependenceTickSystem(Potato::Task::TaskContext& context, System::RunningContext* ptr);
+		bool RecursionSearchNode(std::size_t cur, std::size_t target, std::span<NewLogicDependenceLine> Line);
 
 		std::mutex tick_system_mutex;
-		std::pmr::vector<SystemStorage> tick_systems;
-		std::pmr::vector<GraphicLine> tick_systems_graphic_line;
+		std::pmr::vector<LogicSystemRunningContext> tick_systems;
 		bool need_refresh_dependence = false;
 
 		std::mutex tick_system_running_mutex;
-		std::pmr::vector<SystemRunningContext> tick_system_context;
-		std::pmr::vector<GraphicLine> tick_systems_running_graphic_line;
+		std::pmr::vector<StartupSystemContext> startup_system_context;
+		std::size_t starup_up_system_context_ite = 0;
+		std::pmr::vector<System::TriggerLine> tick_systems_running_graphic_line;
 		std::size_t current_level_system_waiting = 0;
 		
 	};
 
-	template<typename Func>
-	bool Context::AddTickSystemDefer(
-		System::Priority priority,
-		System::Property sys_property,
-		System::MutexProperty mutex_property,
-		Func&& cb,
-		std::pmr::memory_resource* resource
-	) requires(std::is_invocable_v<Func, ExecuteContext&>)
-	{
-		if constexpr (std::is_convertible_v<Func, void(*)(ExecuteContext&)>)
-		{
-			return AddTickSystemDefer(
-				std::move(priority),
-				std::move(sys_property),
-				std::move(mutex_property),
-				System::Object{
-					[](void* obj, ExecuteContext& context)
-					{
-						static_cast<void(*)(ExecuteContext&)>(obj)(context);
-					},
-					reinterpret_cast<void*>(static_cast<void(*)(ExecuteContext&)>(cb))
-				}
-			);
-		}
-		return false;
-	}
 }
 
-namespace Noodles
+export namespace Noodles
 {
 	
 }

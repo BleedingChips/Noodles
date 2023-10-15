@@ -67,6 +67,7 @@ namespace Noodles::System
 		}
 	}
 
+	/*
 	Object::Object(
 		void (*func)(void*, ExecuteContext&),
 		void* object,
@@ -97,8 +98,9 @@ namespace Noodles::System
 		new (this) Object{ std::move(obj) };
 		return *this;
 	}
+	*/
 
-	bool MutexProperty::IsConflig(MutexProperty const& p2) const
+	bool MutexProperty::IsConflict(MutexProperty const& p2) const
 	{
 		for(auto& ite : component_rw_infos)
 		{
