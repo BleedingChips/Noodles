@@ -154,6 +154,22 @@ int main()
 				UniquePrint(context.property.system_name);
 			}
 	);
+
+	auto r7 = NContext->AddTickSystemDefer(
+		{
+			0,0,4,
+		},
+			{
+					u8"S5"
+			},
+			{
+				std::span(rw_infos1)
+			},
+		[](ExecuteContext& context, ComponentFilter<A>)
+		{
+			UniquePrint(context.property.system_name);
+		}
+	);
 	
 
 	NContext->StartLoop();

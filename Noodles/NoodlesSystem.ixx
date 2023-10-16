@@ -10,7 +10,7 @@ import PotatoTaskSystem;
 import PotatoIR;
 
 import NoodlesArcheType;
-import NoodlesComponent;
+export import NoodlesComponent;
 
 export namespace Noodles::System
 {
@@ -155,13 +155,13 @@ namespace Noodles::System
 	};
 
 	template<typename FuncT>
-	struct CallableObjectParameter
+	struct ExtractFunctionParameterFromCallableObjectT
 	{
 		using Type = Potato::TMP::FunctionInfo<decltype(&FuncT::operator())>;
 	};
 
 	template<typename FuncT>
-	struct FunctionPointerParameter
+	struct ExtractFunctionParameterFromFunctionT
 	{
 		using Type = Potato::TMP::FunctionInfo<FuncT>;
 	};
@@ -169,9 +169,22 @@ namespace Noodles::System
 	template<typename FuncT>
 	using ExtractFunctionParameterTypeT = typename std::conditional_t<
 		std::is_function_v<FuncT>,
-		Potato::TMP::Instant<FunctionPointerParameter>,
-		Potato::TMP::Instant<CallableObjectParameter>
+		Potato::TMP::Instant<ExtractFunctionParameterFromFunctionT>,
+		Potato::TMP::Instant<ExtractFunctionParameterFromCallableObjectT>
 	>:: template AppendT<FuncT>;
+
+	template<typename ParT>
+	struct IsAcceptableParameter
+	{
+		using PT = std::remove_cvref_t<ParT>;
+		static constexpr bool value = std::is_same_v<ExecuteContext, PT> || IsAcceptableComponentFilterV<ParT>;
+	};
+
+	template<typename ...ParT>
+	struct IsAcceptableParameters
+	{
+		static constexpr bool value = ( true && ... && IsAcceptableParameter<ParT>::value );
+	};
 
 
 	export template<typename Func>
@@ -179,8 +192,13 @@ namespace Noodles::System
 			std::is_function_v<std::remove_cvref_t<Func>> || HasCertainlyOperatorParentheses<std::remove_cvref_t<Func>>
 		)
 	{
-		using ExtractType = ExtractFunctionParameterTypeT<std::remove_cvref_t<Func>>;
-		int o = ExtractType{};
+		using ExtractType = typename ExtractFunctionParameterTypeT<std::remove_cvref_t<Func>>::Type;
+
+		static_assert(
+			ExtractType::template PackParameters<IsAcceptableParameters>::value,
+			"System Only Accept Parameters with ExecuteContext and ComponentFilter "
+		);
+
 		if (resource != nullptr)
 		{
 			using OT = RunningContextCallableObject<std::remove_cvref_t<Func>>;
