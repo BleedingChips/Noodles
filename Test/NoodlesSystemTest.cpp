@@ -165,9 +165,10 @@ int main()
 			{
 				std::span(rw_infos1)
 			},
-		[](ExecuteContext& context, ComponentFilter<A>)
+		[]()//ExecuteContext& context, ComponentFilter<A>)
 		{
-			UniquePrint(context.property.system_name);
+			std::lock_guard lg(PrintMutex);
+			std::println("Funck You !");
 		}
 	);
 	

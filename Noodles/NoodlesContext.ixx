@@ -147,6 +147,15 @@ export namespace Noodles
 		
 	};
 
+	namespace System
+	{
+		export template<typename ...ToT>
+			struct ExecuteContextDistributor<ComponentFilter<ToT...>>
+		{
+			ComponentFilter<ToT...> operator()(ExecuteContext& context) { return {}; }
+		};
+	}
+
 }
 
 export namespace Noodles

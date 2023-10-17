@@ -120,34 +120,6 @@ namespace Noodles::System
 		RunningContext* target = nullptr;
 	};
 
-	export template<typename Func>
-	struct RunningContextCallableObject : public RunningContext
-	{
-		std::conditional_t<
-			std::is_function_v<Func>,
-			Func*,
-			Func
-		> fun;
-		RunningContextCallableObject(Func&& fun, std::pmr::memory_resource* resource)
-			: fun(std::move(fun))
-		{
-
-		}
-		void Execute(ExecuteContext& con) override
-		{
-			fun(con);
-		}
-		void Release(std::pmr::memory_resource* resource)
-		{
-			this->~RunningContextCallableObject();
-			resource->deallocate(
-				this,
-				sizeof(RunningContextCallableObject),
-				alignof(RunningContextCallableObject)
-			);
-		}
-	};
-
 	template<typename FuncT>
 	concept HasCertainlyOperatorParentheses = requires(FuncT fun)
 	{
@@ -186,6 +158,67 @@ namespace Noodles::System
 		static constexpr bool value = ( true && ... && IsAcceptableParameter<ParT>::value );
 	};
 
+	export template<typename ToT>
+	struct ExecuteContextDistributor
+	{
+		ToT operator()(ExecuteContext& context) = delete;
+	};
+
+	export template<>
+		struct ExecuteContextDistributor<ExecuteContext>
+	{
+		ExecuteContext& operator()(ExecuteContext& context){ return context; }
+	};
+
+	export template<typename ...ToT>
+	struct ExecuteContextDistributors
+	{
+		template<typename Func>
+		void operator()(ExecuteContext& context, Func&& func)
+		{
+			func(ExecuteContextDistributor<std::remove_cvref_t<ToT>>{}(context)...);
+		}
+	};
+
+	template<typename FuncT>
+	void CallSystemFunction(ExecuteContext& context, FuncT&& func)
+	{
+		using Fun = typename ExtractFunctionParameterTypeT<std::remove_pointer_t<std::remove_cvref_t<FuncT>>>::Type;
+		using Distributors = typename Fun::template PackParameters<ExecuteContextDistributors>;
+
+		Distributors{}(context, func);
+	}
+
+
+	export template<typename Func>
+		struct RunningContextCallableObject : public RunningContext
+	{
+		std::conditional_t<
+			std::is_function_v<Func>,
+			Func*,
+			Func
+		> fun;
+
+		RunningContextCallableObject(Func&& fun, std::pmr::memory_resource* resource)
+			: fun(std::move(fun))
+		{
+
+		}
+		void Execute(ExecuteContext& con) override
+		{
+			CallSystemFunction(con, fun);
+			//fun(con);
+		}
+		void Release(std::pmr::memory_resource* resource)
+		{
+			this->~RunningContextCallableObject();
+			resource->deallocate(
+				this,
+				sizeof(RunningContextCallableObject),
+				alignof(RunningContextCallableObject)
+			);
+		}
+	};
 
 	export template<typename Func>
 		RunningContext* CreateObjFromCallableObject(Func&& func, std::pmr::memory_resource* resource) requires(
