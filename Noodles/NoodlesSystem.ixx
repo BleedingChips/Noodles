@@ -12,6 +12,13 @@ import PotatoIR;
 import NoodlesArcheType;
 export import NoodlesComponent;
 
+
+export namespace Noodles
+{
+	struct Context;
+}
+
+
 export namespace Noodles::System
 {
 
@@ -70,21 +77,19 @@ export namespace Noodles::System
 		bool IsConflict(MutexProperty const& p2) const;
 	};
 
-}
-
-export namespace Noodles
-{
-	struct Context;
-
 	struct ExecuteContext
 	{
 		System::Property property;
 		Context& context;
 	};
-}
 
-namespace Noodles::System
-{
+	export struct FilterWrapper : Potato::Task::ControlDefaultInterface
+	{
+		virtual MutexProperty GetMutexProperty() const = 0;
+	public:
+		template<typename Type>
+		Type GetFiler(Potato::TMP::ItSelf<Type>, std::size_t I, ExecuteContext& Context);
+	};
 
 	template<typename Func>
 	concept AcceptableSystemObject = true;
@@ -119,31 +124,6 @@ namespace Noodles::System
 		bool is_mutex = false;
 		RunningContext* target = nullptr;
 	};
-
-	template<typename FuncT>
-	concept HasCertainlyOperatorParentheses = requires(FuncT fun)
-	{
-		{&FuncT::operator()};
-	};
-
-	template<typename FuncT>
-	struct ExtractFunctionParameterFromCallableObjectT
-	{
-		using Type = Potato::TMP::FunctionInfo<decltype(&FuncT::operator())>;
-	};
-
-	template<typename FuncT>
-	struct ExtractFunctionParameterFromFunctionT
-	{
-		using Type = Potato::TMP::FunctionInfo<FuncT>;
-	};
-
-	template<typename FuncT>
-	using ExtractFunctionParameterTypeT = typename std::conditional_t<
-		std::is_function_v<FuncT>,
-		Potato::TMP::Instant<ExtractFunctionParameterFromFunctionT>,
-		Potato::TMP::Instant<ExtractFunctionParameterFromCallableObjectT>
-	>:: template AppendT<FuncT>;
 
 	template<typename ParT>
 	struct IsAcceptableParameter
@@ -183,8 +163,8 @@ namespace Noodles::System
 	template<typename FuncT>
 	void CallSystemFunction(ExecuteContext& context, FuncT&& func)
 	{
-		using Fun = typename ExtractFunctionParameterTypeT<std::remove_pointer_t<std::remove_cvref_t<FuncT>>>::Type;
-		using Distributors = typename Fun::template PackParameters<ExecuteContextDistributors>;
+		using FuncInfo = Potato::TMP::FunctionInfo<std::remove_pointer_t<std::remove_cvref_t<FuncT>>>;
+		using Distributors = typename FuncInfo::template PackParameters<ExecuteContextDistributors>;
 
 		Distributors{}(context, func);
 	}
@@ -222,10 +202,10 @@ namespace Noodles::System
 
 	export template<typename Func>
 		RunningContext* CreateObjFromCallableObject(Func&& func, std::pmr::memory_resource* resource) requires(
-			std::is_function_v<std::remove_cvref_t<Func>> || HasCertainlyOperatorParentheses<std::remove_cvref_t<Func>>
+			Potato::TMP::RequireDetectableFunction<Func>
 		)
 	{
-		using ExtractType = typename ExtractFunctionParameterTypeT<std::remove_cvref_t<Func>>::Type;
+		using ExtractType = Potato::TMP::FunctionInfo<std::remove_pointer_t<std::remove_cvref_t<Func>>>;
 
 		static_assert(
 			ExtractType::template PackParameters<IsAcceptableParameters>::value,

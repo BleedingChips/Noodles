@@ -156,6 +156,8 @@ export namespace Noodles
 		};
 	}
 
+	using ExecuteContext = System::ExecuteContext;
+
 }
 
 export namespace Noodles

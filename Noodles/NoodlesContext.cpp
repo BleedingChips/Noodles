@@ -60,7 +60,7 @@ namespace Noodles
 		{
 			if(status.Property.AppendData2 == 1)
 			{
-				ExecuteContext Cont{
+				System::ExecuteContext Cont{
 				ptr->property,
 				*this
 				};
