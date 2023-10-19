@@ -67,6 +67,43 @@ namespace Noodles::System
 		}
 	}
 
+	void FilterGenerator::AddComponentFilter(std::span<RWInfo> rw_infos)
+	{
+
+		std::pmr::vector<RWInfo> infos{ resource };
+		infos.insert(infos.end(), rw_infos.begin(), rw_infos.end());
+
+		filter_element.emplace_back(
+			Type::Component,
+			std::move(infos)
+		);
+
+		for(auto& ite : rw_infos)
+		{
+			auto find = std::find_if(component_rw_info.begin(), component_rw_info.end(), [&](RWInfo const& out)
+			{
+				return ite.type_id >= out.type_id;
+			});
+
+			if(find != component_rw_info.end() && find->type_id == ite.type_id)
+			{
+				if (find->rw_property == RWInfo::RWProperty::Write || ite.rw_property == RWInfo::RWProperty::Write)
+				{
+					find->rw_property = RWInfo::RWProperty::Write;
+				}
+			}else
+			{
+				component_rw_info.insert(find, ite);
+			}
+		}
+	}
+
+
+	void FilterGenerator::AddGlobalComponentFilter(RWInfo const& Infos)
+	{
+		
+	}
+
 	/*
 	Object::Object(
 		void (*func)(void*, ExecuteContext&),

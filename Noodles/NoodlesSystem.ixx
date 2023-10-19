@@ -83,6 +83,35 @@ export namespace Noodles::System
 		Context& context;
 	};
 
+	export struct FilterGenerator
+	{
+		enum class Type
+		{
+			Component,
+			GlobalComponent,
+			Entity,
+		};
+
+		FilterGenerator(std::pmr::memory_resource* ptr = std::pmr::get_default_resource());
+
+		void AddComponentFilter(std::span<RWInfo> Infos);
+		void AddEntityFilter(std::span<RWInfo> Infos);
+		void AddGlobalComponentFilter(RWInfo const& Infos);
+
+	protected:
+
+		struct Element
+		{
+			Type type;
+			std::pmr::vector<RWInfo> info;
+		};
+
+		std::pmr::memory_resource* resource;
+		std::pmr::vector<Element> filter_element;
+		std::pmr::vector<RWInfo> component_rw_info;
+		std::pmr::vector<RWInfo> global_component_rw_info;
+	};
+
 	export struct FilterWrapper : Potato::Task::ControlDefaultInterface
 	{
 		virtual MutexProperty GetMutexProperty() const = 0;
