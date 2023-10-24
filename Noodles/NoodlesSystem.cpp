@@ -7,14 +7,10 @@ namespace Noodles::System
 
 	std::strong_ordering Priority::ComparePriority(Priority const& p2) const
 	{
-		auto r1 = layer <=> p2.layer;
-		if(r1 == std::strong_ordering::equal)
+		auto r1 = primary_priority <=> p2.primary_priority;
+		if (r1 == std::strong_ordering::equal)
 		{
-			r1 = primary_priority <=> p2.primary_priority;
-			if (r1 == std::strong_ordering::equal)
-			{
-				return 	second_priority <=> p2.second_priority;
-			}
+			return 	second_priority <=> p2.second_priority;
 		}
 		return r1;
 	}
@@ -67,39 +63,125 @@ namespace Noodles::System
 		}
 	}
 
+	bool DetectConflict(std::span<RWInfo const> t1, std::span<RWInfo const> t2)
+	{
+		auto ite1 = t1.begin();
+		auto ite2 = t2.begin();
+
+		while(ite1 != t1.end() && ite2 != t2.end())
+		{
+			auto re = ite1->type_id <=> ite2->type_id;
+			if(re == std::strong_ordering::equal)
+			{
+				if(
+					ite1->is_write
+					|| ite2->is_write
+					)
+				{
+					return true;
+				}else
+				{
+					++ite2; ++ite1;
+				}
+			}else if(re == std::strong_ordering::less)
+			{
+				++ite1;	
+			}else
+			{
+				++ite2;
+			}
+		}
+		return false;
+	}
+
+	bool MutexProperty::IsConflict(MutexProperty const& p2) const
+	{
+		auto re1 = DetectConflict(component_rw_infos, p2.component_rw_infos);
+		return re1;
+	}
+
+	FilterGenerator::FilterGenerator(std::pmr::memory_resource* ptr)
+		: resource(ptr), component_rw_info(ptr), global_component_rw_info(ptr)
+	{
+		
+	}
+
+	void OrderedInsert(RWInfo const& tar, std::pmr::vector<RWInfo>& vec)
+	{
+		auto find = std::find_if(
+			vec.begin(),
+			vec.end(),
+			[&](RWInfo const& o)
+			{
+				return tar.type_id <= o.type_id;
+			}
+		);
+		if (find == vec.end() || find->type_id == tar.type_id)
+		{
+			if(tar.is_write)
+			{
+				find->is_write = true;
+			}
+		}else
+		{
+			vec.insert(
+				find,
+				tar
+			);
+		}
+	}
+
 	void FilterGenerator::AddComponentFilter(std::span<RWInfo> rw_infos)
 	{
 
 		std::pmr::vector<RWInfo> infos{ resource };
-		infos.insert(infos.end(), rw_infos.begin(), rw_infos.end());
+
+		for(auto& ite : rw_infos)
+		{
+			OrderedInsert(
+				ite,
+				infos
+			);
+		}
+
+		for(auto& ite : rw_infos)
+		{
+			OrderedInsert(
+				ite,
+				component_rw_info
+			);
+		}
 
 		filter_element.emplace_back(
 			Type::Component,
 			std::move(infos)
 		);
-
-		for(auto& ite : rw_infos)
-		{
-			auto find = std::find_if(component_rw_info.begin(), component_rw_info.end(), [&](RWInfo const& out)
-			{
-				return ite.type_id >= out.type_id;
-			});
-
-			if(find != component_rw_info.end() && find->type_id == ite.type_id)
-			{
-				if (find->rw_property == RWInfo::RWProperty::Write || ite.rw_property == RWInfo::RWProperty::Write)
-				{
-					find->rw_property = RWInfo::RWProperty::Write;
-				}
-			}else
-			{
-				component_rw_info.insert(find, ite);
-			}
-		}
 	}
 
 
-	void FilterGenerator::AddGlobalComponentFilter(RWInfo const& Infos)
+	void FilterGenerator::AddGlobalComponentFilter(RWInfo const& info)
+	{
+		std::pmr::vector<RWInfo> infos{ resource };
+		infos.push_back(info);
+		OrderedInsert(
+			info,
+			global_component_rw_info
+		);
+	}
+
+	void FilterGenerator::AddEntityFilter(std::span<RWInfo> infos)
+	{
+		for(auto& ite : infos)
+		{
+			OrderedInsert(
+				ite,
+				global_component_rw_info
+			);
+		}
+	}
+
+	TickSystemsGroup::TickSystemsGroup(std::pmr::memory_resource* resource)
+		: system_holder_resource(resource), graphic_node(resource), startup_system_context(resource), tick_systems_running_graphic_line(resource)
 	{
 		
 	}
@@ -137,22 +219,5 @@ namespace Noodles::System
 	}
 	*/
 
-	bool MutexProperty::IsConflict(MutexProperty const& p2) const
-	{
-		for(auto& ite : component_rw_infos)
-		{
-			bool is_write = (ite.rw_property == RWInfo::RWProperty::Write);
-			for(auto& ite2 : p2.component_rw_infos)
-			{
-				if (is_write || ite2.rw_property == RWInfo::RWProperty::Write)
-				{
-					if ((ite.type_id <=> ite2.type_id) == std::strong_ordering::equal)
-					{
-						return true;
-					}
-				}
-			}
-		}
-		return false;
-	}
+	
 }

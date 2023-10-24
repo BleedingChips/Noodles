@@ -36,7 +36,7 @@ void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration du
 	}
 }
 
-void PrintSystem(Noodles::ExecuteContext& context)
+void PrintSystem(Noodles::System::ExecuteContext& context)
 {
 	UniquePrint(context.property.system_name);
 }
@@ -48,6 +48,10 @@ struct B{};
 
 int main()
 {
+
+	Noodles::System::TickSystemsGroup Tg;
+
+	/*
 	auto TSystem = Potato::Task::TaskContext::Create();
 	TSystem->FireThreads();
 
@@ -66,15 +70,7 @@ int main()
 		{
 			System::RWInfo::GetComponent<A const>()
 		}
-	};
-
-	/*
-	void (*sysfunc)(void* object, ExecuteStatus & status),
-		void* object,
-		std::span<SystemRWInfo const> Infos,
-		SystemProperty system_property,
-		std::partial_ordering(*priority_detect)(void* Object, SystemProperty const&, SystemProperty const&)
-	*/
+	}; 
 
 	auto r1 = NContext->AddTickSystemDefer(
 		{
@@ -175,6 +171,7 @@ int main()
 
 	NContext->StartLoop();
 	TSystem->WaitTask();
+	*/
 
 	return 0;
 }

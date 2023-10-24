@@ -17,6 +17,7 @@ export import NoodlesSystem;
 export namespace Noodles
 {
 
+	/*
 	struct ContextConfig
 	{
 		std::size_t priority = *Potato::Task::TaskPriority::Normal;
@@ -157,6 +158,7 @@ export namespace Noodles
 	}
 
 	using ExecuteContext = System::ExecuteContext;
+	*/
 
 }
 

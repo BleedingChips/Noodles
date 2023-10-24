@@ -7,7 +7,7 @@ module NoodlesContext;
 namespace Noodles
 {
 
-
+	/*
 	constexpr std::u8string_view TaskName = u8"Noodles Startup";
 
 	auto Context::Create(ContextConfig config, Potato::Task::TaskContext::Ptr TaskPtr, std::pmr::memory_resource* UpstreamResource)->Ptr
@@ -27,10 +27,7 @@ namespace Noodles
 	}
 
 	Context::Context(ContextConfig config, Potato::Task::TaskContext::Ptr TaskPtr, std::pmr::memory_resource* Resource)
-		: task_context(std::move(TaskPtr)), m_resource(Resource), /*
-	EntityResource(Memory::HugePageMemoryResource::Create(Resource)),
-	ArcheTypeResource(Resource),
-	ComponentResource(Resource), */config(config)
+		: task_context(std::move(TaskPtr)), m_resource(Resource), config(config)
 	{
 	}
 
@@ -471,4 +468,5 @@ namespace Noodles
 			current_level_system_waiting = 0;
 		}
 	}
+	*/
 }
