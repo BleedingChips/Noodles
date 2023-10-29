@@ -32,6 +32,9 @@ export namespace Noodles::Memory
 		std::pmr::synchronized_pool_resource PoolResource;
 	};
 
+	
+	
+
 	/*
 
 

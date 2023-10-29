@@ -1,13 +1,124 @@
 module;
 
-export module NoodlesArcheType;
+#include <cassert>
+export module NoodlesArchetype;
 
 import std;
 import PotatoIR;
 import PotatoPointer;
+import PotatoTaskSystem;
+import NoodlesMemory;
 
 export namespace Noodles
 {
+
+	struct UniqueTypeID
+	{
+		Potato::IR::TypeID id;
+		Potato::IR::Layout layout;
+
+		template<typename Type>
+		static UniqueTypeID Create()
+		{
+			return {
+				Potato::IR::TypeID::CreateTypeID<Type>(),
+				Potato::IR::Layout::Get<Type>()
+			};
+		}
+
+		friend std::strong_ordering operator<=>(UniqueTypeID const& i1, UniqueTypeID const& i2);
+	};
+
+	std::strong_ordering operator<=>(UniqueTypeID const& i1, UniqueTypeID const& i2);
+
+	struct ArchetypeID
+	{
+		enum class Status
+		{
+			MoveConstruction,
+			Destruction
+		};
+
+		UniqueTypeID id;
+		void (*WrapperFunction)(Status status, void* self, void* target) = nullptr;
+
+		template<typename Type>
+		static ArchetypeID Create()
+		{
+			return {
+				UniqueTypeID::Create<Type>(),
+				[](Status status, void* self, void* target)
+				{
+					switch(status)
+					{
+					case Status::Destruction:
+						static_cast<std::remove_cvref_t<Type>*>(self)->~Type();
+						break;
+					case Status::MoveConstruction:
+						new (self) std::remove_cvref_t<Type>{std::move(*static_cast<std::remove_cvref_t<Type>*>(target))};
+						break;
+					default:
+						assert(false);
+						break;
+					}
+				}
+			};
+		}
+
+		friend std::strong_ordering operator<=>(ArchetypeID const& i1, ArchetypeID const& i2);
+	};
+
+	inline std::strong_ordering operator<=>(ArchetypeID const& i1, ArchetypeID const& i2)
+	{
+		return i1.id <=> i2.id;
+	}
+
+	struct Archetype : public Potato::Pointer::DefaultIntrusiveInterface
+	{
+		using Ptr = Potato::Pointer::IntrusivePtr<Archetype>;
+
+		static Ptr Create(std::span<ArchetypeID const> ref_info, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+
+		struct LocateResult
+		{
+			Potato::IR::Layout layout;
+			std::size_t offset;
+		};
+
+		std::optional<std::tuple<Potato::IR::Layout, std::size_t>> LocateType(UniqueTypeID unique_id) const;
+		void* LocateType(UniqueTypeID unique_id, void* buffer, std::size_t index = 0, std::size_t total_index_count = 1) const;
+		void* Copy(Potato::IR::TypeID unique_id, void* buffer, void* source, std::size_t index = 1, std::size_t total_index_count = 1) const;
+
+	protected:
+
+		Archetype(std::pmr::memory_resource*, std::size_t allocated_size);
+
+		virtual void Release() override;
+
+		struct Element
+		{
+			ArchetypeID id;
+			std::size_t offset;
+
+			Element(ArchetypeID id) : id(id) {};
+			Element(Element const&) = default;
+			Element(Element &&) = default;
+			Element& operator=(Element const&) = default;
+			Element& operator=(Element&&) = default;
+		};
+
+		Potato::IR::Layout archetype_layout;
+		std::span<Element const> infos;
+		std::pmr::memory_resource* resource;
+		std::size_t allocated_size = 0;
+		
+
+		friend struct ArchetypeManager;
+
+		friend std::strong_ordering operator<=>(Archetype const& i1, Archetype const& i2);
+	};
+
+	std::strong_ordering operator<=>(Archetype const& i1, Archetype const& i2);
 
 	struct TypeInfo
 	{
@@ -28,30 +139,49 @@ export namespace Noodles
 		}
 	};
 
-	struct ArcheType : public Potato::Pointer::DefaultIntrusiveInterface
-	{
-		using Ptr = Potato::Pointer::IntrusivePtr<ArcheType>;
-		bool HasType(Potato::IR::TypeID ID) const;
-		void* LocateType(Potato::IR::TypeID ID) const;
-		void* Copy(Potato::IR::TypeID RequireID) const;
+	
 
-		struct Element
-		{
-			TypeInfo Info;
-			std::size_t Offset;
-		};
+
+	
+	/*
+	struct FilterWrapper : public Potato::Task::ControlDefaultInterface
+	{
+		using WPtr = Potato::Pointer::IntrusivePtr<FilterWrapper>;
+
+		FilterWrapper(Potato::Pointer::IntrusivePtr<ArchetypeManager> owner)
+			: owner(std::move(owner)) {}
 
 	protected:
 
-		static Ptr Create(std::span<Element const> Infos, std::pmr::memory_resource* IResource);
+		Potato::Pointer::IntrusivePtr<ArchetypeManager> owner;
 
-		virtual void Release() override;
+		std::pmr::vector<Archetype::Ptr> arche_type_reference;
 
-		std::pmr::memory_resource* Resource;
-		std::span<Element const> TypeInfos;
+		friend struct FilterWrapperManager;
+	};*/
 
-		friend struct Context;
+
+	/*
+	struct ArchetypeManager : public Potato::Intrusice
+	{
+
+		struct Element
+		{
+			Archetype::Ptr archetype_ptr;
+			std::size_t totale_entity_count;
+			Memory::ComponentPage::SPtr top_page;
+			Memory::ComponentPage::SPtr last_page;
+		};
+
+		//std::vector<Element> ;
+
+		struct FilterElement
+		{
+			std::pmr::vector<Potato::IR::TypeID> ids;
+		};
 	};
+	*/
+
 
 
 	/*

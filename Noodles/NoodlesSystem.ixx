@@ -9,7 +9,7 @@ import PotatoPointer;
 import PotatoTaskSystem;
 import PotatoIR;
 
-import NoodlesArcheType;
+import NoodlesArchetype;
 export import NoodlesComponent;
 
 
