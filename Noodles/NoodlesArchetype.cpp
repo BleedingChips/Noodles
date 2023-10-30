@@ -85,33 +85,37 @@ namespace Noodles
 		);
 	}
 
-	std::optional<std::tuple<Potato::IR::Layout, std::size_t>> Archetype::LocateType(UniqueTypeID unique_id) const
+	auto Archetype::LocateTypeImplementation(UniqueTypeID unique_id) const
+	->Element const*
 	{
-		for(auto& ite : infos)
+		for (auto& ite : infos)
 		{
 			auto re = unique_id <=> ite.id.id;
-			if(re == std::strong_ordering::equal)
+			if (re == std::strong_ordering::equal)
 			{
-				return std::tuple<Potato::IR::Layout, std::size_t>{ite.id.id.layout, ite.offset};
-			}else if(re == std::strong_ordering::greater)
+				return &ite;
+			}
+			else if (re == std::strong_ordering::greater)
 			{
-				return std::nullopt;
+				break;
 			}
 		}
-		return std::nullopt;
+		return nullptr;
 	}
 
 	void* Archetype::LocateType(UniqueTypeID unique_id, void* buffer, std::size_t index, std::size_t total_index_count) const
 	{
 		assert(buffer != nullptr);
-		auto re  = LocateType(unique_id);
-		if(re.has_value())
+		auto re  = LocateTypeImplementation(unique_id);
+		if(re != nullptr)
 		{
 			auto [layout, offset] = *re;
-			return static_cast<void*>(static_cast<std::byte*>(buffer) + offset * total_index_count + layout.Size * index);
+			return static_cast<void*>(static_cast<std::byte*>(buffer) + offset * total_index_count + layout.id.layout.Size * index);
 		}
 		return nullptr;
 	}
+
+
 
 	/*
 	struct Union : public Potato::Pointer::DefaultIntrusiveInterface

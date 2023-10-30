@@ -7,7 +7,7 @@ import std;
 import PotatoIR;
 import PotatoPointer;
 import PotatoTaskSystem;
-import NoodlesMemory;
+
 
 export namespace Noodles
 {
@@ -85,9 +85,10 @@ export namespace Noodles
 			std::size_t offset;
 		};
 
-		std::optional<std::tuple<Potato::IR::Layout, std::size_t>> LocateType(UniqueTypeID unique_id) const;
+		bool HasType(UniqueTypeID unique_id) const { return LocateTypeImplementation(std::move(unique_id)) != nullptr; }
 		void* LocateType(UniqueTypeID unique_id, void* buffer, std::size_t index = 0, std::size_t total_index_count = 1) const;
-		void* Copy(Potato::IR::TypeID unique_id, void* buffer, void* source, std::size_t index = 1, std::size_t total_index_count = 1) const;
+		void* MoveConstruct(Potato::IR::TypeID unique_id, void* buffer, void* source) const;
+		void* Destruction(Potato::IR::TypeID unique_id, void* buffer);
 
 	protected:
 
@@ -106,6 +107,8 @@ export namespace Noodles
 			Element& operator=(Element const&) = default;
 			Element& operator=(Element&&) = default;
 		};
+
+		Element const* LocateTypeImplementation(UniqueTypeID unique_id) const;
 
 		Potato::IR::Layout archetype_layout;
 		std::span<Element const> infos;

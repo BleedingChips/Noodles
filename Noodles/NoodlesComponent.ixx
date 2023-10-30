@@ -8,6 +8,7 @@ import PotatoPointer;
 import PotatoIR;
 
 import NoodlesMemory;
+import NoodlesArchetype;
 
 export namespace Noodles
 {
@@ -18,17 +19,37 @@ export namespace Noodles
 		using WPtr = Potato::Pointer::WeakPtr<ComponentPage>;
 
 		static ComponentPage::SPtr Create(
-			std::size_t element_size, std::size_t min_element_count, std::pmr::memory_resource* resouce
+			Potato::IR::Layout component_layout, std::size_t min_element_count, std::size_t min_page_size, std::pmr::memory_resource* resouce
 		);
 
 		WPtr last_page;
 		SPtr next_page;
+
 		std::size_t max_element_count;
 		std::size_t available_count;
 		std::span<std::size_t> buffer;
 		std::size_t allocate_size;
 		std::pmr::memory_resource* resource;
 	};
+
+	struct ArchetypeComponentManager
+	{
+
+		
+
+	public:
+
+		struct Element
+		{
+			Archetype::Ptr archetype;
+			ComponentPage::SPtr top_page;
+			ComponentPage::SPtr last_page;
+		};
+
+		std::pmr::vector<Element> components;
+
+	};
+
 
 	struct ComponentMemoryPage
 	{
