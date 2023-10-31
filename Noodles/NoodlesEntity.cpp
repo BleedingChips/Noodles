@@ -20,13 +20,13 @@ namespace Noodles
 
 	void EntityStorage::Release()
 	{
-		auto OldResource = Resource;
+		auto old_resource = resource;
 		this->~EntityStorage();
-		OldResource->deallocate(this, sizeof(EntityStorage), alignof(EntityStorage));
+		old_resource->deallocate(this, sizeof(EntityStorage), alignof(EntityStorage));
 	}
 
-	EntityStorage::EntityStorage(std::pmr::memory_resource* Resource)
-		: Resource(Resource)
+	EntityStorage::EntityStorage(std::pmr::memory_resource* resource)
+		: resource(resource)
 	{
 		
 	}

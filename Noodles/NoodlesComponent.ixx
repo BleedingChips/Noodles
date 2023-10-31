@@ -9,6 +9,7 @@ import PotatoIR;
 
 import NoodlesMemory;
 import NoodlesArchetype;
+import NoodlesEntity;
 
 export namespace Noodles
 {
@@ -32,10 +33,19 @@ export namespace Noodles
 		std::pmr::memory_resource* resource;
 	};
 
+	struct EntityProperty
+	{
+		Entity entity;
+		std::pmr::vector<std::size_t> flags;
+	};
+
 	struct ArchetypeComponentManager
 	{
 
-		
+		Archetype::Ptr CreateArchetype(std::span<ArchetypeID const> ids);
+
+		Entity CreateEntity(Archetype::Ptr ptr);
+
 
 	public:
 
@@ -48,22 +58,19 @@ export namespace Noodles
 
 		std::pmr::vector<Element> components;
 
-	};
+		struct SpawnedComponent
+		{
+			std::optional<std::size_t> exist_archetype;
+			Archetype::Ptr archetype;
+			void* data;
+		};
 
+		std::mutex spawn_mutex;
+		std::pmr::vector<SpawnedComponent> spawned_entities;
 
-	struct ComponentMemoryPage
-	{
-		
-		Potato::IR::Layout const AllocateLayout;
-		std::size_t AcceptableCount = 0;
+		std::mutex remove_mutex;
+		std::pmr::vector<Entity> removed_entities;
 
-		std::span<std::byte> Datas;
-
-		std::shared_mutex PageMutex;
-		ComponentMemoryPage* LastPage = nullptr;
-		ComponentMemoryPage* NextPage = nullptr;
-		std::size_t AvailableCount = 0;
-		std::size_t AppendCount = 0;
 	};
 
 	template<typename ...Components>
