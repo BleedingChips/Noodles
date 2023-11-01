@@ -46,8 +46,9 @@ export namespace Noodles
 
 		Entity CreateEntity(Archetype::Ptr ptr);
 
+		ArchetypeComponentManager(std::pmr::memory_resource* resource);
 
-	public:
+	protected:
 
 		struct Element
 		{
@@ -65,8 +66,18 @@ export namespace Noodles
 			void* data;
 		};
 
+		std::pmr::memory_resource* resource;
+
 		std::mutex spawn_mutex;
 		std::pmr::vector<SpawnedComponent> spawned_entities;
+
+		std::mutex archetype_resource_mutex;
+		std::pmr::monotonic_buffer_resource archetype_resource;
+
+		std::mutex spawned_entities_resource_mutex;
+		std::optional<std::pmr::monotonic_buffer_resource> spawned_entities_resource;
+
+		Memory::IntrusiveMemoryResource<std::pmr::synchronized_pool_resource>::Ptr entity_resource;
 
 		std::mutex remove_mutex;
 		std::pmr::vector<Entity> removed_entities;

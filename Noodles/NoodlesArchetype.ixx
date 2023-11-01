@@ -73,22 +73,26 @@ export namespace Noodles
 		return i1.id <=> i2.id;
 	}
 
+	struct ArchetypeMountPoint
+	{
+		void* buffer = nullptr;
+		std::size_t element_count = 1;
+		std::size_t index = 0;
+		operator bool() const;
+	};
+
 	struct Archetype : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<Archetype>;
 
 		static Ptr Create(std::span<ArchetypeID const> ref_info, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
-		struct LocateResult
-		{
-			Potato::IR::Layout layout;
-			std::size_t offset;
-		};
-
-		bool HasType(UniqueTypeID unique_id) const { return LocateTypeImplementation(std::move(unique_id)) != nullptr; }
-		void* LocateType(UniqueTypeID unique_id, void* buffer, std::size_t index = 0, std::size_t total_index_count = 1) const;
-		void* MoveConstruct(Potato::IR::TypeID unique_id, void* buffer, void* source) const;
-		void* Destruction(Potato::IR::TypeID unique_id, void* buffer);
+		std::optional<std::size_t> LocateFirstTypeID(UniqueTypeID const& type_id) const;
+		std::size_t GetTypeIDCount() const { return infos.size(); }
+		UniqueTypeID const& GetTypeID(std::size_t index) const;
+		void* GetData(std::size_t locate_index, ArchetypeMountPoint mount_point) const;
+		void MoveConstruct(std::size_t locate_index, void* target, void* source) const;
+		void Destruction(std::size_t locate_index, void* target) const;
 
 	protected:
 
@@ -107,8 +111,6 @@ export namespace Noodles
 			Element& operator=(Element const&) = default;
 			Element& operator=(Element&&) = default;
 		};
-
-		Element const* LocateTypeImplementation(UniqueTypeID unique_id) const;
 
 		Potato::IR::Layout archetype_layout;
 		std::span<Element const> infos;
@@ -141,123 +143,5 @@ export namespace Noodles
 			};
 		}
 	};
-
-	
-
-
-	
-	/*
-	struct FilterWrapper : public Potato::Task::ControlDefaultInterface
-	{
-		using WPtr = Potato::Pointer::IntrusivePtr<FilterWrapper>;
-
-		FilterWrapper(Potato::Pointer::IntrusivePtr<ArchetypeManager> owner)
-			: owner(std::move(owner)) {}
-
-	protected:
-
-		Potato::Pointer::IntrusivePtr<ArchetypeManager> owner;
-
-		std::pmr::vector<Archetype::Ptr> arche_type_reference;
-
-		friend struct FilterWrapperManager;
-	};*/
-
-
-	/*
-	struct ArchetypeManager : public Potato::Intrusice
-	{
-
-		struct Element
-		{
-			Archetype::Ptr archetype_ptr;
-			std::size_t totale_entity_count;
-			Memory::ComponentPage::SPtr top_page;
-			Memory::ComponentPage::SPtr last_page;
-		};
-
-		//std::vector<Element> ;
-
-		struct FilterElement
-		{
-			std::pmr::vector<Potato::IR::TypeID> ids;
-		};
-	};
-	*/
-
-
-
-	/*
-	struct Union : public Potato::Pointer::DefaultIntrusiveInterface
-	{
-
-	};
-	*/
-
-
-	/*
-	struct TypeInfo
-	{
-		using Layout = Potato::IR::Layout;
-
-		enum class MethodT
-		{
-			Destruct,
-			MoveContruct,
-		};
-
-		enum class PropertyT
-		{
-			Static,
-			Dynamic
-		};
-
-		template<typename Type>
-		static TypeInfo Get() {
-			using RT = std::remove_cv_t<std::remove_reference_t<Type>>;
-			return {
-				PropertyT::Static,
-				typeid(RT).hash_code(),
-				Layout::Get<RT>(),
-				[](MethodT Method, std::byte* Target, std::byte* Source) {
-					switch (Method)
-					{
-					case MethodT::Destruct:
-						reinterpret_cast<RT*>(Target)->~RT();
-						break;
-					case MethodT::MoveContruct:
-						new (Target) RT{std::move(*reinterpret_cast<RT*>(Source))};
-						break;
-					}
-				}
-			};
-		};
-
-		TypeInfo(PropertyT Pro, std::size_t HashCode, Layout TypeLayout, void (*MethodFunction) (MethodT, std::byte*, std::byte*))
-			: Property(Pro), HashCode(HashCode), TypeLayout(TypeLayout), MethodFunction(MethodFunction) {}
-		TypeInfo(TypeInfo const&) = default;
-
-		void MoveContruct(std::byte* Target, std::byte* Source) const {  (*MethodFunction)(MethodT::MoveContruct, Target, Source); }
-
-		void Destruct(std::byte* Target) const { (*MethodFunction)(MethodT::MoveContruct, Target, nullptr); }
-
-		std::size_t GetHashCode() const { return HashCode; }
-		Layout const& GetLayout() const { return TypeLayout; }
-
-	private:
-		
-		PropertyT Property;
-		std::size_t HashCode;
-		Layout TypeLayout;
-		void (*MethodFunction) (MethodT Met, std::byte* Target, std::byte* Source);
-	};
-
-	struct Group
-	{
-		using Layout = TypeInfo::Layout;
-		Layout TotalLayout;
-		std::span<std::tuple<std::size_t, TypeInfo>> Infos;
-	};
-	*/
 
 }

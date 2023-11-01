@@ -25,11 +25,9 @@ export namespace Noodles
 		virtual void Release() override;
 
 		std::pmr::memory_resource* resource = nullptr;
-		Noodles::Archetype::Ptr archetype;
-		void* page_buffer = nullptr;
-		std::size_t page_index = 0;
-
-		friend struct Context;
+		std::shared_mutex mutex;
+		Archetype::Ptr archetype;
+		ArchetypeMountPoint mount_point;
 	};
 
 	using Entity = EntityStorage::Ptr;

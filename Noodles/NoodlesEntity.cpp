@@ -20,6 +20,7 @@ namespace Noodles
 
 	void EntityStorage::Release()
 	{
+		assert(resource != nullptr);
 		auto old_resource = resource;
 		this->~EntityStorage();
 		old_resource->deallocate(this, sizeof(EntityStorage), alignof(EntityStorage));
@@ -30,6 +31,8 @@ namespace Noodles
 	{
 		
 	}
+
+
 
 	/*
 	auto EntityManager::Create(std::pmr::memory_resource* Resource) -> Ptr

@@ -17,7 +17,10 @@ namespace Noodles
 
 	std::strong_ordering operator<=>(ArchetypeID const& i1, ArchetypeID const& i2);
 
-
+	ArchetypeMountPoint::operator bool() const
+	{
+		return buffer != nullptr && element_count >= 1 && index < element_count;
+	}
 
 	auto Archetype::Create(std::span<ArchetypeID const> ref_info, std::pmr::memory_resource* resource)
 	->Ptr
@@ -85,34 +88,55 @@ namespace Noodles
 		);
 	}
 
-	auto Archetype::LocateTypeImplementation(UniqueTypeID unique_id) const
-	->Element const*
+	std::optional<std::size_t> Archetype::LocateFirstTypeID(UniqueTypeID const& type_id) const
 	{
-		for (auto& ite : infos)
+		std::size_t index = 0;
+		for(auto& ite : infos)
 		{
-			auto re = unique_id <=> ite.id.id;
+			auto re = type_id <=> ite.id.id;
 			if (re == std::strong_ordering::equal)
 			{
-				return &ite;
+				return index;
 			}
 			else if (re == std::strong_ordering::greater)
 			{
 				break;
 			}
+			++index;
 		}
-		return nullptr;
+		return std::nullopt;
 	}
 
-	void* Archetype::LocateType(UniqueTypeID unique_id, void* buffer, std::size_t index, std::size_t total_index_count) const
+	UniqueTypeID const& Archetype::GetTypeID(std::size_t index) const
 	{
-		assert(buffer != nullptr);
-		auto re  = LocateTypeImplementation(unique_id);
-		if(re != nullptr)
-		{
-			auto [layout, offset] = *re;
-			return static_cast<void*>(static_cast<std::byte*>(buffer) + offset * total_index_count + layout.id.layout.Size * index);
-		}
-		return nullptr;
+		assert(GetTypeIDCount() > index);
+		return infos[index].id.id;
+	}
+
+	void* Archetype::GetData(std::size_t locate_index, ArchetypeMountPoint mount_point) const
+	{
+		assert(GetTypeIDCount() > locate_index);
+		assert(mount_point);
+		auto& ref = infos[locate_index];
+		auto layout = ref.id.id.layout;
+		auto offset = ref.offset;
+		return static_cast<void*>(static_cast<std::byte*>(mount_point.buffer) + offset * mount_point.element_count + layout.Size * mount_point.index);
+	}
+
+	void Archetype::MoveConstruct(std::size_t locate_index, void* target, void* source) const
+	{
+		assert(GetTypeIDCount() > locate_index);
+		assert(target != nullptr && source != nullptr);
+		auto& ref = infos[locate_index];
+		ref.id.WrapperFunction(ArchetypeID::Status::MoveConstruction, target, source);
+	}
+
+	void Archetype::Destruction(std::size_t locate_index, void* target) const
+	{
+		assert(GetTypeIDCount() > locate_index);
+		assert(target != nullptr);
+		auto& ref = infos[locate_index];
+		ref.id.WrapperFunction(ArchetypeID::Status::Destruction, target, nullptr);
 	}
 
 
