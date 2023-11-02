@@ -8,29 +8,48 @@ import PotatoPointer;
 import PotatoIR;
 
 import NoodlesMemory;
-import NoodlesArchetype;
-import NoodlesEntity;
+export import NoodlesArchetype;
+export import NoodlesEntity;
 
 export namespace Noodles
 {
 
-	struct ComponentPage : public Potato::Pointer::DefaultStrongWeakInterface
+	struct ComponentPage : public Potato::Pointer::DefaultIntrusiveInterface
 	{
-		using SPtr = Potato::Pointer::StrongPtr<ComponentPage>;
-		using WPtr = Potato::Pointer::WeakPtr<ComponentPage>;
+		using Ptr = Potato::Pointer::IntrusivePtr<ComponentPage>;
 
-		static ComponentPage::SPtr Create(
-			Potato::IR::Layout component_layout, std::size_t min_element_count, std::size_t min_page_size, std::pmr::memory_resource* resouce
-		);
+		static auto Create(
+			Potato::IR::Layout component_layout, std::size_t min_element_count, 
+			std::size_t min_page_size, std::pmr::memory_resource* up_stream
+		) -> Ptr;
 
-		WPtr last_page;
-		SPtr next_page;
+		virtual void Release() override;
 
-		std::size_t max_element_count;
-		std::size_t available_count;
-		std::span<std::size_t> buffer;
-		std::size_t allocate_size;
-		std::pmr::memory_resource* resource;
+		ComponentPage(
+			std::size_t max_element_count, 
+			std::size_t allocate_size,
+			std::pmr::memory_resource* upstream,
+			std::span<std::byte> buffer
+			);
+
+		Ptr next_page;
+
+		ArchetypeMountPoint GetLastPointPoint() const
+		{
+			return {
+				buffer.data(),
+				max_element_count,
+				available_count
+			};
+		}
+
+	protected:
+
+		std::size_t const max_element_count = 0;
+		std::size_t available_count = 0;
+		std::span<std::byte> const buffer;
+		std::size_t const allocate_size = 0;
+		std::pmr::memory_resource* const resource = nullptr;
 	};
 
 	struct EntityProperty
@@ -42,40 +61,64 @@ export namespace Noodles
 	struct ArchetypeComponentManager
 	{
 
-		Archetype::Ptr CreateArchetype(std::span<ArchetypeID const> ids);
+		struct EntityConstructor
+		{
 
-		Entity CreateEntity(Archetype::Ptr ptr);
+			template<typename Type>
+			bool Construct(Type&& type, std::size_t i = 0)
+			{
+				return Construct(UniqueTypeID::Create<std::remove_cvref_t<Type>>(), &type, i);
+			}
 
-		ArchetypeComponentManager(std::pmr::memory_resource* resource);
+			bool Construct(UniqueTypeID const& id, void* source, std::size_t i = 0);
+
+			EntityConstructor(EntityConstructor&&) = default;
+			EntityConstructor() = default;
+
+		protected:
+
+			EntityConstructor(
+				Archetype::Ptr archetype_ptr,
+				ArchetypeMountPoint mount_point
+			): archetype_ptr(std::move(archetype_ptr)),
+				mount_point(mount_point)
+			{
+				status.resize(this->archetype_ptr->GetTypeIDCount());
+			}
+
+			Archetype::Ptr archetype_ptr;
+			ArchetypeMountPoint mount_point;
+			std::vector<std::uint8_t> status;
+
+			friend struct ArchetypeComponentManager;
+		};
+
+		EntityConstructor CreateEntityConstructor(std::span<ArchetypeID const> ids);
+		Entity CreateEntity(EntityConstructor&& constructor);
+
+		ArchetypeComponentManager(std::pmr::memory_resource* upstream = std::pmr::get_default_resource());
 
 	protected:
 
 		struct Element
 		{
 			Archetype::Ptr archetype;
-			ComponentPage::SPtr top_page;
-			ComponentPage::SPtr last_page;
+			ComponentPage::Ptr top_page;
+			ComponentPage::Ptr last_page;
 		};
 
 		std::pmr::vector<Element> components;
 
-		struct SpawnedComponent
-		{
-			std::optional<std::size_t> exist_archetype;
-			Archetype::Ptr archetype;
-			void* data;
-		};
-
 		std::pmr::memory_resource* resource;
 
 		std::mutex spawn_mutex;
-		std::pmr::vector<SpawnedComponent> spawned_entities;
+		std::pmr::vector<Entity> spawned_entities;
+
+		std::mutex spawned_entities_resource_mutex;
+		std::pmr::monotonic_buffer_resource spawned_entities_resource;
 
 		std::mutex archetype_resource_mutex;
 		std::pmr::monotonic_buffer_resource archetype_resource;
-
-		std::mutex spawned_entities_resource_mutex;
-		std::optional<std::pmr::monotonic_buffer_resource> spawned_entities_resource;
 
 		Memory::IntrusiveMemoryResource<std::pmr::synchronized_pool_resource>::Ptr entity_resource;
 

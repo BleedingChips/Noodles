@@ -15,21 +15,42 @@ export namespace Noodles
 	struct UniqueTypeID
 	{
 		Potato::IR::TypeID id;
-		Potato::IR::Layout layout;
+		
 
 		template<typename Type>
 		static UniqueTypeID Create()
 		{
 			return {
-				Potato::IR::TypeID::CreateTypeID<Type>(),
-				Potato::IR::Layout::Get<Type>()
+				Potato::IR::TypeID::CreateTypeID<Type>()
 			};
 		}
 
-		friend std::strong_ordering operator<=>(UniqueTypeID const& i1, UniqueTypeID const& i2);
+		std::strong_ordering operator<=>(UniqueTypeID const& i1) const
+		{
+			return id <=> i1.id;
+		}
+		bool operator==(UniqueTypeID const& i1) const = default;
 	};
 
-	std::strong_ordering operator<=>(UniqueTypeID const& i1, UniqueTypeID const& i2);
+	template<typename Type>
+	struct SingletonRequire
+	{
+		static constexpr bool value = false;
+	};
+
+	template<typename Type>
+	concept IsSingletonRequire = requires(Type t)
+	{
+		typename Type::NoodlesSingletonRequire;
+	};
+
+	template<IsSingletonRequire Type>
+	struct SingletonRequire<Type>
+	{
+		static constexpr bool value = true;
+	};
+
+	
 
 	struct ArchetypeID
 	{
@@ -40,13 +61,16 @@ export namespace Noodles
 		};
 
 		UniqueTypeID id;
-		void (*WrapperFunction)(Status status, void* self, void* target) = nullptr;
+		Potato::IR::Layout layout;
+		void (*wrapper_function)(Status status, void* self, void* target) = nullptr;
+		bool is_singleton = false;
 
 		template<typename Type>
 		static ArchetypeID Create()
 		{
 			return {
 				UniqueTypeID::Create<Type>(),
+				Potato::IR::Layout::Get<Type>(),
 				[](Status status, void* self, void* target)
 				{
 					switch(status)
@@ -61,17 +85,13 @@ export namespace Noodles
 						assert(false);
 						break;
 					}
-				}
+				},
+				SingletonRequire<Type>::value
 			};
 		}
 
-		friend std::strong_ordering operator<=>(ArchetypeID const& i1, ArchetypeID const& i2);
+		std::strong_ordering operator<=>(ArchetypeID const& i1) const;
 	};
-
-	inline std::strong_ordering operator<=>(ArchetypeID const& i1, ArchetypeID const& i2)
-	{
-		return i1.id <=> i2.id;
-	}
 
 	struct ArchetypeMountPoint
 	{
@@ -85,14 +105,17 @@ export namespace Noodles
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<Archetype>;
 
-		static Ptr Create(std::span<ArchetypeID const> ref_info, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		static Ptr Create(std::span<ArchetypeID const> ref_info, std::span<ArchetypeID const> append_info = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
-		std::optional<std::size_t> LocateFirstTypeID(UniqueTypeID const& type_id) const;
+		std::optional<std::size_t> LocateTypeID(UniqueTypeID const& type_id, std::size_t index = 0) const;
 		std::size_t GetTypeIDCount() const { return infos.size(); }
 		UniqueTypeID const& GetTypeID(std::size_t index) const;
 		void* GetData(std::size_t locate_index, ArchetypeMountPoint mount_point) const;
 		void MoveConstruct(std::size_t locate_index, void* target, void* source) const;
 		void Destruction(std::size_t locate_index, void* target) const;
+		Archetype::Ptr Clone(std::pmr::memory_resource* o_resource) const;
+		Potato::IR::Layout GetLayout() const { return archetype_layout; }
+
 
 	protected:
 

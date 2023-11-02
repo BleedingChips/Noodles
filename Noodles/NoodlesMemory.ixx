@@ -22,9 +22,9 @@ export namespace Noodles::Memory
 
 		template<typename ...OT>
 		static Ptr Create(std::pmr::memory_resource* resouece = std::pmr::get_default_resource(), OT&& ...ot);
+		std::pmr::memory_resource* get_resource_interface() { return &static_cast<MemoryResourceT&>(*this);}
 
 	protected:
-
 		
 		template<typename ...OT>
 		IntrusiveMemoryResource(std::pmr::memory_resource* in_resouece, OT&& ...ot)
@@ -42,7 +42,7 @@ export namespace Noodles::Memory
 		virtual void do_deallocate(void* adress, size_t byte, size_t align) override
 		{
 			MemoryResourceT::do_deallocate(adress, byte, align);
-			DefaultIntrusiveInterface::Release();
+			DefaultIntrusiveInterface::SubRef();
 		}
 		std::pmr::memory_resource* resource = nullptr;
 	};

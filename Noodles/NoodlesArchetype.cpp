@@ -6,28 +6,46 @@ module NoodlesArchetype;
 
 namespace Noodles
 {
-	std::strong_ordering operator<=>(UniqueTypeID const& i1, UniqueTypeID const& i2)
+	std::strong_ordering ArchetypeID::operator<=>(ArchetypeID const& i2) const
 	{
 		return Potato::Misc::PriorityCompareStrongOrdering(
-			i1.layout.Align, i2.layout.Align,
-			i1.layout.Size, i2.layout.Size,
-			i1.id, i2.id
+			layout.Align, i2.layout.Align,
+			layout.Size, i2.layout.Size,
+			id, i2.id
 		);
 	}
-
-	std::strong_ordering operator<=>(ArchetypeID const& i1, ArchetypeID const& i2);
 
 	ArchetypeMountPoint::operator bool() const
 	{
 		return buffer != nullptr && element_count >= 1 && index < element_count;
 	}
 
-	auto Archetype::Create(std::span<ArchetypeID const> ref_info, std::pmr::memory_resource* resource)
+	auto Archetype::Create(std::span<ArchetypeID const> ref_info, std::span<ArchetypeID const> append_info, std::pmr::memory_resource* resource)
 	->Ptr
 	{
 		assert(resource != nullptr);
-		auto info_count = ref_info.size() * sizeof(Element);
-		auto total_size = info_count + sizeof(Archetype);
+
+		auto info_count = ref_info.size() + append_info.size();
+
+		for(std::size_t i = 0; i < info_count; ++i)
+		{
+			auto& ite = (i < ref_info.size() ? ref_info[i] : append_info[i - ref_info.size()]);
+			if(ite.is_singleton)
+			{
+				for(std::size_t i2 = i + 1; i2 < info_count; ++i2)
+				{
+					auto& ite2 = (i2 < ref_info.size() ? ref_info[i2] : append_info[i2 - ref_info.size()]);
+					if(ite2.is_singleton && (ite.id == ite2.id))
+					{
+						return {};
+					}
+				}
+			}
+		}
+
+
+		auto info_size = info_count * sizeof(Element);
+		auto total_size = info_size + sizeof(Archetype);
 		auto adress = resource->allocate(total_size, alignof(Archetype));
 		if(adress != nullptr)
 		{
@@ -40,7 +58,12 @@ namespace Noodles
 				new (ite_adress) Element{ite};
 				ite_adress += 1;
 			}
-			std::span<Element> infos{ temp_adress, ref_info.size() };
+			for(auto& ite : append_info)
+			{
+				new (ite_adress) Element{ ite };
+				ite_adress += 1;
+			}
+			std::span<Element> infos{ temp_adress, info_count };
 			std::sort(infos.begin(), infos.end(), [](Element const& E, Element const& E2)
 			{
 				auto re = E.id <=> E2.id;
@@ -53,7 +76,7 @@ namespace Noodles
 
 			for(auto& ite : infos)
 			{
-				ite.offset = Potato::IR::InsertLayoutCPP(layout, ite.id.id.layout);
+				ite.offset = Potato::IR::InsertLayoutCPP(layout, ite.id.layout);
 			}
 
 			Potato::IR::FixLayoutCPP(layout);
@@ -88,7 +111,7 @@ namespace Noodles
 		);
 	}
 
-	std::optional<std::size_t> Archetype::LocateFirstTypeID(UniqueTypeID const& type_id) const
+	std::optional<std::size_t> Archetype::LocateTypeID(UniqueTypeID const& type_id, std::size_t require_index) const
 	{
 		std::size_t index = 0;
 		for(auto& ite : infos)
@@ -96,9 +119,14 @@ namespace Noodles
 			auto re = type_id <=> ite.id.id;
 			if (re == std::strong_ordering::equal)
 			{
-				return index;
+				if(require_index == 0)
+					return index;
+				else
+				{
+					require_index -= 1;
+				}
 			}
-			else if (re == std::strong_ordering::greater)
+			else if (re == std::strong_ordering::less)
 			{
 				break;
 			}
@@ -118,7 +146,7 @@ namespace Noodles
 		assert(GetTypeIDCount() > locate_index);
 		assert(mount_point);
 		auto& ref = infos[locate_index];
-		auto layout = ref.id.id.layout;
+		auto layout = ref.id.layout;
 		auto offset = ref.offset;
 		return static_cast<void*>(static_cast<std::byte*>(mount_point.buffer) + offset * mount_point.element_count + layout.Size * mount_point.index);
 	}
@@ -128,7 +156,7 @@ namespace Noodles
 		assert(GetTypeIDCount() > locate_index);
 		assert(target != nullptr && source != nullptr);
 		auto& ref = infos[locate_index];
-		ref.id.WrapperFunction(ArchetypeID::Status::MoveConstruction, target, source);
+		ref.id.wrapper_function(ArchetypeID::Status::MoveConstruction, target, source);
 	}
 
 	void Archetype::Destruction(std::size_t locate_index, void* target) const
@@ -136,9 +164,35 @@ namespace Noodles
 		assert(GetTypeIDCount() > locate_index);
 		assert(target != nullptr);
 		auto& ref = infos[locate_index];
-		ref.id.WrapperFunction(ArchetypeID::Status::Destruction, target, nullptr);
+		ref.id.wrapper_function(ArchetypeID::Status::Destruction, target, nullptr);
 	}
 
+	Archetype::Ptr Archetype::Clone(std::pmr::memory_resource* o_resource) const
+	{
+		if(o_resource != nullptr)
+		{
+			auto new_adress = o_resource->allocate(allocated_size, sizeof(Archetype));
+			if(new_adress != nullptr)
+			{
+				Ptr ptr = new Archetype{ o_resource, allocated_size };
+				assert(ptr);
+				ptr->archetype_layout = archetype_layout;
+				std::span<Element> infos{
+					reinterpret_cast<Element*>(ptr.GetPointer() + 1),
+					infos.size()
+				};
+				auto ite2 = infos;
+				for(auto& ite : infos)
+				{
+					new (&ite2[0]) Element{ite};
+					ite2 = ite2.subspan(1);
+				}
+				ptr->infos = infos;
+				return ptr;
+			}
+		}
+		return {};
+	}
 
 
 	/*

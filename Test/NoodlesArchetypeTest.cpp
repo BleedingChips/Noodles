@@ -18,6 +18,12 @@ struct Tot
 	C c;
 };
 
+struct E
+{
+	std::size_t index = 1;
+	using NoodlesSingletonRequire = std::size_t;
+};
+
 
 int main()
 {
@@ -43,7 +49,20 @@ int main()
 	auto re_ad3 = ptr->GetData(2, { &temp });
 	static_cast<C*>(re_ad3)->i = 86;
 
-	auto re_ad4 = ptr->LocateFirstTypeID(UniqueTypeID::Create<D>());
+	auto re_ad4 = ptr->LocateTypeID(UniqueTypeID::Create<D>());
+
+	{
+		std::vector<Noodles::ArchetypeID> ids{
+			ArchetypeID::Create<E>(),
+			ArchetypeID::Create<E>()
+		};
+
+		auto ptr2 = Archetype::Create(
+			std::span(ids)
+		);
+
+		volatile int i = 0;
+	}
 
 	return 0;
 }
