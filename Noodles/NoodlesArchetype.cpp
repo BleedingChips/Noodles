@@ -15,9 +15,68 @@ namespace Noodles
 		);
 	}
 
+	std::strong_ordering ArchetypeMountPoint::operator<=>(ArchetypeMountPoint const& mp) const
+	{
+		auto re = index <=> mp.index;
+		if(re == std::strong_ordering::equivalent)
+		{
+			re = buffer <=> mp.buffer;
+		}
+		return re;
+	}
+
 	ArchetypeMountPoint::operator bool() const
 	{
 		return buffer != nullptr && element_count >= 1 && index < element_count;
+	}
+
+	bool Archetype::CheckAcceptable(std::span<ArchetypeID const> id1, std::span<ArchetypeID const> id2)
+	{
+		for(std::size_t i = 0; i < id1.size(); ++i)
+		{
+			auto& ite = id1[i];
+			if(ite.is_singleton)
+			{
+				for(std::size_t i2 = i + 1; i2 < id1.size(); ++i2)
+				{
+					auto& ite2 = id1[i2];
+					if(ite2.is_singleton)
+					{
+						if(ite2.id == ite.id)
+							return false;
+					}
+				}
+
+				for(std::size_t i2 = 0; i2 < id2.size(); ++i2)
+				{
+					auto& ite2 = id2[i2];
+					if (ite2.is_singleton)
+					{
+						if (ite2.id == ite.id)
+							return false;
+					}
+				}
+			}
+		}
+
+		for (std::size_t i = 0; i < id2.size(); ++i)
+		{
+			auto& ite = id1[i];
+			if (ite.is_singleton)
+			{
+				for (std::size_t i2 = i + 1; i2 < id1.size(); ++i2)
+				{
+					auto& ite2 = id1[i2];
+					if (ite2.is_singleton)
+					{
+						if (ite2.id == ite.id)
+							return false;
+					}
+				}
+			}
+		}
+
+		return id1.size() + id2.size();
 	}
 
 	auto Archetype::Create(std::span<ArchetypeID const> ref_info, std::span<ArchetypeID const> append_info, std::pmr::memory_resource* resource)
@@ -25,25 +84,14 @@ namespace Noodles
 	{
 		assert(resource != nullptr);
 
-		auto info_count = ref_info.size() + append_info.size();
+		auto re = CheckAcceptable(ref_info, append_info);
 
-		for(std::size_t i = 0; i < info_count; ++i)
+		if(!re)
 		{
-			auto& ite = (i < ref_info.size() ? ref_info[i] : append_info[i - ref_info.size()]);
-			if(ite.is_singleton)
-			{
-				for(std::size_t i2 = i + 1; i2 < info_count; ++i2)
-				{
-					auto& ite2 = (i2 < ref_info.size() ? ref_info[i2] : append_info[i2 - ref_info.size()]);
-					if(ite2.is_singleton && (ite.id == ite2.id))
-					{
-						return {};
-					}
-				}
-			}
+			return {};
 		}
 
-
+		auto info_count = ref_info.size() + append_info.size();
 		auto info_size = info_count * sizeof(Element);
 		auto total_size = info_size + sizeof(Archetype);
 		auto adress = resource->allocate(total_size, alignof(Archetype));
@@ -79,6 +127,8 @@ namespace Noodles
 				ite.offset = Potato::IR::InsertLayoutCPP(layout, ite.id.layout);
 			}
 
+			ptr->buffer_archetype_layout_size = layout.Size;
+
 			Potato::IR::FixLayoutCPP(layout);
 
 			ptr->infos = infos;
@@ -95,14 +145,19 @@ namespace Noodles
 		
 	}
 
+	Archetype::~Archetype()
+	{
+		for (auto& ite : infos)
+		{
+			ite.~Element();
+		}
+		infos = {};
+	}
+
 	void Archetype::Release()
 	{
 		auto old_resource = resource;
 		auto old_size = allocated_size;
-		for(auto& ite : infos)
-		{
-			ite.~Element();
-		}
 		this->~Archetype();
 		old_resource->deallocate(
 			this,
@@ -167,31 +222,58 @@ namespace Noodles
 		ref.id.wrapper_function(ArchetypeID::Status::Destruction, target, nullptr);
 	}
 
+	void Archetype::DefaultConstruct(std::size_t locate_index, void* target) const
+	{
+		assert(GetTypeIDCount() > locate_index);
+		assert(target != nullptr);
+		auto& ref = infos[locate_index];
+		ref.id.wrapper_function(ArchetypeID::Status::DefaultConstruction, target, nullptr);
+	}
+
 	Archetype::Ptr Archetype::Clone(std::pmr::memory_resource* o_resource) const
 	{
 		if(o_resource != nullptr)
 		{
-			auto new_adress = o_resource->allocate(allocated_size, sizeof(Archetype));
+			auto new_adress = o_resource->allocate(allocated_size, alignof(Archetype));
 			if(new_adress != nullptr)
 			{
-				Ptr ptr = new Archetype{ o_resource, allocated_size };
+				Ptr ptr = new (new_adress) Archetype{ o_resource, allocated_size };
 				assert(ptr);
-				ptr->archetype_layout = archetype_layout;
-				std::span<Element> infos{
+				
+				std::span<Element> new_infos{
 					reinterpret_cast<Element*>(ptr.GetPointer() + 1),
 					infos.size()
 				};
-				auto ite2 = infos;
+				auto ite2 = new_infos;
 				for(auto& ite : infos)
 				{
 					new (&ite2[0]) Element{ite};
 					ite2 = ite2.subspan(1);
 				}
-				ptr->infos = infos;
+				ptr->archetype_layout = archetype_layout;
+				ptr->infos = new_infos;
+				ptr->buffer_archetype_layout_size = buffer_archetype_layout_size;
 				return ptr;
 			}
 		}
 		return {};
+	}
+
+	std::strong_ordering Archetype::operator<=>(Archetype const& i2) const
+	{
+		auto re = infos.size() <=> i2.infos.size();
+		if(re == std::strong_ordering::equivalent)
+		{
+			for(std::size_t i = 0; i < infos.size(); ++i)
+			{
+				auto& i1 = infos[i];
+				auto& i2 = infos[i];
+				re = (i1.id <=> i2.id);
+				if(re != std::strong_ordering::equivalent)
+					return re;
+			}
+		}
+		return re;
 	}
 
 

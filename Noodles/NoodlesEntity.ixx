@@ -17,6 +17,14 @@ export namespace Noodles
 export namespace Noodles
 {
 
+	enum class EntityStatus
+	{
+		PreInit,
+		Normal,
+		Destroy,
+		PendingDestroy
+	};
+
 	struct EntityStorage : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<EntityStorage>;
@@ -30,6 +38,7 @@ export namespace Noodles
 
 		std::pmr::memory_resource* resource = nullptr;
 		std::shared_mutex mutex;
+		EntityStatus status = EntityStatus::PreInit;
 		Archetype::Ptr archetype;
 		ArchetypeMountPoint mount_point;
 

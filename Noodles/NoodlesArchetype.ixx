@@ -8,9 +8,10 @@ import PotatoIR;
 import PotatoPointer;
 import PotatoTaskSystem;
 
-
 export namespace Noodles
 {
+
+	struct ArchetypeComponentManager;
 
 	struct UniqueTypeID
 	{
@@ -57,7 +58,8 @@ export namespace Noodles
 		enum class Status
 		{
 			MoveConstruction,
-			Destruction
+			Destruction,
+			DefaultConstruction
 		};
 
 		UniqueTypeID id;
@@ -81,6 +83,9 @@ export namespace Noodles
 					case Status::MoveConstruction:
 						new (self) std::remove_cvref_t<Type>{std::move(*static_cast<std::remove_cvref_t<Type>*>(target))};
 						break;
+					case Status::DefaultConstruction:
+						new (self) std::remove_cvref_t<Type>{};
+						break;
 					default:
 						assert(false);
 						break;
@@ -98,12 +103,23 @@ export namespace Noodles
 		void* buffer = nullptr;
 		std::size_t element_count = 1;
 		std::size_t index = 0;
+		ArchetypeMountPoint& operator ++() { index += 1; return *this; }
+		ArchetypeMountPoint& operator +=(std::size_t i) { index += i; return *this; }
+		ArchetypeMountPoint& operator --() { assert(index > 0); index -= 1; return *this; }
+		ArchetypeMountPoint& operator -=(std::size_t i) { index -= i; return *this; }
+		std::strong_ordering operator<=>(ArchetypeMountPoint const& mp) const;
+		bool operator==(ArchetypeMountPoint const&) const = default;
 		operator bool() const;
+		ArchetypeMountPoint& operator*(){ return *this; }
+		ArchetypeMountPoint const& operator*() const { return *this; }
 	};
 
 	struct Archetype : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<Archetype>;
+
+
+		static bool CheckAcceptable(std::span<ArchetypeID const> id1, std::span<ArchetypeID const> id2);
 
 		static Ptr Create(std::span<ArchetypeID const> ref_info, std::span<ArchetypeID const> append_info = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
@@ -113,14 +129,18 @@ export namespace Noodles
 		void* GetData(std::size_t locate_index, ArchetypeMountPoint mount_point) const;
 		void MoveConstruct(std::size_t locate_index, void* target, void* source) const;
 		void Destruction(std::size_t locate_index, void* target) const;
+		void DefaultConstruct(std::size_t locate_index, void* target) const;
 		Archetype::Ptr Clone(std::pmr::memory_resource* o_resource) const;
 		Potato::IR::Layout GetLayout() const { return archetype_layout; }
-
+		Potato::IR::Layout GetBufferLayout() const { return { archetype_layout.Align, buffer_archetype_layout_size }; }
+		std::strong_ordering operator<=>(Archetype const&) const;
+		std::pmr::memory_resource* GetResource() const { return resource; }
+		std::size_t GetFastIndex() const { return fast_index; }
 
 	protected:
 
 		Archetype(std::pmr::memory_resource*, std::size_t allocated_size);
-
+		~Archetype();
 		virtual void Release() override;
 
 		struct Element
@@ -136,17 +156,16 @@ export namespace Noodles
 		};
 
 		Potato::IR::Layout archetype_layout;
+		std::size_t buffer_archetype_layout_size = 0;
 		std::span<Element const> infos;
-		std::pmr::memory_resource* resource;
+		std::pmr::memory_resource* resource = nullptr;
 		std::size_t allocated_size = 0;
+		std::size_t fast_index = 0;
 		
 
-		friend struct ArchetypeManager;
-
-		friend std::strong_ordering operator<=>(Archetype const& i1, Archetype const& i2);
+		friend struct ArchetypeComponentManager;
 	};
 
-	std::strong_ordering operator<=>(Archetype const& i1, Archetype const& i2);
 
 	struct TypeInfo
 	{

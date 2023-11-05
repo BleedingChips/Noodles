@@ -36,11 +36,17 @@ int main()
 
 	ArchetypeComponentManager Manager;
 
-	auto cons = Manager.CreateEntityConstructor(std::span(ids));
-	cons.Construct<A>(A{});
-	cons.Construct<B>(B{});
-	cons.Construct<C>(C{});
-	auto entity = Manager.CreateEntity(std::move(cons));
+	auto entity = Manager.CreateEntityDefer(std::span(ids), [](EntityConstructor& cons)
+	{
+	});
+
+	auto entity2 = Manager.CreateEntityDefer(std::span(ids), [](EntityConstructor& cons)
+	{
+	});
+
+	//Manager.DestroyEntity(entity);
+
+	Manager.UpdateEntityStatus();
 
 	return 0;
 }
