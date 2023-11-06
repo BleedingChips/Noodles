@@ -145,6 +145,16 @@ export namespace Noodles
 		using Ptr = Potato::Pointer::IntrusivePtr<ComponentFilterWrapper>;
 
 		static CPtr Create(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource);
+		static std::size_t UniqueAndSort(std::span<UniqueTypeID> ids);
+
+		std::optional<std::size_t> LocateTypeIDIndex(UniqueTypeID const& id) const;
+
+		bool TryInsertCollection(std::size_t element_index, Archetype const& archetype_ptr);
+
+		// require ordered and unique
+		bool IsSame(std::span<UniqueTypeID const> ids) const;
+
+		
 
 	protected:
 
@@ -160,18 +170,66 @@ export namespace Noodles
 		virtual void ControlRelease() override {}
 
 		std::span<UniqueTypeID> capture_info;
+
 		std::size_t allocated_size = 0;
 		std::pmr::memory_resource* resource = nullptr;
 
 		struct InDirectMapping
 		{
-			UniqueTypeID id;
 			std::size_t element_index;
-			Potato::Misc::IndexSpan<> pre_calculate_index;
+			Potato::Misc::IndexSpan<> archetype_id_index;
 		};
 
+		std::mutex filter_mutex;
 		std::pmr::vector<InDirectMapping> in_direct_mapping;
-		std::pmr::vector<std::size_t> pre_calculate_index;
+
+		struct ArchetypeTypeIDIndex
+		{
+			std::size_t index = 0;
+			std::size_t count = 0;
+		};
+
+		std::pmr::vector<ArchetypeTypeIDIndex> archetype_id_index;
+
+	public:
+
+		struct Block
+		{
+			std::size_t element_index;
+			std::span<ArchetypeTypeIDIndex const> indexs;
+		};
+
+		struct BlockIterator
+		{
+			decltype(in_direct_mapping)::iterator ite;
+			std::span<ArchetypeTypeIDIndex const> indexs;
+			BlockIterator& operator++() { ite++; return *this; }
+			bool operator==(BlockIterator const& i) const { return ite == i.ite; }
+			Block operator*() {
+				return {
+					ite->element_index,
+					ite->archetype_id_index.Slice(indexs)
+				};
+			};
+		};
+
+		BlockIterator begin()
+		{
+			return {
+				in_direct_mapping.begin(),
+				std::span(archetype_id_index)
+			};
+		}
+
+		BlockIterator end()
+		{
+			return {
+				in_direct_mapping.end(),
+				std::span(archetype_id_index)
+			};
+		}
+
+		friend struct ArchetypeComponentManager;
 	};
 
 	struct ArchetypeComponentManager
@@ -195,7 +253,7 @@ export namespace Noodles
 		bool UpdateEntityStatus();
 		bool DestroyEntity(Entity entity);
 
-		ComponentFilterWrapper::CPtr CreateFilter(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource);
+		ComponentFilterWrapper::CPtr CreateFilter(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 	protected:
 

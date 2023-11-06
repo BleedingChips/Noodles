@@ -138,7 +138,8 @@ namespace Noodles
 		std::span<std::byte> buffer,
 		std::span<UniqueTypeID const> ref_ids,
 		std::size_t allocated_size, std::pmr::memory_resource* up_stream
-	) : allocated_size(allocated_size), resource(up_stream), in_direct_mapping(up_stream), pre_calculate_index(up_stream)
+	) : allocated_size(allocated_size), resource(up_stream),
+		in_direct_mapping(up_stream), archetype_id_index(up_stream)
 	{
 		assert(buffer.size() <= ref_ids.size() * sizeof(UniqueTypeID));
 
@@ -146,18 +147,33 @@ namespace Noodles
 			reinterpret_cast<UniqueTypeID*>(buffer.data()),
 			ref_ids.size()
 		};
-		capture_info = ite_span;
+
+		std::size_t i = 0;
+
 		for(auto& ite : ref_ids)
 		{
-			new (&ite_span[0]) UniqueTypeID{ite};
-			ite_span = ite_span.subspan(1);
+
+			auto ai = std::find(
+				ite_span.begin(),
+				ite_span.begin() + i,
+				ite
+			);
+			if(ai == ite_span.begin() + i)
+			{
+				assert(i < ite_span.size());
+				new (&ite_span[i]) UniqueTypeID{ ite };
+				++i;
+			}
 		}
+		capture_info = ite_span.subspan(0, i);
+
 		std::sort(
 			capture_info.begin(),
 			capture_info.end(),
 			[](UniqueTypeID& i1, UniqueTypeID& i2){ return i1<=> i2 == std::strong_ordering::less;  }
 			);
-		assert(ite_span.empty());
+
+		assert(!capture_info.empty());
 	}
 
 	void ComponentFilterWrapper::Release()
@@ -180,16 +196,103 @@ namespace Noodles
 		capture_info = {};
 	}
 
+	bool ComponentFilterWrapper::IsSame(std::span<UniqueTypeID const> ids) const
+	{
+		if(ids.size() == capture_info.size())
+		{
+			for(std::size_t i =0; i< capture_info.size(); ++i)
+			{
+				if(capture_info[i] != ids[i])
+					return false;
+			}
+			return true;
+		}
+		return false;
+	}
+
+	bool ComponentFilterWrapper::TryInsertCollection(std::size_t element_index, Archetype const& archetype)
+	{
+		std::lock_guard lg(filter_mutex);
+		std::size_t old_size = archetype_id_index.size();
+		std::size_t max_size = archetype.GetTypeIDCount();
+		for (auto& ite : capture_info)
+		{
+			auto locate_index = archetype.LocateTypeID(ite);
+			if (locate_index.has_value())
+			{
+				std::size_t count = 1;
+				std::size_t next = *locate_index + 1;
+				while (next < max_size)
+				{
+					auto re = archetype.GetTypeID(next);
+					if (re == ite)
+					{
+						++count;
+						++next;
+					}
+					else
+						break;
+				}
+				archetype_id_index.push_back({ *locate_index, count });
+			}
+			else
+			{
+				archetype_id_index.resize(old_size);
+				return false;
+			}
+		}
+		in_direct_mapping.emplace_back(
+			element_index,
+			Potato::Misc::IndexSpan<>{old_size, archetype_id_index.size()}
+		);
+		return true;
+	}
+
+	std::size_t ComponentFilterWrapper::UniqueAndSort(std::span<UniqueTypeID> ids)
+	{
+		std::sort(ids.begin(), ids.end());
+		auto last = std::unique(ids.begin(), ids.end());
+		return std::distance(ids.begin(), last);
+	}
+
+	std::optional<std::size_t> ComponentFilterWrapper::LocateTypeIDIndex(UniqueTypeID const& id) const
+	{
+		auto find = std::find(capture_info.begin(), capture_info.end(), id);
+		if(find != capture_info.end())
+		{
+			return std::distance(capture_info.begin(), find);
+		}
+		return std::nullopt;
+	}
+
 	ComponentFilterWrapper::CPtr ArchetypeComponentManager::CreateFilter(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource)
 	{
 		std::lock_guard lg(filter_mapping_mutex);
+
+		std::size_t total_count = 0;
 		for(auto& ite : filter_mapping)
 		{
-
+			assert(ite);
+			if(ite->IsSame(ids))
+			{
+				return ComponentFilterWrapper::CPtr{ite.GetPointer()};
+			}
 		}
-		return {};
+
+		auto ptr = ComponentFilterWrapper::Create(ids, resource);
+		filter_mapping.push_back(ptr.GetPointer());
+		std::shared_lock lg2(components_mutex);
+		std::size_t i = 0;
+		for(auto& ite : components)
+		{
+			ptr->TryInsertCollection(i, *ite.archetype);
+			++i;
+		}
+		return ptr;
 	}
 
+	
+	
 	ArchetypeComponentManager::ArchetypeComponentManager(std::pmr::memory_resource* upstream)
 		:components(upstream), spawned_entities(upstream), spawned_entities_resource(upstream),
 		archetype_resource(upstream), entity_resource(decltype(entity_resource)::Type::Create(upstream)),
@@ -240,6 +343,11 @@ namespace Noodles
 				ite.top_page = {};
 			}
 			components.clear();
+		}
+
+		{
+			std::lock_guard lg(filter_mapping_mutex);
+			filter_mapping.clear();
 		}
 		need_update = false;
 	}
@@ -587,6 +695,32 @@ namespace Noodles
 				top->archetype = std::move(art);
 				top->mount_point = mp;
 				top->status = EntityStatus::Normal;
+			}
+
+			if(cache_size < components.size())
+			{
+				std::lock_guard lg3(filter_mapping_mutex);
+
+				filter_mapping.erase(
+					std::remove_if(filter_mapping.begin(), filter_mapping.end(), [&](ComponentFilterWrapper::Ptr& ptr)->bool
+						{
+							assert(ptr);
+							if (ptr->IsControlRefZero())
+							{
+								return true;
+							}
+							for (std::size_t i = cache_size; i < components.size(); ++i)
+							{
+								assert(components[i].archetype);
+								ptr->TryInsertCollection(
+									i,
+									*components[i].archetype
+								);
+							}
+							return false;
+						}),
+					filter_mapping.end()
+				);
 			}
 
 			return true;

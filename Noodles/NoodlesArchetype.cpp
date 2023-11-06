@@ -11,7 +11,7 @@ namespace Noodles
 		return Potato::Misc::PriorityCompareStrongOrdering(
 			layout.Align, i2.layout.Align,
 			layout.Size, i2.layout.Size,
-			id, i2.id
+			i2.id, id
 		);
 	}
 
