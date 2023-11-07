@@ -66,58 +66,36 @@ export namespace Noodles
 		bool IsConflict(SystemMutex const& p2) const;
 	};
 
+	struct FilterCollection
+	{
+		FilterCollection(std::pmr::memory_resource* resource)
+			: component_filters(resource), rw_infos(resource) {}
+		SystemMutex GetMutex() const { return {std::span(rw_infos)}; }
+	public:
+		std::pmr::vector<ComponentFilterWrapper::CPtr> component_filters;
+		std::pmr::vector<SystemRWInfo> rw_infos;
+	};
+
 	struct FilterGenerator
 	{
-		enum class Type
-		{
-			Component,
-			GlobalComponent,
-			Entity,
-		};
+		FilterGenerator(std::pmr::memory_resource* resource, ArchetypeComponentManager& manager)
+			: collection(resource), manager(manager) { }
 
-		FilterGenerator(std::pmr::memory_resource* ptr = std::pmr::get_default_resource());
+		std::size_t RegisterComponentFilter(std::span<SystemRWInfo const> ifs);
 
-		void AddComponentFilter(std::span<SystemRWInfo> infos);
-		void AddEntityFilter(std::span<SystemRWInfo> infos);
-		void AddGlobalComponentFilter(SystemRWInfo const& info);
-
-		SystemMutex GetMutexProperty() const
-		{
-			return {
-				std::span(component_rw_info),
-				//std::span(global_component_rw_info)
-			};
-		}
-
-		template<typename FunctionInfo>
-		static FilterGenerator Create(std::pmr::memory_resource* resource);
+		FilterCollection collection;
 
 	protected:
 
-		struct Element
-		{
-			Type type;
-			std::pmr::vector<SystemRWInfo> info;
-		};
-
-		std::pmr::memory_resource* resource;
-		std::pmr::vector<Element> filter_element;
-		std::pmr::vector<SystemRWInfo> component_rw_info;
-		std::pmr::vector<SystemRWInfo> global_component_rw_info;
-	};
-
-	export struct FilterWrapper : Potato::Task::ControlDefaultInterface
-	{
-		using Ptr = Potato::Task::ControlPtr<FilterWrapper>;
-		using WPtr = Potato::Pointer::IntrusivePtr<FilterWrapper>;
-
-		virtual SystemMutex GetMutexProperty() const = 0;
-	public:
+		ArchetypeComponentManager& manager;
+		std::pmr::memory_resource* temp_memory_resource;
 	};
 
 	struct SystemContext
 	{
 		SystemProperty self_property;
+		ArchetypeComponentManager& manager;
+		FilterCollection& filter_collection;
 		Context& global_context;
 	};
 
@@ -147,10 +125,7 @@ export namespace Noodles
 
 		SystemMutex GetMutexProperty() const
 		{
-			return {
-				std::span(component_rw_info),
-				//std::span(global_component_rw_info)
-			};
+			return filter_collection.GetMutex();
 		};
 
 		template<typename Func>
@@ -184,8 +159,7 @@ export namespace Noodles
 		std::pmr::u8string group_name;
 		std::pmr::u8string system_name;
 		std::pmr::u8string display_name;
-		std::vector<SystemRWInfo> component_rw_info;
-		std::vector<SystemRWInfo> global_component_rw_info;
+		FilterCollection filter_collection;
 	};
 
 	export struct SystemTriggerLine
@@ -201,7 +175,7 @@ export namespace Noodles
 		std::size_t to;
 	};
 
-	export struct LoginSystemResult
+	export struct SystemRegisterResult
 	{
 		enum class Status
 		{
@@ -223,30 +197,10 @@ export namespace Noodles
 
 		TickSystemsGroup(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
-
-		template<typename Func>
-		LoginSystemResult LoginDefer(std::int32_t layer, SystemPriority priority, SystemProperty property,
-			Func&& func,
-			std::pmr::memory_resource* resource
-		);
-
-		template<typename Func>
-		LoginSystemResult LoginDefer(std::int32_t layer, SystemPriority priority, SystemProperty property,
-			FilterGenerator const& generator,
-			Func&& func,
-			std::pmr::memory_resource* resource
-			);
-
-		template<typename Func>
-		std::size_t SynFlushAndDispatch(Func&& func) requires(std::is_invocable_v<Func, SystemHolder::Ptr&>);
-
-		template<typename Func>
-		std::optional<std::size_t> TryDispatchDependence(Func&& func) requires(std::is_invocable_v<Func, SystemHolder::Ptr&>);
-
 	protected:
 
-		LoginSystemResult PreLoginCheck(std::int32_t layer, SystemPriority priority, SystemProperty property, SystemMutex const& pro, std::pmr::vector<SystemTemporaryDependenceLine>& dep);
-		void Login(LoginSystemResult const& Result, std::pmr::vector<SystemTemporaryDependenceLine> const&, SystemHolder::Ptr TargetPtr);
+		SystemRegisterResult PreLoginCheck(std::int32_t layer, SystemPriority priority, SystemProperty property, SystemMutex const& pro, std::pmr::vector<SystemTemporaryDependenceLine>& dep);
+		void Login(SystemRegisterResult const& Result, std::pmr::vector<SystemTemporaryDependenceLine> const&, SystemHolder::Ptr TargetPtr);
 
 
 		struct GraphicNode
@@ -283,39 +237,38 @@ export namespace Noodles
 		std::size_t startup_system_context_ite = 0;
 		std::pmr::vector<SystemTriggerLine> tick_systems_running_graphic_line;
 		std::size_t current_level_system_waiting = 0;
-	};
 
-	template<typename Func>
-	LoginSystemResult TickSystemsGroup::LoginDefer(std::int32_t layer, SystemPriority priority, SystemProperty property,
-		FilterGenerator const& generator,
-		Func&& func,
-		std::pmr::memory_resource* resource
-	)
-	{
-		std::lock_guard lg(graphic_mutex);
-		auto mutex_pro = generator.GetMutexProperty();
-		std::pmr::vector<SystemTemporaryDependenceLine> new_dep(resource);
-		auto result = PreLoginCheck(layer, priority, property, mutex_pro, new_dep);
-		if(result)
+	public:
+
+		template<typename GeneratorFunc, typename Func>
+		SystemRegisterResult RegisterDefer(ArchetypeComponentManager& manager, std::int32_t layer, SystemPriority priority, SystemProperty property,
+			GeneratorFunc&& g_func, Func&& func, std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource())
+			requires(
+		std::is_invocable_v<GeneratorFunc, FilterGenerator&>&& std::is_invocable_v<Func, SystemContext&>
+			)
 		{
-			auto ptr = SystemHolder::Create(std::forward<Func>(func), priority, property, generator, &system_holder_resource);
-			if(ptr)
+			std::lock_guard lg(graphic_mutex);
+			std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
+			FilterGenerator generator(&system_holder_resource, manager);
+			g_func(generator);
+			std::pmr::vector<SystemTemporaryDependenceLine> temp_line{&temp_resource };
+			auto re = PreLoginCheck(layer, priority, property, generator.collection.GetMutex(), temp_line);
+			if(re)
 			{
-				Login(result, new_dep, std::move(ptr));
+				auto ptr = SystemHolder::Create(
+					std::move(func), priority, property, generator, &system_holder_resource
+				);
+				Login(re, temp_line, std::move(ptr));
 			}
+			return re;
 		}
-		return result;
-	}
 
-	template<typename Func>
-	LoginSystemResult TickSystemsGroup::LoginDefer(std::int32_t layer, SystemPriority priority, SystemProperty property,
-		Func&& func,
-		std::pmr::memory_resource* resource
-	)
-	{
-		auto generator = FilterGenerator::Create<Potato::TMP::FunctionInfo<std::remove_cvref_t<Func>>>(resource);
-		return TickSystemsGroup::LoginDefer(layer, priority, property, generator, std::forward<Func>(func), resource);
-	}
+		template<typename Func>
+		std::size_t SynFlushAndDispatch(Func&& func) requires(std::is_invocable_v<Func, SystemHolder::Ptr&>);
+
+		template<typename Func>
+		std::optional<std::size_t> TryDispatchDependence(Func&& func) requires(std::is_invocable_v<Func, SystemHolder::Ptr&>);
+	};
 
 
 	template<typename Func>

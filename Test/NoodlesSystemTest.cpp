@@ -60,7 +60,7 @@ int main()
 
 	Tg.RegisterDefer(
 		0, SystemPriority{}, SystemProperty{u8"balabala"},
-		[](FilterGenerator& Generator)-> FilterGenerator
+		[](FilterGenerator& Generator)
 		{
 			std::vector<SystemRWInfo> infos;
 			Generator.AddComponentFilter(

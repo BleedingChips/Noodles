@@ -98,12 +98,6 @@ namespace Noodles
 		return re1;
 	}
 
-	FilterGenerator::FilterGenerator(std::pmr::memory_resource* ptr)
-		: resource(ptr), component_rw_info(ptr), global_component_rw_info(ptr)
-	{
-		
-	}
-
 	void OrderedInsert(SystemRWInfo const& tar, std::pmr::vector<SystemRWInfo>& vec)
 	{
 		auto find = std::find_if(
