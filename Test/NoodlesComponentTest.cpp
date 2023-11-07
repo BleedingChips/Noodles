@@ -45,14 +45,23 @@ int main()
 
 	auto entity = Manager.CreateEntityDefer(std::span(ids), [](EntityConstructor& cons)
 	{
+			cons.Construct<A>(
+				A{10}
+			);
 	});
 
 	auto entity2 = Manager.CreateEntityDefer(std::span(ids), [](EntityConstructor& cons)
 	{
+			cons.Construct<A>(
+				A{ 9 }
+			);
 	});
 
 	auto entity3 = Manager.CreateEntityDefer(std::span(idscc), [](EntityConstructor& cons)
 		{
+			cons.Construct<A>(
+				A{ 8 }
+			);
 		});
 
 	//Manager.DestroyEntity(entity);
@@ -60,7 +69,7 @@ int main()
 	std::vector<Noodles::UniqueTypeID> ids2{
 		UniqueTypeID::Create<A>(),
 		UniqueTypeID::Create<B>(),
-		UniqueTypeID::Create<D>()
+		//UniqueTypeID::Create<D>()
 	};
 
 	auto a_size = ComponentFilterWrapper::UniqueAndSort(std::span(ids2));
@@ -82,8 +91,24 @@ int main()
 
 	for(auto ite : *f2)
 	{
-		volatile int i = 0;
+		Manager.ForeachMountPoint(ite, [&](MountPointRange range)
+		{
+			for(auto& ite2 : range)
+			{
+				auto ref = ite.indexs[ids3[0]];
+				auto Aress = static_cast<A*>(range.archetype.GetData(ref.index, ite2));
+				volatile int i = 0;
+			}
+		});
 	}
+	Manager.ReadEntity(*entity2, [](Archetype const& arc, ArchetypeMountPoint mp)
+	{
+		auto Aress = static_cast<A*>(arc.GetData(*arc.LocateTypeID(UniqueTypeID::Create<A>()), mp));
+		auto Aress2 = static_cast<B*>(arc.GetData(*arc.LocateTypeID(UniqueTypeID::Create<B>()), mp));
+		auto Aress3 = static_cast<C*>(arc.GetData(*arc.LocateTypeID(UniqueTypeID::Create<C>()), mp));
+		volatile int o = 0;
+	});
+
 
 	return 0;
 }

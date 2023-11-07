@@ -12,67 +12,61 @@ import PotatoIR;
 import NoodlesArchetype;
 export import NoodlesComponent;
 
-
 export namespace Noodles
 {
 	struct Context;
-}
 
-
-export namespace Noodles::System
-{
-
-	struct RWInfo
+	struct SystemRWInfo
 	{
 
 		bool is_write = false;
-		Potato::IR::TypeID type_id;
+		UniqueTypeID type_id;
 
 		template<typename Type>
-		static RWInfo GetComponent()
+		static SystemRWInfo GetComponent()
 		{
-			return RWInfo{
+			return SystemRWInfo{
 				!std::is_const_v<Type>,
-				Potato::IR::TypeID::CreateTypeID<std::remove_cvref_t<Type>>()
+				UniqueTypeID::Create<std::remove_cvref_t<Type>>()
 			};
 		}
 
-		std::strong_ordering operator<=>(RWInfo const& i) const { type_id <=> i.type_id; } 
+		std::strong_ordering operator<=>(SystemRWInfo const& i) const { return type_id <=> i.type_id; }
 
 	};
 
-	struct Property;
+	struct SystemProperty;
 
-	struct Priority
+	struct SystemPriority
 	{
 		std::int32_t primary_priority = 0;
 		std::int32_t second_priority = 0;
-		std::partial_ordering (*compare)(Property const& self, Property const& target) = nullptr;
+		std::partial_ordering (*compare)(SystemProperty const& self, SystemProperty const& target) = nullptr;
 
-		std::strong_ordering ComparePriority(Priority const& p2) const;
-		std::partial_ordering CompareCustomPriority(Property const& self_property, Priority const& target, Property const& target_property) const;
+		std::strong_ordering ComparePriority(SystemPriority const& p2) const;
+		std::partial_ordering CompareCustomPriority(SystemProperty const& self_property, SystemPriority const& target, SystemProperty const& target_property) const;
 	};
 
-	struct Property
+	struct SystemProperty
 	{
 		std::u8string_view system_name;
 		std::u8string_view group_name;
 		
-		bool IsSameSystem(Property const& oi) const
+		bool IsSameSystem(SystemProperty const& oi) const
 		{
 			return group_name == oi.group_name && system_name == oi.system_name;
 		}
 	};
 
-	struct MutexProperty
+	struct SystemMutex
 	{
-		std::span<RWInfo const> component_rw_infos;
-		std::span<RWInfo const> global_component_rw_infos;
+		std::span<SystemRWInfo const> component_rw_infos;
+		//std::span<RWInfo const> global_component_rw_infos;
 
-		bool IsConflict(MutexProperty const& p2) const;
+		bool IsConflict(SystemMutex const& p2) const;
 	};
 
-	export struct FilterGenerator
+	struct FilterGenerator
 	{
 		enum class Type
 		{
@@ -83,16 +77,16 @@ export namespace Noodles::System
 
 		FilterGenerator(std::pmr::memory_resource* ptr = std::pmr::get_default_resource());
 
-		void AddComponentFilter(std::span<RWInfo> infos);
-		void AddEntityFilter(std::span<RWInfo> infos);
-		void AddGlobalComponentFilter(RWInfo const& info);
+		void AddComponentFilter(std::span<SystemRWInfo> infos);
+		void AddEntityFilter(std::span<SystemRWInfo> infos);
+		void AddGlobalComponentFilter(SystemRWInfo const& info);
 
-		MutexProperty GetMutexProperty() const
+		SystemMutex GetMutexProperty() const
 		{
 			return {
 				std::span(component_rw_info),
-				std::span(global_component_rw_info)
-				};
+				//std::span(global_component_rw_info)
+			};
 		}
 
 		template<typename FunctionInfo>
@@ -103,13 +97,13 @@ export namespace Noodles::System
 		struct Element
 		{
 			Type type;
-			std::pmr::vector<RWInfo> info;
+			std::pmr::vector<SystemRWInfo> info;
 		};
 
 		std::pmr::memory_resource* resource;
 		std::pmr::vector<Element> filter_element;
-		std::pmr::vector<RWInfo> component_rw_info;
-		std::pmr::vector<RWInfo> global_component_rw_info;
+		std::pmr::vector<SystemRWInfo> component_rw_info;
+		std::pmr::vector<SystemRWInfo> global_component_rw_info;
 	};
 
 	export struct FilterWrapper : Potato::Task::ControlDefaultInterface
@@ -117,15 +111,14 @@ export namespace Noodles::System
 		using Ptr = Potato::Task::ControlPtr<FilterWrapper>;
 		using WPtr = Potato::Pointer::IntrusivePtr<FilterWrapper>;
 
-		virtual MutexProperty GetMutexProperty() const = 0;
+		virtual SystemMutex GetMutexProperty() const = 0;
 	public:
 	};
 
-	struct ExecuteContext
+	struct SystemContext
 	{
-		System::Property property;
-		std::span<FilterWrapper::Ptr> filter_ptr;
-		Context& context;
+		SystemProperty self_property;
+		Context& global_context;
 	};
 
 	export enum class RunningStatus
@@ -138,33 +131,33 @@ export namespace Noodles::System
 		Done,
 	};
 
-	export struct Holder : public Potato::Pointer::DefaultIntrusiveInterface
+	export struct SystemHolder : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 
-		using Ptr = Potato::Pointer::IntrusivePtr<Holder>;
+		using Ptr = Potato::Pointer::IntrusivePtr<SystemHolder>;
 
-		Property GetProperty() const {
+		SystemProperty GetProperty() const {
 			return {
-				std::u8string_view{group_name},
+				std::u8string_view{group_name },
 				std::u8string_view{ system_name }
 			};
 		}
 
 		std::u8string_view GetDisplayName() const { return std::u8string_view{ display_name }; }
 
-		MutexProperty GetMutexProperty() const
+		SystemMutex GetMutexProperty() const
 		{
 			return {
 				std::span(component_rw_info),
-				std::span(global_component_rw_info)
+				//std::span(global_component_rw_info)
 			};
 		};
 
 		template<typename Func>
 		static auto Create(
 			Func&& func,
-			Priority const& priority,
-			Property const& property,
+			SystemPriority const& priority,
+			SystemProperty const& property,
 			FilterGenerator const& generator,
 			std::pmr::memory_resource* resource
 			)
@@ -174,9 +167,9 @@ export namespace Noodles::System
 
 	protected:
 
-		Holder(
+		SystemHolder(
 			//Priority const& priority,
-			Property const& property,
+			SystemProperty const& property,
 			FilterGenerator const& generator,
 			std::pmr::memory_resource* resource
 		);
@@ -191,17 +184,17 @@ export namespace Noodles::System
 		std::pmr::u8string group_name;
 		std::pmr::u8string system_name;
 		std::pmr::u8string display_name;
-		std::vector<RWInfo> component_rw_info;
-		std::vector<RWInfo> global_component_rw_info;
+		std::vector<SystemRWInfo> component_rw_info;
+		std::vector<SystemRWInfo> global_component_rw_info;
 	};
 
-	export struct TriggerLine
+	export struct SystemTriggerLine
 	{
 		bool is_mutex = false;
-		Holder::Ptr target = nullptr;
+		SystemHolder::Ptr target = nullptr;
 	};
 
-	struct TemporaryDependenceLine
+	struct SystemTemporaryDependenceLine
 	{
 		bool is_mutex;
 		std::size_t from;
@@ -232,28 +225,28 @@ export namespace Noodles::System
 
 
 		template<typename Func>
-		LoginSystemResult LoginDefer(std::int32_t layer, Priority priority, Property property,
+		LoginSystemResult LoginDefer(std::int32_t layer, SystemPriority priority, SystemProperty property,
 			Func&& func,
 			std::pmr::memory_resource* resource
 		);
 
 		template<typename Func>
-		LoginSystemResult LoginDefer(std::int32_t layer, Priority priority, Property property,
+		LoginSystemResult LoginDefer(std::int32_t layer, SystemPriority priority, SystemProperty property,
 			FilterGenerator const& generator,
 			Func&& func,
 			std::pmr::memory_resource* resource
 			);
 
 		template<typename Func>
-		std::size_t SynFlushAndDispatch(Func&& func) requires(std::is_invocable_v<Func, Holder::Ptr&>);
+		std::size_t SynFlushAndDispatch(Func&& func) requires(std::is_invocable_v<Func, SystemHolder::Ptr&>);
 
 		template<typename Func>
-		std::optional<std::size_t> TryDispatchDependence(Func&& func) requires(std::is_invocable_v<Func, Holder::Ptr&>);
+		std::optional<std::size_t> TryDispatchDependence(Func&& func) requires(std::is_invocable_v<Func, SystemHolder::Ptr&>);
 
 	protected:
 
-		LoginSystemResult PreLoginCheck(std::int32_t layer, Priority priority, Property property, MutexProperty const& pro, std::pmr::vector<TemporaryDependenceLine>& dep);
-		void Login(LoginSystemResult const& Result, std::pmr::vector<TemporaryDependenceLine> const&, Holder::Ptr TargetPtr);
+		LoginSystemResult PreLoginCheck(std::int32_t layer, SystemPriority priority, SystemProperty property, SystemMutex const& pro, std::pmr::vector<SystemTemporaryDependenceLine>& dep);
+		void Login(LoginSystemResult const& Result, std::pmr::vector<SystemTemporaryDependenceLine> const&, SystemHolder::Ptr TargetPtr);
 
 
 		struct GraphicNode
@@ -265,12 +258,12 @@ export namespace Noodles::System
 			};
 
 			std::int32_t layer = 0;
-			Priority priority;
-			Property property;
-			MutexProperty mutex_property;
+			SystemPriority priority;
+			SystemProperty property;
+			SystemMutex mutex_property;
 			std::pmr::vector<TriggerTo> trigger_to;
 			std::size_t in_degree = 0;
-			Holder::Ptr system_obj;
+			SystemHolder::Ptr system_obj;
 		};
 
 		std::pmr::synchronized_pool_resource system_holder_resource;
@@ -282,18 +275,18 @@ export namespace Noodles::System
 		struct StartupSystem
 		{
 			std::int32_t layout = 0;
-			Holder::Ptr system_obj;
+			SystemHolder::Ptr system_obj;
 		};
 
 		std::mutex tick_system_running_mutex;
 		std::pmr::vector<StartupSystem> startup_system_context;
 		std::size_t startup_system_context_ite = 0;
-		std::pmr::vector<TriggerLine> tick_systems_running_graphic_line;
+		std::pmr::vector<SystemTriggerLine> tick_systems_running_graphic_line;
 		std::size_t current_level_system_waiting = 0;
 	};
 
 	template<typename Func>
-	LoginSystemResult TickSystemsGroup::LoginDefer(std::int32_t layer, Priority priority, Property property,
+	LoginSystemResult TickSystemsGroup::LoginDefer(std::int32_t layer, SystemPriority priority, SystemProperty property,
 		FilterGenerator const& generator,
 		Func&& func,
 		std::pmr::memory_resource* resource
@@ -301,11 +294,11 @@ export namespace Noodles::System
 	{
 		std::lock_guard lg(graphic_mutex);
 		auto mutex_pro = generator.GetMutexProperty();
-		std::pmr::vector<TemporaryDependenceLine> new_dep(resource);
+		std::pmr::vector<SystemTemporaryDependenceLine> new_dep(resource);
 		auto result = PreLoginCheck(layer, priority, property, mutex_pro, new_dep);
 		if(result)
 		{
-			auto ptr = Holder::Create(std::forward<Func>(func), priority, property, generator, &system_holder_resource);
+			auto ptr = SystemHolder::Create(std::forward<Func>(func), priority, property, generator, &system_holder_resource);
 			if(ptr)
 			{
 				Login(result, new_dep, std::move(ptr));
@@ -315,7 +308,7 @@ export namespace Noodles::System
 	}
 
 	template<typename Func>
-	LoginSystemResult TickSystemsGroup::LoginDefer(std::int32_t layer, Priority priority, Property property,
+	LoginSystemResult TickSystemsGroup::LoginDefer(std::int32_t layer, SystemPriority priority, SystemProperty property,
 		Func&& func,
 		std::pmr::memory_resource* resource
 	)
@@ -332,7 +325,7 @@ export namespace Noodles::System
 	struct IsAcceptableParameter
 	{
 		using PT = std::remove_cvref_t<ParT>;
-		static constexpr bool value = std::is_same_v<ExecuteContext, PT> || IsAcceptableComponentFilterV<ParT>;
+		static constexpr bool value = std::is_same_v<SystemContext, PT> || IsAcceptableComponentFilterV<ParT>;
 	};
 
 	template<typename ...ParT>
@@ -344,27 +337,27 @@ export namespace Noodles::System
 	export template<typename ToT>
 		struct ExecuteContextDistributor
 	{
-		ToT operator()(ExecuteContext& context) = delete;
+		ToT operator()(SystemContext& context) = delete;
 	};
 
 	export template<>
-		struct ExecuteContextDistributor<ExecuteContext>
+		struct ExecuteContextDistributor<SystemContext>
 	{
-		ExecuteContext& operator()(ExecuteContext& context) { return context; }
+		SystemContext& operator()(SystemContext& context) { return context; }
 	};
 
 	export template<typename ...ToT>
 		struct ExecuteContextDistributors
 	{
 		template<typename Func>
-		void operator()(ExecuteContext& context, Func&& func)
+		void operator()(SystemContext& context, Func&& func)
 		{
 			func(ExecuteContextDistributor<std::remove_cvref_t<ToT>>{}(context)...);
 		}
 	};
 
 	template<typename FuncT>
-	void CallSystemFunction(ExecuteContext& context, FuncT&& func)
+	void CallSystemFunction(SystemContext& context, FuncT&& func)
 	{
 		using FuncInfo = Potato::TMP::FunctionInfo<std::remove_pointer_t<std::remove_cvref_t<FuncT>>>;
 		using Distributors = typename FuncInfo::template PackParameters<ExecuteContextDistributors>;

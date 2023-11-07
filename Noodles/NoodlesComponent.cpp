@@ -728,4 +728,42 @@ namespace Noodles
 		return false;
 	}
 
+
+	std::size_t ArchetypeComponentManager::ForeachMountPoint(ComponentFilterWrapper::Block block, void(*func)(void*, MountPointRange), void* data)
+	{
+		std::shared_lock lg(components_mutex);
+		if (block.element_index < components.size())
+		{
+			std::size_t page_count = 0;
+			auto& ref = components[block.element_index];
+			auto top = ref.top_page;
+			while (top)
+			{
+				MountPointRange mpr{ *ref.archetype, top->begin(), top->end() };
+				func(data, mpr);
+				++page_count;
+				top = top->GetNextPage();
+			}
+			return page_count;
+		}
+		else
+		{
+			return 0;
+		}
+	}
+
+	bool ArchetypeComponentManager::ReadEntity(EntityStorage const& entity, void(*func)(void*, Archetype const&, ArchetypeMountPoint), void* data)
+	{
+		if(entity.resource == entity_resource->get_resource_interface())
+		{
+			std::shared_lock lg(components_mutex);
+			if(entity.status != EntityStatus::Destroy)
+			{
+				func(data, *entity.archetype, entity.mount_point);
+				return true;
+			}
+		}
+		return false;
+
+	}
 }

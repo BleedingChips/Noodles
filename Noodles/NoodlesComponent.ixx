@@ -61,6 +61,8 @@ export namespace Noodles
 			};
 		}
 
+		Ptr GetNextPage() const { return next_page; }
+
 	protected:
 
 		ComponentPage(
@@ -232,6 +234,17 @@ export namespace Noodles
 		friend struct ArchetypeComponentManager;
 	};
 
+	struct MountPointRange
+	{
+
+		ArchetypeMountPoint begin() { return begin_mp; }
+		ArchetypeMountPoint end() { return end_mp; }
+
+		Archetype& archetype;
+		ArchetypeMountPoint begin_mp;
+		ArchetypeMountPoint end_mp;
+	};
+
 	struct ArchetypeComponentManager
 	{
 
@@ -255,12 +268,35 @@ export namespace Noodles
 
 		ComponentFilterWrapper::CPtr CreateFilter(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
+		template<typename Func>
+		std::size_t ForeachMountPoint(ComponentFilterWrapper::Block block, Func&& fun)
+			requires(std::is_invocable_v<Func, MountPointRange>)
+		{
+			return ForeachMountPoint(block, [](void* data, MountPointRange mpr)
+				{
+					(*static_cast<std::remove_reference_t<Func>*>(data))(mpr);
+				}, &fun);
+		}
+
+		template<typename Func>
+		bool ReadEntity(EntityStorage const& entity, Func&& fun)
+			requires(std::is_invocable_v<Func, Archetype const&, ArchetypeMountPoint>)
+		{
+			return ReadEntity(entity, [](void* data, Archetype const& arc, ArchetypeMountPoint mp)
+				{
+					(*static_cast<std::remove_reference_t<Func>*>(data))(arc, mp);
+				}, &fun);
+		}
+
 	protected:
 
 		static void ReleaseEntity(EntityStorage& storage);
 
 		EntityConstructor PreCreateEntityImp(std::span<ArchetypeID const> ids, std::pmr::memory_resource* resource);
 		Entity CreateEntityImp(EntityConstructor& constructor);
+
+		std::size_t ForeachMountPoint(ComponentFilterWrapper::Block block, void(*)(void*, MountPointRange), void* data);
+		bool ReadEntity(EntityStorage const& entity, void(*)(void*, Archetype const&, ArchetypeMountPoint), void* data);
 
 		struct Element
 		{
@@ -295,6 +331,9 @@ export namespace Noodles
 		Memory::IntrusiveMemoryResource<std::pmr::synchronized_pool_resource>::Ptr entity_resource;
 
 	};
+
+
+
 
 	template<typename ...Components>
 	struct ComponentFilter

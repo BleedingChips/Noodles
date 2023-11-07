@@ -6,12 +6,12 @@ using namespace Noodles;
 
 std::mutex PrintMutex;
 
-void PrintMark(Noodles::System::ExecuteContext& context)
+void PrintMark(Noodles::SystemContext& context)
 {
 	std::lock_guard lg(PrintMutex);
 	std::println("---{0}---", std::string_view{
-		reinterpret_cast<char const*>(context.property.system_name.data()),
-		context.property.system_name.size()
+		reinterpret_cast<char const*>(context.self_property.system_name.data()),
+		context.self_property.system_name.size()
 	});
 }
 
@@ -36,9 +36,9 @@ void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration du
 	}
 }
 
-void PrintSystem(Noodles::System::ExecuteContext& context)
+void PrintSystem(Noodles::SystemContext& context)
 {
-	UniquePrint(context.property.system_name);
+	UniquePrint(context.self_property.system_name);
 }
 
 struct A{};
@@ -49,7 +49,39 @@ struct B{};
 int main()
 {
 
-	Noodles::System::TickSystemsGroup Tg;
+
+	ArchetypeComponentManager Manager;
+
+	Noodles::TickSystemsGroup Tg;
+
+	Tg.LoginDefer(
+	);
+
+
+	Tg.RegisterDefer(
+		0, SystemPriority{}, SystemProperty{u8"balabala"},
+		[](FilterGenerator& Generator)-> FilterGenerator
+		{
+			std::vector<SystemRWInfo> infos;
+			Generator.AddComponentFilter(
+				std::span(infos)
+			);
+
+		},
+		[](SystemContext& context)
+		{
+			auto component_filer = context.GetComponentFilter(0);
+		}
+	);
+
+
+	Tg.LoginDefer(
+		0, SystemPriority{}, SystemProperty{u8"balabala"}, [](SystemContext& context){}
+	);
+
+
+
+
 
 	/*
 	auto TSystem = Potato::Task::TaskContext::Create();

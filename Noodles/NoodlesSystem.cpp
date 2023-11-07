@@ -2,17 +2,15 @@ module;
 #
 module NoodlesSystem;
 
-namespace Noodles::System
+namespace Noodles
 {
 
-	std::strong_ordering Priority::ComparePriority(Priority const& p2) const
+	std::strong_ordering SystemPriority::ComparePriority(SystemPriority const& p2) const
 	{
-		auto r1 = primary_priority <=> p2.primary_priority;
-		if (r1 == std::strong_ordering::equal)
-		{
-			return 	second_priority <=> p2.second_priority;
-		}
-		return r1;
+		return Potato::Misc::PriorityCompareStrongOrdering(
+			primary_priority, p2.primary_priority,
+			second_priority, p2.second_priority
+		);
 	}
 
 	std::partial_ordering Reversal(std::partial_ordering r)
@@ -25,7 +23,7 @@ namespace Noodles::System
 			return r;
 	}
 
-	std::partial_ordering Priority::CompareCustomPriority(Property const& self_property, Priority const& target, Property const& target_property) const
+	std::partial_ordering SystemPriority::CompareCustomPriority(SystemProperty const& self_property, SystemPriority const& target, SystemProperty const& target_property) const
 	{
 		auto r0 = ComparePriority(target);
 		if(r0 != std::strong_ordering::equal)
@@ -63,7 +61,7 @@ namespace Noodles::System
 		}
 	}
 
-	bool DetectConflict(std::span<RWInfo const> t1, std::span<RWInfo const> t2)
+	bool DetectConflict(std::span<SystemRWInfo const> t1, std::span<SystemRWInfo const> t2)
 	{
 		auto ite1 = t1.begin();
 		auto ite2 = t2.begin();
@@ -94,7 +92,7 @@ namespace Noodles::System
 		return false;
 	}
 
-	bool MutexProperty::IsConflict(MutexProperty const& p2) const
+	bool SystemMutex::IsConflict(SystemMutex const& p2) const
 	{
 		auto re1 = DetectConflict(component_rw_infos, p2.component_rw_infos);
 		return re1;
@@ -106,12 +104,12 @@ namespace Noodles::System
 		
 	}
 
-	void OrderedInsert(RWInfo const& tar, std::pmr::vector<RWInfo>& vec)
+	void OrderedInsert(SystemRWInfo const& tar, std::pmr::vector<SystemRWInfo>& vec)
 	{
 		auto find = std::find_if(
 			vec.begin(),
 			vec.end(),
-			[&](RWInfo const& o)
+			[&](SystemRWInfo const& o)
 			{
 				return tar.type_id <= o.type_id;
 			}
@@ -131,10 +129,10 @@ namespace Noodles::System
 		}
 	}
 
-	void FilterGenerator::AddComponentFilter(std::span<RWInfo> rw_infos)
+	void FilterGenerator::AddComponentFilter(std::span<SystemRWInfo> rw_infos)
 	{
 
-		std::pmr::vector<RWInfo> infos{ resource };
+		std::pmr::vector<SystemRWInfo> infos{ resource };
 
 		for(auto& ite : rw_infos)
 		{
@@ -159,9 +157,9 @@ namespace Noodles::System
 	}
 
 
-	void FilterGenerator::AddGlobalComponentFilter(RWInfo const& info)
+	void FilterGenerator::AddGlobalComponentFilter(SystemRWInfo const& info)
 	{
-		std::pmr::vector<RWInfo> infos{ resource };
+		std::pmr::vector<SystemRWInfo> infos{ resource };
 		infos.push_back(info);
 		OrderedInsert(
 			info,
@@ -169,7 +167,7 @@ namespace Noodles::System
 		);
 	}
 
-	void FilterGenerator::AddEntityFilter(std::span<RWInfo> infos)
+	void FilterGenerator::AddEntityFilter(std::span<SystemRWInfo> infos)
 	{
 		for(auto& ite : infos)
 		{

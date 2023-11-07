@@ -166,24 +166,4 @@ export namespace Noodles
 		friend struct ArchetypeComponentManager;
 	};
 
-
-	struct TypeInfo
-	{
-		Potato::IR::TypeID ID;
-		Potato::IR::Layout Layout;
-		void (*MoveConstructor)(void* Source, void* Target);
-		void (*Destructor)(void* Target);
-
-		template<typename Type>
-		static TypeInfo Create()
-		{
-			return {
-			Potato::IR::TypeID::CreateTypeID<Type>(),
-				Potato::IR::Layout::Get<Type>(),
-				[](void* Source, void* Target) { new (Target) Type{ std::move(*static_cast<Type*>(Source)) }; },
-				[](void* Target) { static_cast<Type*>(Target)->~Type(); }
-			};
-		}
-	};
-
 }
