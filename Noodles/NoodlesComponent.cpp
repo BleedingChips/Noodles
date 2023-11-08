@@ -108,7 +108,7 @@ namespace Noodles
 	}
 
 	auto ComponentFilterWrapper::Create(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource)
-		-> CPtr
+		-> Ptr
 	{
 		static_assert(alignof(ComponentFilterWrapper) == alignof(UniqueTypeID));
 		if(resource != nullptr)
@@ -119,7 +119,7 @@ namespace Noodles
 			);
 			if(adress != nullptr)
 			{
-				CPtr ptr = new (adress) ComponentFilterWrapper{
+				Ptr ptr = new (adress) ComponentFilterWrapper{
 					std::span<std::byte>{
 						static_cast<std::byte*>(adress) + sizeof(ComponentFilterWrapper),
 						total_size - sizeof(ComponentFilterWrapper)
@@ -265,7 +265,7 @@ namespace Noodles
 		return std::nullopt;
 	}
 
-	ComponentFilterWrapper::CPtr ArchetypeComponentManager::CreateFilter(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource)
+	ComponentFilterWrapper::Ptr ArchetypeComponentManager::CreateFilter(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource)
 	{
 		std::lock_guard lg(filter_mapping_mutex);
 
@@ -275,7 +275,7 @@ namespace Noodles
 			assert(ite);
 			if(ite->IsSame(ids))
 			{
-				return ComponentFilterWrapper::CPtr{ite.GetPointer()};
+				return ComponentFilterWrapper::Ptr{ite.GetPointer()};
 			}
 		}
 
@@ -764,6 +764,5 @@ namespace Noodles
 			}
 		}
 		return false;
-
 	}
 }

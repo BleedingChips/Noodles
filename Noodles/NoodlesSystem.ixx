@@ -23,7 +23,7 @@ export namespace Noodles
 		UniqueTypeID type_id;
 
 		template<typename Type>
-		static SystemRWInfo GetComponent()
+		static SystemRWInfo Create()
 		{
 			return SystemRWInfo{
 				!std::is_const_v<Type>,
@@ -66,27 +66,17 @@ export namespace Noodles
 		bool IsConflict(SystemMutex const& p2) const;
 	};
 
-	struct FilterCollection
-	{
-		FilterCollection(std::pmr::memory_resource* resource)
-			: component_filters(resource), rw_infos(resource) {}
-		SystemMutex GetMutex() const { return {std::span(rw_infos)}; }
-	public:
-		std::pmr::vector<ComponentFilterWrapper::CPtr> component_filters;
-		std::pmr::vector<SystemRWInfo> rw_infos;
-	};
-
 	struct FilterGenerator
 	{
-		FilterGenerator(std::pmr::memory_resource* resource, ArchetypeComponentManager& manager)
-			: collection(resource), manager(manager) { }
+		FilterGenerator(std::pmr::memory_resource* template_resource, ArchetypeComponentManager& manager)
+			: manager(manager), component_rw_infos(template_resource) { }
 
-		std::size_t RegisterComponentFilter(std::span<SystemRWInfo const> ifs);
-
-		FilterCollection collection;
+		ComponentFilterWrapper::Ptr CreateComponentFilter(std::span<SystemRWInfo const> ifs, std::span<std::size_t> output_index);
+		bool CreateEntityFilter(std::span<SystemRWInfo>)
 
 	protected:
 
+		std::pmr::vector<SystemRWInfo> component_rw_infos;
 		ArchetypeComponentManager& manager;
 		std::pmr::memory_resource* temp_memory_resource;
 	};
@@ -95,7 +85,6 @@ export namespace Noodles
 	{
 		SystemProperty self_property;
 		ArchetypeComponentManager& manager;
-		FilterCollection& filter_collection;
 		Context& global_context;
 	};
 
@@ -114,23 +103,16 @@ export namespace Noodles
 
 		using Ptr = Potato::Pointer::IntrusivePtr<SystemHolder>;
 
-		SystemProperty GetProperty() const {
-			return {
-				std::u8string_view{group_name },
-				std::u8string_view{ system_name }
-			};
-		}
+		SystemProperty GetProperty() const { return system_property; }
 
-		std::u8string_view GetDisplayName() const { return std::u8string_view{ display_name }; }
+		std::u8string_view GetDisplayName() const { return display_name; }
 
-		SystemMutex GetMutexProperty() const
-		{
-			return filter_collection.GetMutex();
-		};
+		SystemMutex GetMutexProperty() const { return system_mutex; }
 
-		template<typename Func>
+		template<typename Func, typename AppendData>
 		static auto Create(
 			Func&& func,
+			AppendData&& appendData,
 			SystemPriority const& priority,
 			SystemProperty const& property,
 			FilterGenerator const& generator,
@@ -138,14 +120,15 @@ export namespace Noodles
 			)
 		->Ptr;
 
-		virtual void Execute(Context&) = 0;
+		virtual void Execute(ArchetypeComponentManager&, Context&) = 0;
 
 	protected:
 
 		SystemHolder(
-			//Priority const& priority,
+			std::span<std::byte*> last_space,
 			SystemProperty const& property,
 			FilterGenerator const& generator,
+			std::size_t allocated_size,
 			std::pmr::memory_resource* resource
 		);
 
@@ -156,10 +139,9 @@ export namespace Noodles
 		std::size_t mutex_degree = 0;
 		Potato::Misc::IndexSpan<> reference_trigger_line;
 
-		std::pmr::u8string group_name;
-		std::pmr::u8string system_name;
-		std::pmr::u8string display_name;
-		FilterCollection filter_collection;
+		SystemProperty system_property;
+		std::u8string_view display_name;
+		SystemMutex system_mutex;
 	};
 
 	export struct SystemTriggerLine
@@ -244,13 +226,13 @@ export namespace Noodles
 		SystemRegisterResult RegisterDefer(ArchetypeComponentManager& manager, std::int32_t layer, SystemPriority priority, SystemProperty property,
 			GeneratorFunc&& g_func, Func&& func, std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource())
 			requires(
-		std::is_invocable_v<GeneratorFunc, FilterGenerator&>&& std::is_invocable_v<Func, SystemContext&>
+		std::is_invocable_v<GeneratorFunc, FilterGenerator&> && std::is_invocable_v<Func, SystemContext&, std::remove_cvref_t<decltype(g_func(std::declval<FilterGenerator&>()))>&>
 			)
 		{
 			std::lock_guard lg(graphic_mutex);
 			std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
 			FilterGenerator generator(&system_holder_resource, manager);
-			g_func(generator);
+			auto append = g_func(generator);
 			std::pmr::vector<SystemTemporaryDependenceLine> temp_line{&temp_resource };
 			auto re = PreLoginCheck(layer, priority, property, generator.collection.GetMutex(), temp_line);
 			if(re)

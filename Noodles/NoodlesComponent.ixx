@@ -143,10 +143,9 @@ export namespace Noodles
 	struct ComponentFilterWrapper : public Potato::Task::ControlDefaultInterface
 	{
 
-		using CPtr = Potato::Task::ControlPtr<ComponentFilterWrapper>;
-		using Ptr = Potato::Pointer::IntrusivePtr<ComponentFilterWrapper>;
+		using Ptr = Potato::Task::ControlPtr<ComponentFilterWrapper>;
 
-		static CPtr Create(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource);
+		static Ptr Create(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource);
 		static std::size_t UniqueAndSort(std::span<UniqueTypeID> ids);
 
 		std::optional<std::size_t> LocateTypeIDIndex(UniqueTypeID const& id) const;
@@ -160,6 +159,7 @@ export namespace Noodles
 
 	protected:
 
+		
 		ComponentFilterWrapper(
 			std::span<std::byte> buffer,
 			std::span<UniqueTypeID const> ref_ids, 
@@ -192,6 +192,8 @@ export namespace Noodles
 		};
 
 		std::pmr::vector<ArchetypeTypeIDIndex> archetype_id_index;
+
+		friend struct ArchetypeComponentManager;
 
 	public:
 
@@ -231,7 +233,7 @@ export namespace Noodles
 			};
 		}
 
-		friend struct ArchetypeComponentManager;
+		
 	};
 
 	struct MountPointRange
@@ -266,7 +268,7 @@ export namespace Noodles
 		bool UpdateEntityStatus();
 		bool DestroyEntity(Entity entity);
 
-		ComponentFilterWrapper::CPtr CreateFilter(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		ComponentFilterWrapper::Ptr CreateFilter(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		template<typename Func>
 		std::size_t ForeachMountPoint(ComponentFilterWrapper::Block block, Func&& fun)
@@ -325,8 +327,10 @@ export namespace Noodles
 		std::mutex archetype_resource_mutex;
 		std::pmr::monotonic_buffer_resource archetype_resource;
 
+		using ComponentFilterPtr = Potato::Pointer::IntrusivePtr<ComponentFilterWrapper>;
+
 		std::mutex filter_mapping_mutex;
-		std::pmr::vector<ComponentFilterWrapper::Ptr> filter_mapping;
+		std::pmr::vector<ComponentFilterPtr> filter_mapping;
 
 		Memory::IntrusiveMemoryResource<std::pmr::synchronized_pool_resource>::Ptr entity_resource;
 

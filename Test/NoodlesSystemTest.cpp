@@ -58,15 +58,24 @@ int main()
 	);
 
 
+	struct Text
+	{
+		ComponentFilterWrapper::CPtr TopWrapper;
+		std::size_t AIndex;
+		std::size_t BIndex;
+	};
+
 	Tg.RegisterDefer(
 		0, SystemPriority{}, SystemProperty{u8"balabala"},
-		[](FilterGenerator& Generator)
+		[](FilterGenerator& Generator) -> std::size_t
 		{
-			std::vector<SystemRWInfo> infos;
-			Generator.AddComponentFilter(
+			std::vector<SystemRWInfo> infos = {
+				SystemRWInfo::Create<A>(),
+				SystemRWInfo::Create<B>(),
+			};
+			Generator.RegisterComponentFilter(
 				std::span(infos)
 			);
-
 		},
 		[](SystemContext& context)
 		{
