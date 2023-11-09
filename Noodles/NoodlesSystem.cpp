@@ -125,7 +125,6 @@ namespace Noodles
 
 	void FilterGenerator::AddComponentFilter(std::span<SystemRWInfo> rw_infos)
 	{
-
 		std::pmr::vector<SystemRWInfo> infos{ resource };
 
 		for(auto& ite : rw_infos)

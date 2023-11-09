@@ -85,9 +85,8 @@ export namespace Noodles
 		friend struct ArchetypeComponentManager;
 	};
 
-	struct EntityProperty
+	struct EntityFlags
 	{
-		Entity entity;
 		std::pmr::vector<std::size_t> flags;
 	};
 
@@ -155,10 +154,7 @@ export namespace Noodles
 		// require ordered and unique
 		bool IsSame(std::span<UniqueTypeID const> ids) const;
 
-		
-
 	protected:
-
 		
 		ComponentFilterWrapper(
 			std::span<std::byte> buffer,
@@ -249,6 +245,11 @@ export namespace Noodles
 
 	struct ArchetypeComponentManager
 	{
+
+		struct EntityProperty
+		{
+			Entity entity;
+		};
 
 		ArchetypeComponentManager(std::pmr::memory_resource* upstream = std::pmr::get_default_resource());
 		~ArchetypeComponentManager();

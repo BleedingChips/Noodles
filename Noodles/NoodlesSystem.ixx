@@ -66,19 +66,67 @@ export namespace Noodles
 		bool IsConflict(SystemMutex const& p2) const;
 	};
 
-	struct FilterGenerator
+	struct SystemComponentFilter : public Potato::Pointer::DefaultIntrusiveInterface
 	{
-		FilterGenerator(std::pmr::memory_resource* template_resource, ArchetypeComponentManager& manager)
-			: manager(manager), component_rw_infos(template_resource) { }
-
-		ComponentFilterWrapper::Ptr CreateComponentFilter(std::span<SystemRWInfo const> ifs, std::span<std::size_t> output_index);
-		bool CreateEntityFilter(std::span<SystemRWInfo>)
+		using Ptr = Potato::Pointer::IntrusivePtr<SystemComponentFilter>;
 
 	protected:
+
+		static auto Create(ArchetypeComponentManager& manager, std::span<SystemRWInfo const> infos, std::pmr::memory_resource* resource, std::pmr::memory_resource* temp_resource)
+			-> Ptr;
+
+		SystemComponentFilter(std::pmr::memory_resource* resource, std::size_t allocated_size, 
+			ComponentFilterWrapper::Ptr compage_ptr, std::span<SystemRWInfo const> reference_info, std::span<std::byte> buffer);
+		virtual ~SystemComponentFilter();
+		virtual void Release() override;
+
+		ComponentFilterWrapper::Ptr component_wrapper;
+		struct Mapping
+		{
+			SystemRWInfo info;
+			std::size_t mapped_index;
+		};
+		std::span<Mapping> mapping;
+	};
+
+	struct SystemEntityFilter : Potato::Pointer::DefaultIntrusiveInterface
+	{
+		using Ptr = Potato::Pointer::IntrusivePtr<SystemEntityFilter>;
+
+	protected:
+
+		static auto Create(std::span<SystemRWInfo const> infos, std::pmr::memory_resource* resource, std::pmr::memory_resource* temp_resource)
+			-> Ptr;
+
+		SystemEntityFilter(std::pmr::memory_resource* resource, std::size_t allocated_size,
+			std::span<SystemRWInfo const> reference_info, std::span<std::byte> buffer);
+		virtual ~SystemEntityFilter();
+
+		virtual void Release() override;
+		
+		std::pmr::vector<SystemRWInfo> mapping;
+	};
+
+
+	struct FilterGenerator
+	{
+
+		SystemComponentFilter::Ptr CreateComponentFilter(std::span<SystemRWInfo const> ifs);
+		SystemEntityFilter::Ptr CreateEntityFilter(std::span<SystemRWInfo const> ifs);
+		SystemMutex GetMutex() const { return {std::span(component_rw_infos)}; }
+
+	protected:
+
+		FilterGenerator(std::pmr::memory_resource* template_resource, std::pmr::memory_resource* system_resource, ArchetypeComponentManager& manager)
+			: manager(manager), component_rw_infos(template_resource), system_resource(system_resource) { }
 
 		std::pmr::vector<SystemRWInfo> component_rw_infos;
 		ArchetypeComponentManager& manager;
 		std::pmr::memory_resource* temp_memory_resource;
+		std::pmr::memory_resource* system_resource;
+
+
+		friend struct TickSystemsGroup;
 	};
 
 	struct SystemContext
@@ -226,19 +274,21 @@ export namespace Noodles
 		SystemRegisterResult RegisterDefer(ArchetypeComponentManager& manager, std::int32_t layer, SystemPriority priority, SystemProperty property,
 			GeneratorFunc&& g_func, Func&& func, std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource())
 			requires(
-		std::is_invocable_v<GeneratorFunc, FilterGenerator&> && std::is_invocable_v<Func, SystemContext&, std::remove_cvref_t<decltype(g_func(std::declval<FilterGenerator&>()))>&>
+				std::is_invocable_v<GeneratorFunc, FilterGenerator&> 
+				&& !std::is_same_v<decltype(g_func(std::declval<FilterGenerator&>())), void> &&
+				std::is_invocable_v<Func, SystemContext&, std::remove_cvref_t<decltype(g_func(std::declval<FilterGenerator&>()))>&>
 			)
 		{
 			std::lock_guard lg(graphic_mutex);
 			std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
-			FilterGenerator generator(&system_holder_resource, manager);
+			FilterGenerator generator(&temp_resource, &system_holder_resource, manager);
 			auto append = g_func(generator);
 			std::pmr::vector<SystemTemporaryDependenceLine> temp_line{&temp_resource };
-			auto re = PreLoginCheck(layer, priority, property, generator.collection.GetMutex(), temp_line);
+			auto re = PreLoginCheck(layer, priority, property, generator.GetMutex(), temp_line);
 			if(re)
 			{
 				auto ptr = SystemHolder::Create(
-					std::move(func), priority, property, generator, &system_holder_resource
+					std::move(func), std::move(append), priority, property, generator, &system_holder_resource
 				);
 				Login(re, temp_line, std::move(ptr));
 			}
