@@ -1,5 +1,6 @@
 import std;
 import NoodlesComponent;
+import NoodlesSystem;
 
 using namespace Noodles;
 
@@ -41,23 +42,23 @@ int main()
 		ArchetypeID::Create<D>(),
 	};
 
-	ArchetypeComponentManager Manager;
+	ArchetypeComponentManager manager;
 
-	auto entity = Manager.CreateEntityDefer(std::span(ids), [](EntityConstructor& cons)
+	auto entity = manager.CreateEntityDefer(std::span(ids), [](EntityConstructor& cons)
 	{
 			cons.Construct<A>(
 				A{10}
 			);
 	});
 
-	auto entity2 = Manager.CreateEntityDefer(std::span(ids), [](EntityConstructor& cons)
+	auto entity2 = manager.CreateEntityDefer(std::span(ids), [](EntityConstructor& cons)
 	{
 			cons.Construct<A>(
 				A{ 9 }
 			);
 	});
 
-	auto entity3 = Manager.CreateEntityDefer(std::span(idscc), [](EntityConstructor& cons)
+	auto entity3 = manager.CreateEntityDefer(std::span(idscc), [](EntityConstructor& cons)
 		{
 			cons.Construct<A>(
 				A{ 8 }
@@ -66,31 +67,31 @@ int main()
 
 	//Manager.DestroyEntity(entity);
 
-	std::vector<Noodles::UniqueTypeID> ids2{
-		UniqueTypeID::Create<A>(),
-		UniqueTypeID::Create<B>(),
-		//UniqueTypeID::Create<D>()
+	std::vector<SystemRWInfo> ids2{
+		SystemRWInfo::Create<A>(),
+		SystemRWInfo::Create<B>()
 	};
 
-	auto a_size = ComponentFilterWrapper::UniqueAndSort(std::span(ids2));
-	ids2.erase(ids2.begin() + a_size, ids2.end());
+	auto f1 = SystemComponentFilter::Create(std::span(ids2));
 
-	//std::sort(ids2.begin(), ids2.end());
+	manager.RegisterComponentFilter(f1.GetPointer(), 0);
 
-	auto f1 = Manager.CreateFilter(std::span(ids2));
+	manager.UpdateEntityStatus();
 
-	Manager.UpdateEntityStatus();
+	auto f2 = SystemComponentFilter::Create(std::span(ids2));
 
-	auto f2 = Manager.CreateFilter(std::span(ids2));
+	manager.RegisterComponentFilter(f2.GetPointer(), 0);
 
-	std::vector<std::size_t> ids3 = {
-		*f1->LocateTypeIDIndex(UniqueTypeID::Create<A>()),
-		*f1->LocateTypeIDIndex(UniqueTypeID::Create<B>()),
-		*f1->LocateTypeIDIndex(UniqueTypeID::Create<C>()),
-	};
-
-	for(auto ite : *f2)
+	for(auto ite : *f1)
 	{
+		auto range = manager.GetArchetypeMountPointRange(ite.element_index);
+
+		for(auto ite2 : *range)
+		{
+			auto a1 = static_cast<A*>();
+		}
+
+
 		Manager.ForeachMountPoint(ite, [&](MountPointRange range)
 		{
 			for(auto& ite2 : range)

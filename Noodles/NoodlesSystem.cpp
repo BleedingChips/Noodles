@@ -232,6 +232,16 @@ namespace Noodles
 		}
 	}
 
+
+	void* SystemComponentFilter::ReadDataRaw(Archetype& arc, ArchetypeMountPoint mp, UniqueTypeID const& require_id, std::size_t fast_cache)
+	{
+		if (fast_cache < ref_infos.size())
+		{
+			
+		}
+		return nullptr;
+	}
+
 	auto SystemEntityFilter::Create(std::span<SystemRWInfo const> infos, std::pmr::memory_resource* resource)
 		-> Ptr
 	{
@@ -291,6 +301,11 @@ namespace Noodles
 		this->~SystemEntityFilter();
 		old_resource->deallocate(const_cast<SystemEntityFilter*>(this), old_size, alignof(SystemEntityFilter));
 	}
+
+	
+
+
+
 
 
 	SystemComponentFilter::Ptr FilterGenerator::CreateComponentFilter(std::span<SystemRWInfo const> rw_infos)

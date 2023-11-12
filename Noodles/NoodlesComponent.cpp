@@ -759,6 +759,52 @@ namespace Noodles
 		return old_size - filter_mapping.size();
 	}
 
+	std::optional<ArchetypeMountPointRange> ArchetypeComponentManager::GetArchetypeMountPointRange(std::size_t element_index) const
+	{
+		std::shared_lock sl(components_mutex);
+		if(components.size() > element_index)
+		{
+			auto& ref = components[element_index];
+			if(ref.top_page)
+			{
+				return ArchetypeMountPointRange{
+					*ref.archetype,
+					ref.top_page->begin(),
+					ref.top_page->end()
+				};
+			}else
+			{
+				return ArchetypeMountPointRange{
+					*ref.archetype,
+					{},
+					{}
+				};
+			}
+		}
+		return std::nullopt;
+	}
+
+	std::optional<ArchetypeMountPointRange> ArchetypeComponentManager::GetEntityMountPointRange(EntityStorage const& storage) const
+	{
+		if(storage.resource == entity_resource->get_resource_interface())
+		{
+			std::shared_lock sl(components_mutex);
+			if(storage.status != EntityStatus::Destroy)
+			{
+				auto start = storage.mount_point;
+				auto end = storage.mount_point;
+				++end;
+				return ArchetypeMountPointRange{
+				*storage.archetype,
+				start,
+				end
+				};
+			}
+			
+		}
+		return std::nullopt;
+	}
+
 
 	/*
 	std::size_t ArchetypeComponentManager::ForeachMountPoint(ComponentFilterWrapper::Block block, void(*func)(void*, MountPointRange), void* data)

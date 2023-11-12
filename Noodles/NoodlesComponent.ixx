@@ -252,7 +252,10 @@ export namespace Noodles
 	};
 	
 
-	struct MountPointRange
+	
+	*/
+
+	struct ArchetypeMountPointRange
 	{
 
 		ArchetypeMountPoint begin() { return begin_mp; }
@@ -262,7 +265,6 @@ export namespace Noodles
 		ArchetypeMountPoint begin_mp;
 		ArchetypeMountPoint end_mp;
 	};
-	*/
 
 	struct ArchetypeComponentManager
 	{
@@ -291,6 +293,10 @@ export namespace Noodles
 		bool DestroyEntity(Entity entity);
 		bool RegisterComponentFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id);
 		std::size_t ErasesComponentFilter(std::size_t group_id);
+
+		std::optional<ArchetypeMountPointRange> GetArchetypeMountPointRange(std::size_t element_index) const;
+		std::optional<ArchetypeMountPointRange> GetEntityMountPointRange(EntityStorage const& storage) const;
+		
 
 		/*
 		ComponentFilterWrapper::Ptr CreateFilter(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
@@ -367,6 +373,8 @@ export namespace Noodles
 		std::pmr::vector<CompFilterElement> filter_mapping;
 
 		Memory::IntrusiveMemoryResource<std::pmr::synchronized_pool_resource>::Ptr entity_resource;
+
+		friend struct SystemComponentFilter;
 
 	};
 

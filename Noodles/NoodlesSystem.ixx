@@ -72,12 +72,25 @@ export namespace Noodles
 
 		static Ptr Create(
 			std::span<SystemRWInfo const> inf,
-			std::pmr::memory_resource* upstream
+			std::pmr::memory_resource* upstream = std::pmr::get_default_resource()
 		);
 
-		virtual bool TryPreCollection(std::size_t element_index, Archetype const& archetype) override;
+		template<typename RequireType>
+		RequireType const* ReadData(Archetype& arc, ArchetypeMountPoint mp, std::size_t fast_cache)
+		{
+			auto adress = ReadDataRaw(arc, mp, UniqueTypeID::Create<RequireType>(), fast_cache);
+			if(adress != nullptr)
+			{
+				return static_cast<RequireType const*>(adress);
+			}
+			return nullptr;
+		}
+
+		void* ReadDataRaw(Archetype& arc, ArchetypeMountPoint mp, UniqueTypeID const& require_id, std::size_t fast_cache);
 
 	protected:
+
+		virtual bool TryPreCollection(std::size_t element_index, Archetype const& archetype) override;
 
 		SystemComponentFilter(std::span<std::byte> append_buffer, std::size_t allocate_size, std::span<SystemRWInfo const> ref, std::pmr::memory_resource* resource);
 		virtual ~SystemComponentFilter() override;
@@ -108,6 +121,54 @@ export namespace Noodles
 
 		friend struct SystemContext;
 		friend struct Potato::Pointer::IntrusiveSubWrapperT;
+
+	public:
+		
+		struct Iterator
+		{
+
+			struct Block
+			{
+				std::size_t element_index;
+				std::span<ArchetypeTypeIDIndex const> index_span;
+			};
+
+			Block operator*() const
+			{
+				return { iterator->element_index, index_span.subspan(iterator->offset, block_size) };
+			}
+			Iterator& operator++() { ++iterator; return *this; }
+			std::strong_ordering operator<=>(Iterator const& i1) const { return iterator <=> i1.iterator; }
+
+			Iterator(Iterator const&) = default;
+			Iterator& operator=(Iterator const&) = default;
+
+		protected:
+
+			Iterator(decltype(in_direct_mapping)::iterator ite, std::span<ArchetypeTypeIDIndex const> span, std::size_t b_size)
+				: iterator(ite), index_span(span), block_size(b_size)
+			{
+			}
+
+			ArchetypeComponentManager& manager;
+			decltype(in_direct_mapping)::iterator iterator;
+			std::span<ArchetypeTypeIDIndex const> index_span;
+			std::size_t block_size;
+
+			friend struct SystemComponentFilter;
+
+		};
+
+		Iterator begin()
+		{
+			return Iterator{in_direct_mapping.begin(), std::span<ArchetypeTypeIDIndex const>(id_index), ref_infos.size()};
+		}
+
+		Iterator end()
+		{
+			return Iterator{ in_direct_mapping.begin(), std::span<ArchetypeTypeIDIndex const>(id_index), ref_infos.size() };
+		}
+
 	};
 
 	struct SystemEntityFilter : Potato::Pointer::DefaultIntrusiveInterface
