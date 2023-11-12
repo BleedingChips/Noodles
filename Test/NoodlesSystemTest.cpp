@@ -41,6 +41,11 @@ void PrintSystem(Noodles::SystemContext& context)
 	UniquePrint(context.self_property.system_name);
 }
 
+std::partial_ordering CustomPriority(SystemProperty const& p1, SystemProperty const& p2)
+{
+	return p1.system_name <=> p2.system_name;
+}
+
 struct A{};
 
 struct B{};
@@ -50,169 +55,123 @@ int main()
 {
 
 
-	ArchetypeComponentManager Manager;
+	ArchetypeComponentManager manager;
 
-	Noodles::TickSystemsGroup Tg;
-
-	Tg.LoginDefer(
-	);
+	Noodles::TickSystemsGroup group;
 
 
 	struct Text
 	{
-		ComponentFilterWrapper::CPtr TopWrapper;
-		std::size_t AIndex;
-		std::size_t BIndex;
+		SystemComponentFilter::Ptr TopWrapper;
 	};
 
-	Tg.RegisterDefer(
-		0, SystemPriority{}, SystemProperty{u8"balabala"},
+	auto i1 = group.RegisterDefer(
+		manager, std::numeric_limits<std::int32_t>::min(), SystemPriority{}, SystemProperty{u8"start"},
+		[](FilterGenerator& Generator) -> std::size_t
+		{
+			return 0;
+		},
+		[](SystemContext& context, std::size_t)
+		{
+			PrintMark(context);
+		}
+	);
+
+	auto i2 = group.RegisterDefer(
+		manager, std::numeric_limits<std::int32_t>::max(), SystemPriority{}, SystemProperty{ u8"end" },
+		[](FilterGenerator& Generator) -> std::size_t
+		{
+			return 0;
+		},
+		[](SystemContext& context, std::size_t)
+		{
+			PrintMark(context);
+		}
+	);
+
+	SystemPriority default_pri
+	{
+		0, 0, CustomPriority
+	};
+
+	auto i3 = group.RegisterDefer(
+		manager, 0, default_pri, SystemProperty{ u8"S1" },
+		[](FilterGenerator& Generator) -> std::size_t
+		{
+			std::vector<SystemRWInfo> infos ={
+				SystemRWInfo::Create<A const>()
+			};
+			Generator.CreateComponentFilter(infos);
+			return 0;
+		},
+		[](SystemContext& context, std::size_t)
+		{
+			UniquePrint(context.self_property.system_name);
+		}
+	);
+
+	auto i4 = group.RegisterDefer(
+		manager, 0, default_pri, SystemProperty{ u8"S2" },
 		[](FilterGenerator& Generator) -> std::size_t
 		{
 			std::vector<SystemRWInfo> infos = {
-				SystemRWInfo::Create<A>(),
-				SystemRWInfo::Create<B>(),
+				SystemRWInfo::Create<A const>()
 			};
-			Generator.RegisterComponentFilter(
-				std::span(infos)
+			Generator.CreateComponentFilter(infos);
+			return 0;
+		},
+		[](SystemContext& context, std::size_t)
+		{
+			UniquePrint(context.self_property.system_name);
+		}
+	);
+
+	auto i5 = group.RegisterDefer(
+		manager, 0, default_pri, SystemProperty{ u8"S3" },
+		[](FilterGenerator& Generator) -> std::size_t
+		{
+			std::vector<SystemRWInfo> infos = {
+				SystemRWInfo::Create<A>()
+			};
+			Generator.CreateComponentFilter(infos);
+			return 0;
+		},
+		[](SystemContext& context, std::size_t)
+		{
+			UniquePrint(context.self_property.system_name);
+		}
+	);
+
+
+
+
+
+
+	while (true)
+	{
+		std::vector<std::size_t> ptrs;
+		group.SynFlushAndDispatch(manager, [&](std::size_t ptr, std::u8string_view str)
+		{
+			ptrs.emplace_back(std::move(ptr));
+		});
+
+		while(!ptrs.empty())
+		{
+			auto top = std::move(*ptrs.rbegin());
+			ptrs.pop_back();
+			group.ExecuteSystem(top, manager, (*reinterpret_cast<Context*>(nullptr)));
+			auto ite = group.TryDispatchDependence(
+				top, [&](std::size_t ptr, std::u8string_view str)
+				{
+					ptrs.emplace_back(std::move(ptr));
+				}
 			);
-		},
-		[](SystemContext& context)
-		{
-			auto component_filer = context.GetComponentFilter(0);
+			volatile int i = 0;
 		}
-	);
 
+		std::this_thread::sleep_for(std::chrono::seconds{5});
 
-	Tg.LoginDefer(
-		0, SystemPriority{}, SystemProperty{u8"balabala"}, [](SystemContext& context){}
-	);
-
-
-
-
-
-	/*
-	auto TSystem = Potato::Task::TaskContext::Create();
-	TSystem->FireThreads();
-
-	Noodles::ContextConfig config;
-	config.min_frame_time = std::chrono::seconds{10};
-
-	auto NContext = Context::Create(config, TSystem);
-
-	std::vector<Noodles::System::RWInfo> rw_infos1 ={
-		{
-			System::RWInfo::GetComponent<A>()
-		}
-	};
-
-	std::vector<Noodles::System::RWInfo> rw_infos2 = {
-		{
-			System::RWInfo::GetComponent<A const>()
-		}
-	}; 
-
-	auto r1 = NContext->AddTickSystemDefer(
-		{
-			std::numeric_limits<std::int32_t>::max()
-		},
-		{
-			u8"start"
-		},
-		{
-		},
-		PrintMark
-	);
-
-	auto r2 = NContext->AddTickSystemDefer(
-		{
-			std::numeric_limits<std::int32_t>::min()
-		},
-		{
-			u8"end"
-		},
-		{
-		},
-		PrintMark
-	);
-
-	auto r3 = NContext->AddTickSystemDefer(
-		{
-			0,0,0,
-		},
-		{
-			u8"S1"
-		},
-		{
-				std::span(rw_infos1)
-		},
-		PrintSystem
-	);
-
-	auto r4 = NContext->AddTickSystemDefer(
-		{
-			0,0,1,
-		},
-			{
-					u8"S2"
-			},
-			{
-				std::span(rw_infos1)
-			},
-		PrintSystem
-	);
-
-	auto r5 = NContext->AddTickSystemDefer(
-		{
-			0,0,2,
-		},
-			{
-					u8"S3"
-			},
-			{
-				std::span(rw_infos1)
-			},
-			PrintSystem
-	);
-
-	auto r6 = NContext->AddTickSystemDefer(
-		{
-			0,0,3,
-		},
-			{
-					u8"S4"
-			},
-			{
-				std::span(rw_infos1)
-			},
-			[](ExecuteContext& context)
-			{
-				UniquePrint(context.property.system_name);
-			}
-	);
-
-	auto r7 = NContext->AddTickSystemDefer(
-		{
-			0,0,4,
-		},
-			{
-					u8"S5"
-			},
-			{
-				std::span(rw_infos1)
-			},
-		[]()//ExecuteContext& context, ComponentFilter<A>)
-		{
-			std::lock_guard lg(PrintMutex);
-			std::println("Funck You !");
-		}
-	);
-	
-
-	NContext->StartLoop();
-	TSystem->WaitTask();
-	*/
+	}
 
 	return 0;
 }

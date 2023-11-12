@@ -107,6 +107,7 @@ namespace Noodles
 		return false;
 	}
 
+	/*
 	auto ComponentFilterWrapper::Create(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource)
 		-> Ptr
 	{
@@ -290,6 +291,7 @@ namespace Noodles
 		}
 		return ptr;
 	}
+	*/
 
 	
 	
@@ -700,35 +702,65 @@ namespace Noodles
 			if(cache_size < components.size())
 			{
 				std::lock_guard lg3(filter_mapping_mutex);
-
-				filter_mapping.erase(
-					std::remove_if(filter_mapping.begin(), filter_mapping.end(), [&](ComponentFilterWrapper::Ptr& ptr)->bool
-						{
-							assert(ptr);
-							if (ptr->IsControlRefZero())
-							{
-								return true;
-							}
-							for (std::size_t i = cache_size; i < components.size(); ++i)
-							{
-								assert(components[i].archetype);
-								ptr->TryInsertCollection(
-									i,
-									*components[i].archetype
-								);
-							}
-							return false;
-						}),
-					filter_mapping.end()
-				);
+				for(auto& ite : filter_mapping)
+				{
+					for (std::size_t i = cache_size; i < components.size(); ++i)
+					{
+						assert(components[i].archetype);
+						ite.filter->TryPreCollection(
+							i,
+							*components[i].archetype
+						);
+					}
+				}
 			}
-
 			return true;
 		}
 		return false;
 	}
 
+	bool ArchetypeComponentManager::RegisterComponentFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id)
+	{
+		if(ptr)
+		{
+			{
+				std::shared_lock sl(components_mutex);
+				std::size_t i = 0;
+				for (auto& ite : components)
+				{
+					ptr->TryPreCollection(i, *ite.archetype);
+					++i;
+				}
+			}
+			{
+				std::lock_guard lg(filter_mapping_mutex);
+				filter_mapping.emplace_back(
+					std::move(ptr),
+					group_id
+				);
+			}
+			
+			return true;
+		}
+		return false;
+	}
 
+	std::size_t ArchetypeComponentManager::ErasesComponentFilter(std::size_t group_id)
+	{
+		std::lock_guard lg(filter_mapping_mutex);
+		std::size_t old_size = filter_mapping.size();
+		std::erase_if(
+			filter_mapping,
+			[=](CompFilterElement const& ptr)
+			{
+				return ptr.group_id == group_id;
+			}
+		);
+		return old_size - filter_mapping.size();
+	}
+
+
+	/*
 	std::size_t ArchetypeComponentManager::ForeachMountPoint(ComponentFilterWrapper::Block block, void(*func)(void*, MountPointRange), void* data)
 	{
 		std::shared_lock lg(components_mutex);
@@ -765,4 +797,5 @@ namespace Noodles
 		}
 		return false;
 	}
+	*/
 }

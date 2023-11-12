@@ -139,6 +139,25 @@ export namespace Noodles
 	};
 
 
+	struct ComponentFilterInterface
+	{
+
+		using Ptr = Potato::Pointer::IntrusivePtr<ComponentFilterInterface>;
+
+		virtual ~ComponentFilterInterface() = default;
+
+	protected:
+
+		virtual bool TryPreCollection(std::size_t element_index, Archetype const& archetype) = 0;
+		virtual void AddRef() const = 0;
+		virtual void SubRef() const = 0;
+
+		friend struct Potato::Pointer::IntrusiveSubWrapperT;
+		friend struct ArchetypeComponentManager;
+	};
+
+
+	/*
 	struct ComponentFilterWrapper : public Potato::Task::ControlDefaultInterface
 	{
 
@@ -231,6 +250,7 @@ export namespace Noodles
 
 		
 	};
+	
 
 	struct MountPointRange
 	{
@@ -242,6 +262,7 @@ export namespace Noodles
 		ArchetypeMountPoint begin_mp;
 		ArchetypeMountPoint end_mp;
 	};
+	*/
 
 	struct ArchetypeComponentManager
 	{
@@ -268,7 +289,10 @@ export namespace Noodles
 
 		bool UpdateEntityStatus();
 		bool DestroyEntity(Entity entity);
+		bool RegisterComponentFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id);
+		std::size_t ErasesComponentFilter(std::size_t group_id);
 
+		/*
 		ComponentFilterWrapper::Ptr CreateFilter(std::span<UniqueTypeID const> ids, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		template<typename Func>
@@ -290,6 +314,7 @@ export namespace Noodles
 					(*static_cast<std::remove_reference_t<Func>*>(data))(arc, mp);
 				}, &fun);
 		}
+		*/
 
 	protected:
 
@@ -298,8 +323,10 @@ export namespace Noodles
 		EntityConstructor PreCreateEntityImp(std::span<ArchetypeID const> ids, std::pmr::memory_resource* resource);
 		Entity CreateEntityImp(EntityConstructor& constructor);
 
+		/*
 		std::size_t ForeachMountPoint(ComponentFilterWrapper::Block block, void(*)(void*, MountPointRange), void* data);
 		bool ReadEntity(EntityStorage const& entity, void(*)(void*, Archetype const&, ArchetypeMountPoint), void* data);
+		*/
 
 		struct Element
 		{
@@ -328,10 +355,16 @@ export namespace Noodles
 		std::mutex archetype_resource_mutex;
 		std::pmr::monotonic_buffer_resource archetype_resource;
 
-		using ComponentFilterPtr = Potato::Pointer::IntrusivePtr<ComponentFilterWrapper>;
+		
+
+		struct CompFilterElement
+		{
+			ComponentFilterInterface::Ptr filter;
+			std::size_t group_id;
+		};
 
 		std::mutex filter_mapping_mutex;
-		std::pmr::vector<ComponentFilterPtr> filter_mapping;
+		std::pmr::vector<CompFilterElement> filter_mapping;
 
 		Memory::IntrusiveMemoryResource<std::pmr::synchronized_pool_resource>::Ptr entity_resource;
 
