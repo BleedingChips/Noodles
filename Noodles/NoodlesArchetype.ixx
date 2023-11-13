@@ -71,6 +71,20 @@ export namespace Noodles
 		void (*wrapper_function)(Status status, void* self, void* target) = nullptr;
 		bool is_singleton = false;
 
+		ArchetypeID(
+			UniqueTypeID id,
+			Potato::IR::Layout layout,
+			void (*wrapper_function)(Status status, void* self, void* target),
+			bool is_singleton
+		)
+			: id(id), layout(layout), wrapper_function(wrapper_function), is_singleton(is_singleton)
+		{
+			
+		}
+
+		ArchetypeID(ArchetypeID const&) = default;
+		ArchetypeID& operator=(ArchetypeID const&) = default;
+
 		template<typename Type>
 		static ArchetypeID Create()
 		{
@@ -100,7 +114,7 @@ export namespace Noodles
 		}
 
 		std::strong_ordering operator<=>(ArchetypeID const& i1) const;
-		bool operator==(const ArchetypeID& i1) const { return this->operator<=>(i1) == std::strong_ordering::equivalent; }
+		bool operator==(const ArchetypeID& i1) const { return (*this)<=>(i1) == std::strong_ordering::equivalent; }
 	};
 
 	struct ArchetypeMountPoint
@@ -126,6 +140,7 @@ export namespace Noodles
 		bool AddElement(ArchetypeID const& id);
 
 		bool AddElement(std::span<ArchetypeID const> span, std::size_t& bad_index);
+		bool AddElement(std::span<ArchetypeID const> span);
 
 		template<typename Type>
 		bool AddElement() { return AddElement(ArchetypeID::Create<Type>()); }
@@ -150,7 +165,7 @@ export namespace Noodles
 		friend struct Archetype;
 	};
 
-	/*
+
 	struct Archetype : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<Archetype>;
@@ -222,15 +237,14 @@ export namespace Noodles
 			Element& operator=(Element&&) = default;
 		};
 
-		//std::pmr::memory_resource* resource = nullptr;
-		//Potato::IR::Layout archetype_layout;
-		//std::size_t buffer_archetype_layout_size = 0;
-		//std::span<Element const> infos;
-		//std::size_t allocated_size = 0;
-		//std::size_t fast_index = 0;
+		std::pmr::memory_resource* resource = nullptr;
+		Potato::IR::Layout archetype_layout;
+		std::size_t buffer_archetype_layout_size = 0;
+		std::span<Element const> infos;
+		std::size_t allocated_size = 0;
+		std::size_t fast_index = 0;
 
-		//friend struct ArchetypeComponentManager;
+		friend struct ArchetypeComponentManager;
 	};
-	*/
 
 }

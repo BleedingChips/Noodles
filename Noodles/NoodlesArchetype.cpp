@@ -48,7 +48,8 @@ namespace Noodles
 				return (id <=> e.id) != std::strong_ordering::greater;
 			}
 		);
-		if(find != elements.end() && find->id == id)
+		
+		if(find != elements.end() && (find->id <=> id) == std::strong_ordering::equivalent)
 		{
 			if(id.is_singleton)
 				return false;
@@ -67,7 +68,7 @@ namespace Noodles
 		}
 	}
 
-	/*
+
 	bool ArchetypeConstructor::AddElement(std::span<ArchetypeID const> span, std::size_t& bad_index)
 	{
 		bad_index = 0;
@@ -76,6 +77,16 @@ namespace Noodles
 			if(!AddElement(ite))
 				return false;
 			++bad_index;
+		}
+		return true;
+	}
+
+	bool ArchetypeConstructor::AddElement(std::span<ArchetypeID const> span)
+	{
+		for (auto& ite : span)
+		{
+			if (!AddElement(ite))
+				return false;
 		}
 		return true;
 	}
@@ -93,9 +104,8 @@ namespace Noodles
 		}else
 			return std::nullopt;
 	}
-	*/
 
-	/*
+
 	auto Archetype::Create(ArchetypeConstructor const& ref_info, std::pmr::memory_resource* resource)
 	->Ptr
 	{
@@ -307,12 +317,10 @@ namespace Noodles
 
 	std::strong_ordering Archetype::operator<=>(Archetype const& i2) const
 	{
-		return std::strong_ordering::equivalent;
 		auto re = Potato::Misc::PriorityCompareStrongOrdering(
 			infos.size(), i2.infos.size(),
 			archetype_layout.Align, i2.archetype_layout.Align,
-			archetype_layout.Size, i2.archetype_layout.Size,
-			i2.id, id
+			archetype_layout.Size, i2.archetype_layout.Size
 		);
 
 		if(re == std::strong_ordering::equivalent)
@@ -331,6 +339,5 @@ namespace Noodles
 		}
 		return re; 
 	}
-	*/
 
 }
