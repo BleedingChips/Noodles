@@ -7,7 +7,7 @@ module NoodlesContext;
 namespace Noodles
 {
 
-
+	/*
 	constexpr std::u8string_view TaskName = u8"Noodles Startup";
 
 	auto Context::Create(ContextConfig config, Potato::Task::TaskContext::Ptr TaskPtr, std::u8string_view context_name, std::pmr::memory_resource* UpstreamResource)->Ptr
@@ -160,4 +160,5 @@ namespace Noodles
 		}
 		return false;
 	}
+	*/
 }

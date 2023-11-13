@@ -5,7 +5,7 @@ import PotatoFormat;
 
 namespace Noodles
 {
-
+	/*
 	std::strong_ordering SystemPriority::ComparePriority(SystemPriority const& p2) const
 	{
 		return Potato::Misc::PriorityCompareStrongOrdering(
@@ -834,6 +834,6 @@ namespace Noodles
 		holder->Execute(manager, context, layer, pro);
 
 	}
-
+	*/
 	
 }

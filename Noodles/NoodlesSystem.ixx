@@ -14,6 +14,7 @@ export import NoodlesComponent;
 
 export namespace Noodles
 {
+	/*
 	struct Context;
 
 	struct SystemRWInfo
@@ -150,7 +151,7 @@ export namespace Noodles
 			{
 			}
 
-			ArchetypeComponentManager& manager;
+			//ArchetypeComponentManager& manager;
 			decltype(in_direct_mapping)::iterator iterator;
 			std::span<ArchetypeTypeIDIndex const> index_span;
 			std::size_t block_size;
@@ -532,5 +533,5 @@ export namespace Noodles
 
 		Distributors{}(context, func);
 	}
-
+	*/
 }
