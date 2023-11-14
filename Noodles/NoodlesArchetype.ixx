@@ -5,7 +5,7 @@ export module NoodlesArchetype;
 
 import std;
 import PotatoIR;
-export import PotatoPointer;
+import PotatoPointer;
 import PotatoTaskSystem;
 
 export namespace Noodles
@@ -15,7 +15,6 @@ export namespace Noodles
 
 	struct UniqueTypeID
 	{
-		Potato::IR::TypeID id;
 
 		UniqueTypeID(Potato::IR::TypeID id) : id(id) {}
 		UniqueTypeID(UniqueTypeID const&) = default;
@@ -30,11 +29,11 @@ export namespace Noodles
 			};
 		}
 
-		std::strong_ordering operator<=>(UniqueTypeID const& i1) const
-		{
-			return id <=> i1.id;
-		}
-		bool operator==(UniqueTypeID const& i1) const { return this->operator<=>(i1) == std::strong_ordering::equivalent; }
+		std::strong_ordering operator<=>(UniqueTypeID const& i1) const { return id <=> i1.id; }
+		bool operator==(const UniqueTypeID& i1) const { return id == i1.id; }
+
+	protected:
+		Potato::IR::TypeID id;
 	};
 
 	template<typename Type>
@@ -127,7 +126,7 @@ export namespace Noodles
 		ArchetypeMountPoint& operator --() { assert(index > 0); index -= 1; return *this; }
 		ArchetypeMountPoint& operator -=(std::size_t i) { index -= i; return *this; }
 		std::strong_ordering operator<=>(ArchetypeMountPoint const& mp) const;
-		bool operator==(ArchetypeMountPoint const& i2) const { return this->operator<=>(i2) == std::strong_ordering::equivalent; }
+		bool operator==(ArchetypeMountPoint const& i2) const { return buffer == i2.buffer && element_count == i2.element_count && index == i2.index; }
 		operator bool() const;
 		ArchetypeMountPoint& operator*(){ return *this; }
 		ArchetypeMountPoint const& operator*() const { return *this; }
@@ -146,6 +145,7 @@ export namespace Noodles
 		bool AddElement() { return AddElement(ArchetypeID::Create<Type>()); }
 
 		std::optional<std::size_t> Exits(UniqueTypeID const& id) const;
+		operator bool() const { return status == Status::Success; }
 
 	protected:
 
@@ -160,6 +160,14 @@ export namespace Noodles
 			Element& operator=(Element const&) = default;
 		};
 
+		enum class Status
+		{
+			Bad,
+			Success,
+		};
+
+		Status status = Status::Success;
+
 		std::pmr::vector<Element> elements;
 
 		friend struct Archetype;
@@ -169,8 +177,6 @@ export namespace Noodles
 	struct Archetype : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<Archetype>;
-
-		
 
 		static Ptr Create(ArchetypeConstructor const& reference, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
@@ -192,6 +198,8 @@ export namespace Noodles
 		void MoveConstruct(std::size_t locate_index, void* target, void* source) const;
 		void Destruction(std::size_t locate_index, void* target) const;
 		void DefaultConstruct(std::size_t locate_index, void* target) const;
+		void Destruction(ArchetypeMountPoint mount_point) const;
+		void MoveConstruct(ArchetypeMountPoint target_mp, ArchetypeMountPoint source_mp) const;
 
 		Archetype::Ptr Clone(std::pmr::memory_resource* o_resource) const;
 

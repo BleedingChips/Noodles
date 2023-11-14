@@ -10,7 +10,6 @@ constexpr std::size_t component_page_min_size = 4096;
 namespace Noodles
 {
 
-	/*
 	auto ComponentPage::Create(
 		Potato::IR::Layout component_layout, std::size_t min_element_count, std::size_t min_page_size, std::pmr::memory_resource* up_stream
 	)-> Ptr
@@ -90,7 +89,7 @@ namespace Noodles
 		o_resource->deallocate(this, size, alignof(ComponentPage));
 	}
 
-
+	
 	EntityConstructor::EntityConstructor(
 		Status status,
 		Archetype::Ptr archetype_ptr,
@@ -107,7 +106,7 @@ namespace Noodles
 		{
 			std::size_t count = 0;
 			auto ID = this->archetype_ptr->GetTypeID(i, count);
-			if(ID != ArchetypeComponentManager::EntityPropertyArchetypeID().id)
+			if((ID <=> ArchetypeComponentManager::EntityPropertyArchetypeID().id) != std::strong_ordering::equivalent)
 			{
 				for(std::size_t j = 0; j < count; ++j)
 				{
@@ -121,7 +120,6 @@ namespace Noodles
 			}
 		}
 	}
-
 
 	bool EntityConstructor::Construct(UniqueTypeID const& id, void* source, std::size_t count)
 	{
@@ -142,6 +140,7 @@ namespace Noodles
 		}
 		return false;
 	}
+
 	
 	ArchetypeComponentManager::ArchetypeComponentManager(std::pmr::memory_resource* upstream)
 		:components(upstream), spawned_entities(upstream), spawned_entities_resource(upstream),
@@ -151,6 +150,7 @@ namespace Noodles
 		
 	}
 
+	
 	ArchetypeComponentManager::~ArchetypeComponentManager()
 	{
 		{
@@ -166,8 +166,9 @@ namespace Noodles
 			spawned_entities_resource.release();
 		}
 
+		
 		{
-			UniqueTypeID entity_id = UniqueTypeID::Create<EntityProperty>();
+			
 			std::lock_guard lg(components_mutex);
 
 			for (auto& ite : components)
@@ -178,11 +179,14 @@ namespace Noodles
 				assert(index.has_value());
 				while (top)
 				{
-					for (auto ite2 : *top)
+					for(auto ite2 : *top)
 					{
-						auto entity = static_cast<EntityProperty*>(ite.archetype->GetData(index->index, 0, ite2))->entity;
+						auto pro = ite.archetype->GetData(index->index, 0, ite2);
+
+						auto entity = static_cast<EntityProperty*>(pro)->entity;
 						assert(entity);
 						std::lock_guard lg(entity->mutex);
+
 						ReleaseEntity(*entity);
 						entity->status = EntityStatus::Destroy;
 					}
@@ -210,11 +214,14 @@ namespace Noodles
 		return constructor;
 	}
 
-	auto ArchetypeComponentManager::PreCreateEntityImp(ArchetypeConstructor const& arc_constructor, std::pmr::memory_resource* resource)
+	
+	auto ArchetypeComponentManager::PreCreateEntityImp(std::span<ArchetypeID const> span, std::pmr::memory_resource* resource)
 		->EntityConstructor
 	{
-		
-		assert(arc_constructor.Exits(UniqueTypeID::Create<EntityProperty>()).has_value());
+
+		ArchetypeConstructor arc_constructor;
+		arc_constructor.AddElement(EntityPropertyArchetypeID());
+		arc_constructor.AddElement(span);
 
 		std::lock_guard lg(spawn_mutex);
 		Archetype::Ptr ptr = Archetype::Create(arc_constructor, &spawned_entities_resource);
@@ -280,7 +287,7 @@ namespace Noodles
 					for (auto& ite : components)
 					{
 						assert(ite.archetype);
-						if (ite.archetype->operator<=>(*constructor.archetype_ptr) == std::strong_ordering::equivalent)
+						if (((*ite.archetype) <=> (*constructor.archetype_ptr)) == std::strong_ordering::equal)
 						{
 							constructor.archetype_ptr->fast_index = index + 1;
 						}
@@ -301,12 +308,7 @@ namespace Noodles
 	void ArchetypeComponentManager::ReleaseEntity(EntityStorage& storage)
 	{
 		assert(storage.archetype && storage.mount_point);
-		for (std::size_t i = 0; i < storage.archetype->GetTypeIDCount(); ++i)
-		{
-			auto buffer = storage.archetype->GetData(i, storage.mount_point);
-			assert(buffer != nullptr);
-			storage.archetype->Destruction(i, buffer);
-		}
+		storage.archetype->Destruction(storage.mount_point);
 		storage.mount_point = {};
 		storage.archetype = {};
 	}
@@ -337,6 +339,7 @@ namespace Noodles
 		return false;
 	}
 
+	
 	bool ArchetypeComponentManager::UpdateEntityStatus()
 	{
 		std::lock_guard lg(spawn_mutex);
@@ -396,18 +399,10 @@ namespace Noodles
 							mp -= 1;
 							if(old_mp != mp)
 							{
-								for (std::size_t i = 0; i < art->GetTypeIDCount(); ++i)
-								{
-									auto tar_buffer = art->GetData(i, mp);
-									art->MoveConstruct(
-										i, art->GetData(i, old_mp),
-										tar_buffer
-									);
-									art->Destruction(
-										i,
-										tar_buffer
-									);
-								}
+								art->MoveConstruct(
+									old_mp, mp
+								);
+								art->Destruction(mp);
 							}
 
 							ref.last_page->available_count -= 1;
@@ -443,10 +438,7 @@ namespace Noodles
 							assert(*art <=> *pre_init->archetype == std::strong_ordering::equivalent);
 							for(std::size_t i = 0; i < art->GetTypeIDCount(); ++i)
 							{
-								art->MoveConstruct(
-									i, art->GetData(i, old_mp),
-									art->GetData(i, pre_init->mount_point)
-								);
+								art->MoveConstruct(old_mp, pre_init->mount_point);
 							}
 							ReleaseEntity(*pre_init);
 							pre_init->archetype = std::move(art);
@@ -527,20 +519,13 @@ namespace Noodles
 				auto mp = ref.last_page->GetLastMountPoint();
 				assert(ref.last_page->GetMaxMountPoint() != mp);
 
-				std::size_t archetype_id_count = art->GetTypeIDCount();
-				for (std::size_t i = 0; i < archetype_id_count; ++i)
-				{
-					auto buf = art->GetData(i, top->mount_point);
-					art->MoveConstruct(
-						i,
-						art->GetData(i, mp),
-						buf
-					);
-					art->Destruction(
-						i,
-						buf
-					);
-				}
+				art->MoveConstruct(
+					mp,
+					top->mount_point
+				);
+				art->Destruction(
+					top->mount_point
+				);
 
 				ref.last_page->available_count += 1;
 
@@ -607,6 +592,18 @@ namespace Noodles
 			}
 		);
 		return old_size - filter_mapping.size();
+	}
+
+	std::size_t ArchetypeComponentManager::ArchetypeCount() const
+	{
+		std::shared_lock sl(components_mutex);
+		return components.size();
+	}
+
+	ArchetypeID const& ArchetypeComponentManager::EntityPropertyArchetypeID()
+	{
+		static ArchetypeID id = ArchetypeID::Create<EntityProperty>();
+		return id;
 	}
 
 	/*

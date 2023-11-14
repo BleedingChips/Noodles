@@ -68,5 +68,25 @@ int main()
 		volatile int i = 0;
 	}
 
+
+	{
+		std::vector<Noodles::ArchetypeID> ids{
+			ArchetypeID::Create<D>(),
+			ArchetypeID::Create<D>()
+		};
+
+		ArchetypeConstructor con1;
+		con1.AddElement(std::span(ids));
+
+		auto ptr2 = Archetype::Create(con1);
+
+		std::array<D, 2> ui = {D{10086}, D{10}};
+
+		auto re_ad2 = static_cast<D*>(ptr2->GetData(0, 0, { ui.data()}));
+		auto re_ad1 = static_cast<D*>(ptr2->GetData(0, 1, { ui.data()}));
+
+		volatile int i = 0;
+	}
+
 	return 0;
 }

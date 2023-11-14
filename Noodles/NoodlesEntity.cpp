@@ -5,7 +5,7 @@ module NoodlesEntity;
 
 namespace Noodles
 {
-	/*
+
 	auto EntityStorage::Create(std::pmr::memory_resource* Resource)
 		-> Ptr
 	{
@@ -32,6 +32,5 @@ namespace Noodles
 	{
 		
 	}
-	*/
 
 }

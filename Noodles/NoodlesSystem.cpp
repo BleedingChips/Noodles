@@ -1,11 +1,13 @@
 module;
+
 #include <cassert>
+
 module NoodlesSystem;
 import PotatoFormat;
 
 namespace Noodles
 {
-	/*
+
 	std::strong_ordering SystemPriority::ComparePriority(SystemPriority const& p2) const
 	{
 		return Potato::Misc::PriorityCompareStrongOrdering(
@@ -99,35 +101,10 @@ namespace Noodles
 		return re1;
 	}
 
-	void OrderedInsert(SystemRWInfo const& tar, std::pmr::vector<SystemRWInfo>& vec)
-	{
-		auto find = std::find_if(
-			vec.begin(),
-			vec.end(),
-			[&](SystemRWInfo const& o)
-			{
-				return tar.type_id <= o.type_id;
-			}
-		);
-		if (find == vec.end() || find->type_id == tar.type_id)
-		{
-			if(tar.is_write)
-			{
-				find->is_write = true;
-			}
-		}else
-		{
-			vec.insert(
-				find,
-				tar
-			);
-		}
-	}
-
 	auto SystemComponentFilter::Create(
 		std::span<SystemRWInfo const> inf,
 		std::pmr::memory_resource* upstream
-	)-> Ptr
+	) -> Ptr
 	{
 		static_assert(alignof(SystemComponentFilter) == alignof(SystemRWInfo));
 		if (upstream != nullptr)
@@ -164,20 +141,7 @@ namespace Noodles
 			auto locate_index = archetype.LocateTypeID(ite.type_id);
 			if (locate_index.has_value())
 			{
-				std::size_t count = 1;
-				std::size_t next = *locate_index + 1;
-				while (next < max_size)
-				{
-					auto re = archetype.GetTypeID(next);
-					if (re == ite.type_id)
-					{
-						++count;
-						++next;
-					}
-					else
-						break;
-				}
-				id_index.push_back({ *locate_index, count });
+				id_index.push_back({ locate_index->index, locate_index->count });
 			}
 			else
 			{
@@ -186,10 +150,10 @@ namespace Noodles
 			}
 		}
 		in_direct_mapping.push_back(
-		{
-		element_index,
+			{
+			element_index,
 			cache_size
-		}
+			}
 		);
 		return true;
 	}
@@ -197,7 +161,7 @@ namespace Noodles
 	SystemComponentFilter::SystemComponentFilter(
 		std::span<std::byte> append_buffer, std::size_t allocate_size, 
 		std::span<SystemRWInfo const> ref, std::pmr::memory_resource* resource
-		) : in_direct_mapping(resource), id_index(resource), allocate_size(allocate_size)
+		) : in_direct_mapping(resource), id_index(resource), allocate_size(allocate_size), resource(resource)
 	{
 		assert(append_buffer.size() >= ref.size() * sizeof(SystemRWInfo));
 		std::span<SystemRWInfo> ite_span = {
@@ -230,22 +194,12 @@ namespace Noodles
 			this->~SystemComponentFilter();
 			old_resource->deallocate(const_cast<SystemComponentFilter*>(this), old_size, alignof(SystemComponentFilter));
 		}
-	}
-
-
-	void* SystemComponentFilter::ReadDataRaw(Archetype& arc, ArchetypeMountPoint mp, UniqueTypeID const& require_id, std::size_t fast_cache)
-	{
-		if (fast_cache < ref_infos.size())
-		{
-			
-		}
-		return nullptr;
-	}
+	} 
 
 	auto SystemEntityFilter::Create(std::span<SystemRWInfo const> infos, std::pmr::memory_resource* resource)
 		-> Ptr
 	{
-		static_assert(alignof(SystemComponentFilter) == alignof(SystemRWInfo));
+		static_assert(alignof(SystemEntityFilter) == alignof(SystemRWInfo));
 		if (resource != nullptr)
 		{
 			std::size_t allocate_size = sizeof(SystemEntityFilter) + infos.size() * sizeof(SystemRWInfo);
@@ -270,9 +224,9 @@ namespace Noodles
 		return {};
 	}
 
-	SystemEntityFilter::SystemEntityFilter(std::pmr::memory_resource* resource, std::size_t allocated_size,
+	SystemEntityFilter::SystemEntityFilter(std::pmr::memory_resource* up_stream, std::size_t allocated_size,
 		std::span<SystemRWInfo const> ref, std::span<std::byte> buffer)
-			: resource(resource), allocate_size(allocate_size)
+			: resource(up_stream), allocate_size(allocated_size)
 	{
 		assert(buffer.size() >= ref.size() * sizeof(SystemRWInfo));
 		std::span<SystemRWInfo> ite_span = {
@@ -301,12 +255,6 @@ namespace Noodles
 		this->~SystemEntityFilter();
 		old_resource->deallocate(const_cast<SystemEntityFilter*>(this), old_size, alignof(SystemEntityFilter));
 	}
-
-	
-
-
-
-
 
 	SystemComponentFilter::Ptr FilterGenerator::CreateComponentFilter(std::span<SystemRWInfo const> rw_infos)
 	{
@@ -834,6 +782,5 @@ namespace Noodles
 		holder->Execute(manager, context, layer, pro);
 
 	}
-	*/
 	
 }

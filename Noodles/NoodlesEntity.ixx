@@ -25,7 +25,6 @@ export namespace Noodles
 		PendingDestroy
 	};
 
-	/*
 	struct EntityStorage : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<EntityStorage>;
@@ -47,6 +46,5 @@ export namespace Noodles
 	}; 
 
 	using Entity = EntityStorage::Ptr;
-	*/
 
 }

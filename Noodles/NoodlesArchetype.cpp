@@ -40,32 +40,40 @@ namespace Noodles
 	
 	bool ArchetypeConstructor::AddElement(ArchetypeID const& id)
 	{
-		auto find = std::find_if(
-			elements.begin(),
-			elements.end(),
-			[&](Element const& e)
-			{
-				return (id <=> e.id) != std::strong_ordering::greater;
-			}
-		);
-		
-		if(find != elements.end() && (find->id <=> id) == std::strong_ordering::equivalent)
+		if(*this)
 		{
-			if(id.is_singleton)
-				return false;
+			auto find = std::find_if(
+				elements.begin(),
+				elements.end(),
+				[&](Element const& e)
+				{
+					return (id <=> e.id) != std::strong_ordering::greater;
+				}
+			);
+
+			if (find != elements.end() && (find->id <=> id) == std::strong_ordering::equivalent)
+			{
+				if (id.is_singleton)
+				{
+					status = Status::Bad;
+					return false;
+				}
+				else
+				{
+					find->count += 1;
+					return true;
+				}
+			}
 			else
 			{
-				find->count += 1;
+				elements.insert(
+					find,
+					Element{ id, 1 }
+				);
 				return true;
 			}
-		}else
-		{
-			elements.insert(
-				find,
-				Element{id, 1}
-			);
-			return true;
 		}
+		return false;
 	}
 
 
@@ -111,7 +119,7 @@ namespace Noodles
 	{
 		assert(resource != nullptr);
 
-		if(!ref_info.elements.empty())
+		if(ref_info)
 		{
 			auto info_size = ref_info.elements.size() * sizeof(Element);
 			auto total_size = info_size + sizeof(Archetype);
@@ -270,6 +278,57 @@ namespace Noodles
 			+ offset * mount_point.element_count 
 			+ layout.Size * (mount_point.index * ref.count + count)
 			);
+	}
+
+	void Archetype::Destruction(ArchetypeMountPoint mount_point) const
+	{
+		assert(mount_point);
+		for(auto& ite : infos)
+		{
+			auto layout = ite.id.layout;
+			auto offset = ite.offset;
+
+			auto buffer_offset = offset * mount_point.element_count
+				+ layout.Size * (mount_point.index * ite.count);
+
+			for(std::size_t count = 0; count < ite.count; ++count)
+			{
+				
+				auto target_adress = static_cast<void*>(
+					static_cast<std::byte*>(mount_point.buffer) + 
+					buffer_offset + layout.Size * count
+					);
+				ite.id.wrapper_function(ArchetypeID::Status::Destruction, target_adress, nullptr);
+			}
+		}
+	}
+
+	void Archetype::MoveConstruct(ArchetypeMountPoint target_mp, ArchetypeMountPoint source_mp) const
+	{
+		for (auto& ite : infos)
+		{
+			auto layout = ite.id.layout;
+			auto offset = ite.offset;
+
+			auto buffer_offset1 = offset * target_mp.element_count
+				+ layout.Size * (target_mp.index * ite.count);
+
+			auto buffer_offset2 = offset * source_mp.element_count
+				+ layout.Size * (source_mp.index * ite.count);
+
+			for (std::size_t count = 0; count < ite.count; ++count)
+			{
+				auto target_adress1 = static_cast<void*>(
+					static_cast<std::byte*>(target_mp.buffer) +
+					buffer_offset1 + layout.Size * count
+					);
+				auto target_adress2 = static_cast<void*>(
+					static_cast<std::byte*>(source_mp.buffer) +
+					buffer_offset2 + layout.Size * count
+					);
+				ite.id.wrapper_function(ArchetypeID::Status::MoveConstruction, target_adress1, target_adress2);
+			}
+		}
 	}
 
 	void Archetype::MoveConstruct(std::size_t locate_index, void* target, void* source) const

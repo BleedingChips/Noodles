@@ -16,7 +16,7 @@ export import NoodlesEntity;
 
 export namespace Noodles
 {
-	/*
+
 	struct ComponentPage : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<ComponentPage>;
@@ -133,6 +133,7 @@ export namespace Noodles
 		{
 			std::size_t index;
 			std::size_t count;
+			bool operator==(InitBit const& ib) const{ return index == ib.index && count == ib.count; }
 		};
 
 		std::pmr::vector<InitBit> construct_record;
@@ -141,6 +142,18 @@ export namespace Noodles
 		friend struct ArchetypeComponentManager;
 	};
 
+	struct ArchetypeComponentManager;
+
+	struct ArchetypeMountPointRange
+	{
+		Archetype const& archetype;
+
+		ArchetypeMountPoint begin() const { return mp_begin; }
+		ArchetypeMountPoint end() const { return mp_end; }
+
+		ArchetypeMountPoint mp_begin;
+		ArchetypeMountPoint mp_end;
+	};
 
 	struct ComponentFilterInterface
 	{
@@ -159,17 +172,6 @@ export namespace Noodles
 		friend struct ArchetypeComponentManager;
 	};
 
-	struct ArchetypeMountPointRange
-	{
-
-		ArchetypeMountPoint begin() { return begin_mp; }
-		ArchetypeMountPoint end() { return end_mp; }
-
-		Archetype& archetype;
-		ArchetypeMountPoint begin_mp;
-		ArchetypeMountPoint end_mp;
-	};
-
 	struct ArchetypeComponentManager
 	{
 
@@ -184,10 +186,10 @@ export namespace Noodles
 		ArchetypeConstructor CreateArchetypeConstructor(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		template<typename Func>
-		Entity CreateEntityDefer(ArchetypeConstructor const& arc_constructor, Func&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		Entity CreateEntityDefer(std::span<ArchetypeID const> span, Func&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 			requires(std::is_invocable_v<Func, EntityConstructor&>)
 		{
-			auto Constructor = PreCreateEntityImp(arc_constructor, resource);
+			auto Constructor = PreCreateEntityImp(span, resource);
 			if(Constructor)
 			{
 				func(Constructor);
@@ -200,8 +202,7 @@ export namespace Noodles
 		bool DestroyEntity(Entity entity);
 		bool RegisterComponentFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id);
 		std::size_t ErasesComponentFilter(std::size_t group_id);
-
-		
+		std::size_t ArchetypeCount() const;
 
 	protected:
 
@@ -209,7 +210,7 @@ export namespace Noodles
 
 		static void ReleaseEntity(EntityStorage& storage);
 
-		EntityConstructor PreCreateEntityImp(ArchetypeConstructor const& arc_constructor, std::pmr::memory_resource* resource);
+		EntityConstructor PreCreateEntityImp(std::span<ArchetypeID const> span, std::pmr::memory_resource* resource);
 		Entity CreateEntityImp(EntityConstructor& constructor);
 
 		struct Element
@@ -252,13 +253,68 @@ export namespace Noodles
 
 		Memory::IntrusiveMemoryResource<std::pmr::synchronized_pool_resource>::Ptr entity_resource;
 
-		friend struct SystemComponentFilter;
 		friend struct EntityConstructor;
+		friend struct ComponentFilterInterface;
 
+	public:
+
+		template<typename Func>
+		bool ForeachMountPoint(std::size_t element_index, Func&& func) const
+			requires(std::is_invocable_v<Func, ArchetypeMountPointRange&>)
+		{
+			std::shared_lock sl(components_mutex);
+			if(element_index < components.size())
+			{
+				auto& ite = components[element_index];
+
+				auto top = ite.top_page;
+
+				while(top)
+				{
+					ArchetypeMountPointRange range{
+						*ite.archetype, top->begin(), top->end()
+					};
+					func(range);
+					top = top->GetNextPage();
+				}
+				return true;
+			}
+			return false;
+		}
+
+		template<typename FilterFunc, typename Func>
+		bool ForeachMountPoint(std::size_t element_index, FilterFunc&& filter_func, Func&& func) const
+			requires(
+				std::is_invocable_r_v<bool, FilterFunc, Archetype const&>
+				&& std::is_invocable_v<Func, ArchetypeMountPointRange&>
+				)
+		{
+			std::shared_lock sl(components_mutex);
+			if (element_index < components.size())
+			{
+				auto& ite = components[element_index];
+
+				if(filter_func(*ite.archetype))
+				{
+					auto top = ite.top_page;
+
+					while (top)
+					{
+						ArchetypeMountPointRange range{
+							*ite.archetype, top->begin(), top->end()
+						};
+						func(range);
+						top = top->GetNextPage();
+					}
+				}
+				return true;
+			}
+			return false;
+		}
 	};
 
 
-
+	
 
 	template<typename ...Components>
 	struct ComponentFilter
@@ -286,7 +342,6 @@ export namespace Noodles
 
 	export template<typename T>
 	constexpr bool IsAcceptableComponentFilterV = IsAcceptableComponentFilter<T>::Value;
-	*/
 
 	/*
 	template<typename T>
