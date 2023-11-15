@@ -253,7 +253,71 @@ namespace Noodles
 		}
 	}
 
-	Entity ArchetypeComponentManager::CreateEntityImp(EntityConstructor& constructor)
+	bool ArchetypeComponentManager::ForeachMountPoint(std::size_t element_index, bool(*func)(void*, ArchetypeMountPointRange), void* data) const
+	{
+		std::shared_lock sl(components_mutex);
+		if (element_index < components.size())
+		{
+			auto& ite = components[element_index];
+
+			auto top = ite.top_page;
+
+			while (top)
+			{
+				ArchetypeMountPointRange range{
+					*ite.archetype, top->begin(), top->end()
+				};
+				if(!func(data, range))
+					return true;
+				top = top->GetNextPage();
+			}
+			return true;
+		}
+		return false;
+	}
+
+	bool ArchetypeComponentManager::ForeachMountPoint(std::size_t element_index, bool(*detect)(void*, Archetype const&), void* data, bool(*func)(void*, ArchetypeMountPointRange), void* data2) const
+	{
+		std::shared_lock sl(components_mutex);
+		if (element_index < components.size())
+		{
+			auto& ite = components[element_index];
+
+			if(!detect(data, *ite.archetype))
+			{
+				return true;
+			}
+
+			auto top = ite.top_page;
+
+			while (top)
+			{
+				ArchetypeMountPointRange range{
+					*ite.archetype, top->begin(), top->end()
+				};
+				if (!func(data, range))
+					return true;
+				top = top->GetNextPage();
+			}
+			return true;
+		}
+		return false;
+	}
+
+	bool ArchetypeComponentManager::ReadEntityMountPoint(Entity const& entity, void(*func)(void*, EntityStatus, Archetype const&, ArchetypeMountPoint), void* data) const
+	{
+		std::shared_lock sl(components_mutex);
+		std::shared_lock sl2(entity.mutex);
+		if(entity.resource == entity_resource->get_resource_interface() && entity.status != EntityStatus::Destroy)
+		{
+			assert(entity.archetype);
+			func(data, entity.status, *entity.archetype, entity.mount_point);
+			return true;
+		}
+		return false;
+	}
+
+	EntityPtr ArchetypeComponentManager::CreateEntityImp(EntityConstructor& constructor)
 	{
 
 		if(constructor.archetype_ptr && constructor.mount_point)
@@ -268,12 +332,12 @@ namespace Noodles
 			}
 
 			assert(entity_resource);
-			Entity entity = EntityStorage::Create(entity_resource->get_resource_interface());
+			EntityPtr entity = Entity::Create(entity_resource->get_resource_interface());
 
 			if (entity)
 			{
 				EntityProperty pro{
-						entity
+					entity
 				};
 				constructor.archetype_ptr->MoveConstruct(
 					constructor.entity_property_index, 
@@ -305,7 +369,7 @@ namespace Noodles
 		return {};
 	}
 
-	void ArchetypeComponentManager::ReleaseEntity(EntityStorage& storage)
+	void ArchetypeComponentManager::ReleaseEntity(Entity& storage)
 	{
 		assert(storage.archetype && storage.mount_point);
 		storage.archetype->Destruction(storage.mount_point);
@@ -313,28 +377,27 @@ namespace Noodles
 		storage.archetype = {};
 	}
 
-	bool ArchetypeComponentManager::DestroyEntity(Entity entity)
+	bool ArchetypeComponentManager::DestroyEntity(Entity& entity)
 	{
-		if(entity)
+		std::lock_guard lg(entity.mutex);
+		if (entity.resource == entity_resource->get_resource_interface())
 		{
-			std::lock_guard lg(entity->mutex);
-			if(entity->resource == entity_resource->get_resource_interface())
+			if (
+				entity.status != EntityStatus::PendingDestroy
+				|| entity.status != EntityStatus::Destroy
+				)
 			{
-				if(
-					entity->status != EntityStatus::PendingDestroy
-					|| entity->status != EntityStatus::Destroy
-					)
-				{
-					auto last_status = entity->status;
-					std::lock_guard lg(spawn_mutex);
-					entity->status = EntityStatus::PendingDestroy;
-					removed_entities.push_back({
-						std::move(entity), last_status
-					});
-				}
-				
-				return true;
+				auto last_status = entity.status;
+				std::lock_guard lg(spawn_mutex);
+				removed_entities.push_back({
+					entity.archetype,
+					entity.mount_point,
+					entity.status
+				});
+				entity.status = EntityStatus::PendingDestroy;
 			}
+
+			return true;
 		}
 		return false;
 	}
@@ -349,9 +412,19 @@ namespace Noodles
 			std::lock_guard lg2(components_mutex);
 			while(!removed_entities.empty())
 			{
-				auto [top, status] = std::move(*removed_entities.rbegin());
+				auto [arc, mp, status] = std::move(*removed_entities.rbegin());
+
 				removed_entities.pop_back();
+				assert(arc);
+
+				auto location = arc->LocateTypeID(EntityPropertyArchetypeID().id);
+
+				assert(location.has_value());
+
+				auto top = static_cast<EntityProperty*>(arc->GetData(location->index, 0, mp))->entity;
+
 				assert(top);
+
 				std::lock_guard lg3(top->mutex);
 				if(top->archetype)
 				{
@@ -383,7 +456,7 @@ namespace Noodles
 						auto find = std::find_if(
 							spawned_entities.begin(),
 							spawned_entities.end(),
-							[=](Entity const& E)
+							[=](Entity::Ptr const& E)
 							{
 								assert(E && E->archetype);
 								auto Tfi = E->archetype->GetFastIndex();

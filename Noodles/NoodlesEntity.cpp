@@ -6,28 +6,28 @@ module NoodlesEntity;
 namespace Noodles
 {
 
-	auto EntityStorage::Create(std::pmr::memory_resource* Resource)
+	auto Entity::Create(std::pmr::memory_resource* Resource)
 		-> Ptr
 	{
 		assert(Resource != nullptr);
-		auto Adress = Resource->allocate(sizeof(EntityStorage), alignof(EntityStorage));
+		auto Adress = Resource->allocate(sizeof(Entity), alignof(Entity));
 		if (Adress != nullptr)
 		{
-			Ptr TPtr{ new (Adress) EntityStorage{ Resource } };
+			Ptr TPtr{ new (Adress) Entity{ Resource } };
 			return TPtr;
 		}
 		return {};
 	}
 
-	void EntityStorage::Release()
+	void Entity::Release()
 	{
 		assert(resource != nullptr);
 		auto old_resource = resource;
-		this->~EntityStorage();
-		old_resource->deallocate(this, sizeof(EntityStorage), alignof(EntityStorage));
+		this->~Entity();
+		old_resource->deallocate(this, sizeof(Entity), alignof(Entity));
 	}
 
-	EntityStorage::EntityStorage(std::pmr::memory_resource* resource)
+	Entity::Entity(std::pmr::memory_resource* resource)
 		: resource(resource)
 	{
 		

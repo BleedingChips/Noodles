@@ -99,7 +99,7 @@ int main()
 
 		for (std::size_t i = 0; i < C; ++i)
 		{
-			manager.ForeachMountPoint(i, [](ArchetypeMountPointRange range)
+			manager.ForeachMountPoint(i, [](ArchetypeMountPointRange range)-> bool
 				{
 					auto I = range.archetype.LocateTypeID(UniqueTypeID::Create<A>());
 					if (I.has_value())
@@ -110,8 +110,19 @@ int main()
 							volatile int i = 0;
 						}
 					}
+					return true;
 				});
 		}
+
+		manager.ReadEntityMountPoint(*entity, [](EntityStatus status, Archetype const& arc, ArchetypeMountPoint mp)
+		{
+				auto I = arc.LocateTypeID(UniqueTypeID::Create<A>());
+				if (I.has_value())
+				{
+					A* a = static_cast<A*>(arc.GetData(I->index, 0, mp));
+					volatile int i = 0;
+				}
+		});
 	}
 
 	return 0;

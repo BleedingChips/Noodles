@@ -177,7 +177,7 @@ export namespace Noodles
 
 		struct EntityProperty
 		{
-			Entity entity;
+			EntityPtr entity;
 		};
 
 		ArchetypeComponentManager(std::pmr::memory_resource* upstream = std::pmr::get_default_resource());
@@ -186,7 +186,7 @@ export namespace Noodles
 		ArchetypeConstructor CreateArchetypeConstructor(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		template<typename Func>
-		Entity CreateEntityDefer(std::span<ArchetypeID const> span, Func&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		EntityPtr CreateEntityDefer(std::span<ArchetypeID const> span, Func&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 			requires(std::is_invocable_v<Func, EntityConstructor&>)
 		{
 			auto Constructor = PreCreateEntityImp(span, resource);
@@ -199,7 +199,7 @@ export namespace Noodles
 		}
 
 		bool UpdateEntityStatus();
-		bool DestroyEntity(Entity entity);
+		bool DestroyEntity(Entity& entity);
 		bool RegisterComponentFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id);
 		std::size_t ErasesComponentFilter(std::size_t group_id);
 		std::size_t ArchetypeCount() const;
@@ -208,10 +208,10 @@ export namespace Noodles
 
 		static ArchetypeID const& EntityPropertyArchetypeID();
 
-		static void ReleaseEntity(EntityStorage& storage);
+		static void ReleaseEntity(Entity& storage);
 
 		EntityConstructor PreCreateEntityImp(std::span<ArchetypeID const> span, std::pmr::memory_resource* resource);
-		Entity CreateEntityImp(EntityConstructor& constructor);
+		EntityPtr CreateEntityImp(EntityConstructor& constructor);
 
 		struct Element
 		{
@@ -225,13 +225,14 @@ export namespace Noodles
 		std::pmr::synchronized_pool_resource components_resource;
 
 		std::mutex spawn_mutex;
-		std::pmr::vector<Entity> spawned_entities;
+		std::pmr::vector<EntityPtr> spawned_entities;
 		std::pmr::monotonic_buffer_resource spawned_entities_resource;
 		bool need_update = false;
 
 		struct RemoveEntity
 		{
-			Entity entity;
+			Archetype::Ptr arche;
+			ArchetypeMountPoint mount_point;
 			EntityStatus last_status;
 		};
 
@@ -256,60 +257,51 @@ export namespace Noodles
 		friend struct EntityConstructor;
 		friend struct ComponentFilterInterface;
 
+		bool ForeachMountPoint(std::size_t element_index, bool(*func)(void*, ArchetypeMountPointRange), void* data) const;
+		bool ForeachMountPoint(std::size_t element_index, bool(*detect)(void*, Archetype const&), void* data, bool(*func)(void*, ArchetypeMountPointRange), void* data2) const;
+		bool ReadEntityMountPoint(Entity const& storage, void(*func)(void*, EntityStatus, Archetype const&, ArchetypeMountPoint), void* data) const;
+
 	public:
 
 		template<typename Func>
 		bool ForeachMountPoint(std::size_t element_index, Func&& func) const
-			requires(std::is_invocable_v<Func, ArchetypeMountPointRange&>)
+			requires(std::is_invocable_r_v<bool, Func, ArchetypeMountPointRange>)
 		{
-			std::shared_lock sl(components_mutex);
-			if(element_index < components.size())
+			return ForeachMountPoint(element_index, [](void* data, ArchetypeMountPointRange range)->bool
 			{
-				auto& ite = components[element_index];
-
-				auto top = ite.top_page;
-
-				while(top)
-				{
-					ArchetypeMountPointRange range{
-						*ite.archetype, top->begin(), top->end()
-					};
-					func(range);
-					top = top->GetNextPage();
-				}
-				return true;
-			}
-			return false;
+				return (*static_cast<Func*>(data))(range);
+			}, static_cast<void*>(&func));
 		}
 
 		template<typename FilterFunc, typename Func>
 		bool ForeachMountPoint(std::size_t element_index, FilterFunc&& filter_func, Func&& func) const
 			requires(
 				std::is_invocable_r_v<bool, FilterFunc, Archetype const&>
-				&& std::is_invocable_v<Func, ArchetypeMountPointRange&>
+				&& std::is_invocable_v<Func, ArchetypeMountPointRange>
 				)
 		{
-			std::shared_lock sl(components_mutex);
-			if (element_index < components.size())
-			{
-				auto& ite = components[element_index];
-
-				if(filter_func(*ite.archetype))
+			return ForeachMountPoint(element_index, 
+				[](void* data, Archetype const& arc)
 				{
-					auto top = ite.top_page;
+					(*static_cast<FilterFunc*>(data))(arc);
+				}, static_cast<void*>(&filter_func),
+				[](void* data, ArchetypeMountPointRange range)->bool
+				{
+					return (*static_cast<Func*>(data))(range);
+				}, &func
+				);
+		}
 
-					while (top)
-					{
-						ArchetypeMountPointRange range{
-							*ite.archetype, top->begin(), top->end()
-						};
-						func(range);
-						top = top->GetNextPage();
-					}
-				}
-				return true;
-			}
-			return false;
+		template<typename Func>
+		bool ReadEntityMountPoint(Entity const& entity, Func&& func) const
+			requires(
+				std::is_invocable_v<Func, EntityStatus,  Archetype const&, ArchetypeMountPoint>
+			)
+		{
+			return ReadEntityMountPoint(entity, [](void* data, EntityStatus status, Archetype const& arc, ArchetypeMountPoint mp)
+				{
+					(*static_cast<Func*>(data))(status, arc, mp);
+				}, static_cast<void*>(&func));
 		}
 	};
 

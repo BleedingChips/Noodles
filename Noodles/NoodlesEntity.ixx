@@ -12,10 +12,6 @@ import NoodlesArchetype;
 export namespace Noodles
 {
 	struct ArchetypeComponentManager;
-}
-
-export namespace Noodles
-{
 
 	enum class EntityStatus
 	{
@@ -25,19 +21,19 @@ export namespace Noodles
 		PendingDestroy
 	};
 
-	struct EntityStorage : public Potato::Pointer::DefaultIntrusiveInterface
+	struct Entity : public Potato::Pointer::DefaultIntrusiveInterface
 	{
-		using Ptr = Potato::Pointer::IntrusivePtr<EntityStorage>;
+		using Ptr = Potato::Pointer::IntrusivePtr<Entity>;
 
 	protected:
 
-		EntityStorage(std::pmr::memory_resource* Resource);
+		Entity(std::pmr::memory_resource* Resource);
 
 		static Ptr Create(std::pmr::memory_resource* Resource = std::pmr::get_default_resource());
 		virtual void Release() override;
 
 		std::pmr::memory_resource* resource = nullptr;
-		std::shared_mutex mutex;
+		mutable std::shared_mutex mutex;
 		EntityStatus status = EntityStatus::PreInit;
 		Archetype::Ptr archetype;
 		ArchetypeMountPoint mount_point;
@@ -45,6 +41,6 @@ export namespace Noodles
 		friend struct ArchetypeComponentManager;
 	}; 
 
-	using Entity = EntityStorage::Ptr;
+	using EntityPtr = Entity::Ptr;
 
 }
