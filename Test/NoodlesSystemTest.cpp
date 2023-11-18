@@ -10,8 +10,8 @@ void PrintMark(Noodles::SystemContext& context)
 {
 	std::lock_guard lg(PrintMutex);
 	std::println("---{0}---", std::string_view{
-		reinterpret_cast<char const*>(context.self_property.system_name.data()),
-		context.self_property.system_name.size()
+		reinterpret_cast<char const*>(context.GetProperty().system_name.data()),
+		context.GetProperty().system_name.size()
 	});
 }
 
@@ -38,7 +38,7 @@ void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration du
 
 void PrintSystem(Noodles::SystemContext& context)
 {
-	UniquePrint(context.self_property.system_name);
+	UniquePrint(context.GetProperty().system_name);
 }
 
 std::partial_ordering CustomPriority(SystemProperty const& p1, SystemProperty const& p2)
@@ -106,7 +106,7 @@ int main()
 		},
 		[](SystemContext& context, std::size_t)
 		{
-			UniquePrint(context.self_property.system_name);
+			UniquePrint(context.GetProperty().system_name);
 		}
 	);
 
@@ -122,7 +122,7 @@ int main()
 		},
 		[](SystemContext& context, std::size_t)
 		{
-			UniquePrint(context.self_property.system_name);
+			UniquePrint(context.GetProperty().system_name);
 		}
 	);
 
@@ -138,7 +138,11 @@ int main()
 		},
 		[](SystemContext& context, std::size_t)
 		{
-			UniquePrint(context.self_property.system_name);
+			UniquePrint(context.GetProperty().system_name);
+			if(context.GetSystemCategory() == SystemCatergory::Normal)
+			{
+				context.StartParallel(10);
+			}
 		}
 	);
 
@@ -149,8 +153,8 @@ int main()
 
 	while (true)
 	{
-		std::vector<std::size_t> ptrs;
-		group.SynFlushAndDispatch(manager, [&](std::size_t ptr, std::u8string_view str)
+		std::vector<TickSystemRunningIndex> ptrs;
+		group.SynFlushAndDispatch(manager, [&](TickSystemRunningIndex ptr, std::u8string_view str)
 		{
 			ptrs.emplace_back(std::move(ptr));
 		});
@@ -159,9 +163,8 @@ int main()
 		{
 			auto top = std::move(*ptrs.rbegin());
 			ptrs.pop_back();
-			group.ExecuteSystem(top, manager, (*reinterpret_cast<Context*>(nullptr)));
-			auto ite = group.TryDispatchDependence(
-				top, [&](std::size_t ptr, std::u8string_view str)
+			auto ite = group.ExecuteAndDispatchDependence(
+				top, manager, (*static_cast<Context*>(nullptr)), [&](TickSystemRunningIndex ptr, std::u8string_view str)
 				{
 					ptrs.emplace_back(std::move(ptr));
 				}

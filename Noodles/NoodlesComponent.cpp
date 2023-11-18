@@ -106,7 +106,7 @@ namespace Noodles
 		{
 			std::size_t count = 0;
 			auto ID = this->archetype_ptr->GetTypeID(i, count);
-			if((ID <=> ArchetypeComponentManager::EntityPropertyArchetypeID().id) != std::strong_ordering::equivalent)
+			if(ID != ArchetypeComponentManager::EntityPropertyArchetypeID().id)
 			{
 				for(std::size_t j = 0; j < count; ++j)
 				{
@@ -351,7 +351,7 @@ namespace Noodles
 					for (auto& ite : components)
 					{
 						assert(ite.archetype);
-						if (((*ite.archetype) <=> (*constructor.archetype_ptr)) == std::strong_ordering::equal)
+						if ((*ite.archetype) == (*constructor.archetype_ptr))
 						{
 							constructor.archetype_ptr->fast_index = index + 1;
 						}

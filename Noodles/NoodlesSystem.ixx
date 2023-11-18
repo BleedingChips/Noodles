@@ -8,6 +8,7 @@ import PotatoMisc;
 import PotatoPointer;
 import PotatoIR;
 import PotatoTaskSystem;
+import PotatoFormat;
 
 
 export import NoodlesArchetype;
@@ -158,22 +159,29 @@ export namespace Noodles
 		friend struct TickSystemsGroup;
 	};
 
-	struct SystemContext
+	enum class SystemCatergory
 	{
-		std::int32_t layer;
-		SystemProperty self_property;
-		ArchetypeComponentManager& manager;
-		Context& global_context;
+		Normal,
+		Parallel,
+		FinalParallel,
 	};
+
+	struct TickSystemRunningIndex
+	{
+		std::size_t index;
+		std::size_t parameter;
+	};
+
+	struct SystemContext;
 
 	export enum class RunningStatus
 	{
 		PreInit,
 		Waiting,
-
 		Ready,
 		Running,
 		Done,
+		WaitingParallel,
 	};
 
 	export struct SystemHolder : public Potato::Pointer::DefaultIntrusiveInterface
@@ -181,16 +189,67 @@ export namespace Noodles
 
 		using Ptr = Potato::Pointer::IntrusivePtr<SystemHolder>;
 
-	
+
 		template<typename Func, typename AppendData>
 		static auto Create(
 			Func&& func,
-			AppendData&& appendData,
+			AppendData&& append_data,
+			SystemProperty property,
+			std::u8string_view display_prefix,
 			std::pmr::memory_resource* resource
-			)
-		->Ptr;
+		)
+			-> Ptr;
 
-		virtual void Execute(ArchetypeComponentManager&, Context&, std::int32_t layer, SystemProperty property) = 0;
+		virtual void Execute(SystemContext& context) = 0;
+		std::u8string_view GetDisplayName() const { return display_name; }
+		SystemProperty GetProperty() const { return property; };
+
+		static std::size_t FormatDisplayNameSize(std::u8string_view prefix, SystemProperty property);
+		static bool FormatDisplayName(std::span<char8_t> output, std::u8string_view prefix, SystemProperty property);
+
+		SystemHolder(std::span<std::byte> output, std::u8string_view prefix, SystemProperty property);
+
+	protected:
+
+		std::mutex mutex;
+		RunningStatus status = RunningStatus::PreInit;
+		std::size_t request_parallel = 0;
+		std::size_t fast_index = 0;
+		SystemProperty property;
+		std::u8string_view display_name;
+
+		friend struct TickSystemsGroup;
+	};
+
+	struct SystemContext
+	{
+
+		SystemContext(SystemContext const&) = default;
+		void StartSelfParallel(std::size_t count);
+
+		SystemProperty GetProperty() const { return self_property; };
+		bool StartParallel(std::size_t parallel_count);
+
+		SystemCatergory GetSystemCategory() const { return category; }
+
+	protected:
+
+		SystemContext(SystemHolder& ptr, ArchetypeComponentManager& manager, Context& global_context, TickSystemsGroup& system_group)
+			: ptr(ptr), manager(manager), global_context(global_context), system_group(system_group)
+		{
+			
+		}
+
+		std::int32_t layer = 0;
+		SystemProperty self_property;
+		SystemHolder& ptr;
+		ArchetypeComponentManager& manager;
+		Context& global_context;
+		TickSystemsGroup& system_group;
+		SystemCatergory category = SystemCatergory::Normal;
+		std::size_t parameter = 0;
+
+		friend struct TickSystemsGroup;
 	};
 
 	struct SystemTemporaryDependenceLine
@@ -222,6 +281,8 @@ export namespace Noodles
 
 		TickSystemsGroup(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
+		bool StartParallel(SystemHolder& system, std::size_t parallel_count);
+
 	protected:
 
 		SystemRegisterResult PreRegisterCheck(std::int32_t layer, SystemPriority priority, SystemProperty property, SystemMutex const& pro, std::pmr::vector<SystemTemporaryDependenceLine>& dep);
@@ -244,28 +305,25 @@ export namespace Noodles
 		{
 			std::int32_t layer = 0;
 			SystemPriority priority;
-			std::pmr::u8string total_string;
 			Potato::Misc::IndexSpan<> group_name;
 			Potato::Misc::IndexSpan<> system_name;
-			Potato::Misc::IndexSpan<> display_name;
-			std::pmr::vector<SystemRWInfo> filter_info;
 			Potato::Misc::IndexSpan<> component_filter;
 			std::pmr::vector<TriggerTo> trigger_to;
 			std::size_t in_degree = 0;
 			SystemHolder::Ptr system_obj;
 
-			SystemProperty GetProperty() const
+			SystemProperty GetProperty(std::u8string_view total) const
 			{
 				return SystemProperty{
-				system_name.Slice(std::u8string_view{total_string}),
-					group_name.Slice(std::u8string_view{total_string})
+					system_name.Slice(total),
+					group_name.Slice(total)
 				};
 			}
 
-			SystemMutex GetMutex() const
+			SystemMutex GetMutex(std::span<SystemRWInfo const> info) const
 			{
 				return SystemMutex{
-				component_filter.Slice(std::span(filter_info)),
+				component_filter.Slice(info),
 				};
 			}
 		};
@@ -273,6 +331,8 @@ export namespace Noodles
 		std::pmr::synchronized_pool_resource system_holder_resource;
 
 		std::shared_mutex graphic_mutex;
+		std::pmr::u8string total_string;
+		std::pmr::vector<SystemRWInfo> total_rw_info;
 		std::pmr::vector<StorageSystemHolder> graphic_node;
 		std::pmr::vector<std::size_t> need_destroy_graphic;
 		bool need_refresh_dependence = false;
@@ -280,39 +340,54 @@ export namespace Noodles
 		struct StartupSystem
 		{
 			std::int32_t layer = 0;
-			std::size_t index = 0;
+			SystemHolder::Ptr to;
 			std::u8string_view display_name;
-		};
-
-		struct SystemRunningContext
-		{
-			RunningStatus status = RunningStatus::PreInit;
-			std::size_t startup_in_degree = 0;
-			std::size_t current_in_degree = 0;
-			std::size_t mutex_degree = 0;
-			Potato::Misc::IndexSpan<> reference_trigger_line;
-			SystemHolder::Ptr system_obj;
 		};
 
 		struct TriggerLine
 		{
 			bool is_mutex = false;
-			std::size_t index = 0;
+			std::size_t to_index;
+			SystemHolder::Ptr to;
 			std::u8string_view display_name;
 		};
 
-		std::shared_mutex tick_system_running_mutex;
-		std::pmr::vector<SystemRunningContext> system_contexts;
+		struct SystemRunningContext
+		{
+			std::size_t startup_in_degree = 0;
+			std::size_t current_in_degree = 0;
+			std::size_t mutex_degree = 0;
+			Potato::Misc::IndexSpan<> reference_trigger_line;
+			SystemHolder::Ptr to;
+		};
+
+		struct TemporaryRunningContext
+		{
+			enum class Category
+			{
+				ParallelTickFunction,
+			};
+
+			Category category = Category::ParallelTickFunction;
+			RunningStatus status = RunningStatus::Ready;
+			std::size_t owner;
+			std::size_t parameter;
+			std::u8string_view display_name;
+			SystemProperty property;
+		};
+
+		std::mutex tick_system_running_mutex;
+		std::pmr::vector<SystemRunningContext> running_context;
 		std::pmr::vector<StartupSystem> startup_system;
-		std::size_t startup_system_context_ite = 0;
+		std::pmr::vector<TemporaryRunningContext> temporary_context;
 		std::pmr::vector<TriggerLine> tick_systems_running_graphic_line;
+		std::size_t startup_system_context_ite = 0;
 		std::size_t current_level_system_waiting = 0;
 
-		void FlushAndInitRegisterSystem(ArchetypeComponentManager& manager);
-
-		std::size_t SynFlushAndDispatchImp(ArchetypeComponentManager& manager, void(*func)(void* obj, std::size_t, std::u8string_view), void* data);
-		std::optional<std::size_t> TryDispatchDependenceImp(std::size_t, void(*func)(void* obj, std::size_t, std::u8string_view), void* data);
-		void DispatchSystemImp(std::size_t index);
+		bool SynFlushAndDispatchImp(ArchetypeComponentManager& manager, void(*func)(void* obj, TickSystemRunningIndex, std::u8string_view), void* data);
+		bool ExecuteAndDispatchDependence(TickSystemRunningIndex, ArchetypeComponentManager& manager, Context& context, void(*func)(void* obj, TickSystemRunningIndex, std::u8string_view), void* data);
+		void DispatchSystemImp(SystemHolder& system);
+		bool StartupNewLayerSystems(void(*func)(void* obj, TickSystemRunningIndex index, std::u8string_view), void* data);
 
 	public:
 
@@ -334,30 +409,30 @@ export namespace Noodles
 			if(re)
 			{
 				auto ptr = SystemHolder::Create(
-					std::move(func), std::move(append), &system_holder_resource
+					std::move(func), std::move(append), property, display_prefix, &system_holder_resource
 				);
 				Register(layer, property, priority, manager, generator, re, temp_line, std::move(ptr), display_prefix, &system_holder_resource);
 			}
 			return re;
 		}
 
-		void ExecuteSystem(std::size_t index, ArchetypeComponentManager& manager, Context& context);
+		//void ExecuteSystem(std::size_t index, ArchetypeComponentManager& manager, Context& context);
 
 		template<typename Func>
-		std::size_t SynFlushAndDispatch(ArchetypeComponentManager& manager, Func&& func) requires(std::is_invocable_v<Func, std::size_t, std::u8string_view>)
+		bool SynFlushAndDispatch(ArchetypeComponentManager& manager, Func&& func) requires(std::is_invocable_v<Func, TickSystemRunningIndex, std::u8string_view>)
 		{
-			return SynFlushAndDispatchImp(manager, [](void* data, std::size_t ptr, std::u8string_view str)
+			return SynFlushAndDispatchImp(manager, [](void* data, TickSystemRunningIndex ptr, std::u8string_view str)
 			{
 				(*static_cast<Func*>(data))(ptr, str);
 			}, &func);
 		}
 
 		template<typename Func>
-		std::optional<std::size_t> TryDispatchDependence(std::size_t index, Func&& func) requires(std::is_invocable_v<Func, std::size_t, std::u8string_view>)
+		std::optional<std::size_t> ExecuteAndDispatchDependence(TickSystemRunningIndex index, ArchetypeComponentManager& manager, Context& context,  Func&& func) requires(std::is_invocable_v<Func, TickSystemRunningIndex, std::u8string_view>)
 		{
-			return TryDispatchDependenceImp(index, [](void* data, std::size_t ptr, std::u8string_view str)
+			return ExecuteAndDispatchDependence(index, manager, context, [](void* data, TickSystemRunningIndex index, std::u8string_view str)
 				{
-					(*static_cast<Func*>(data))(ptr, str);
+					(*static_cast<Func*>(data))(index, str);
 				}, &func);
 		}
 	};
@@ -374,23 +449,15 @@ export namespace Noodles
 
 		std::pmr::memory_resource* resource;
 
-		DynamicSystemHolder(AppendData&& append_data, Func&& fun, std::pmr::memory_resource* resource)
-			: append_data(std::move(append_data)), fun(std::move(fun)), resource(resource)
+		DynamicSystemHolder(AppendData&& append_data, Func&& fun, std::span<std::byte> output, std::u8string_view prefix, SystemProperty in_property, std::pmr::memory_resource* resource)
+			: SystemHolder(output, prefix, in_property), append_data(std::move(append_data)), fun(std::move(fun)), resource(resource)
 		{
 
 		}
 
-		virtual void Execute(ArchetypeComponentManager& manager, Context& context, std::int32_t layer, SystemProperty property) override
+		virtual void Execute(SystemContext& context) override
 		{
-			SystemContext sys_context
-			{
-				layer,
-				property,
-				manager,
-				context
-			};
-
-			fun(sys_context, append_data);
+			fun(context, append_data);
 		}
 
 		virtual void Release() override
@@ -409,17 +476,36 @@ export namespace Noodles
 	auto SystemHolder::Create(
 		Func&& func,
 		AppendData&& append_data,
+		SystemProperty property,
+		std::u8string_view display_prefix,
 		std::pmr::memory_resource* resource
 	)
 		-> Ptr
 	{
 		using Type = DynamicSystemHolder<std::remove_cvref_t<AppendData>, std::remove_cvref_t<Func>>;
+
 		if(resource != nullptr)
 		{
-			auto buffer = resource->allocate(sizeof(Type), alignof(Type));
+			std::size_t dis_size = SystemHolder::FormatDisplayNameSize(display_prefix, property);
+			std::size_t append_size = dis_size * sizeof(char8_t);
+
+			if((append_size % alignof(Type)) != 0)
+			{
+				append_size += alignof(Type) - (append_size % alignof(Type));
+			}
+			auto buffer = resource->allocate(sizeof(Type) + append_size, alignof(Type));
 			if(buffer != nullptr)
 			{
-				Type* ptr = new (buffer) Type{ std::forward<AppendData>(append_data), std::forward<Func>(func), resource};
+				std::span<std::byte> str{static_cast<std::byte*>(buffer) + sizeof(Type), append_size };
+
+				Type* ptr = new (buffer) Type(
+					std::forward<AppendData>(append_data),
+					std::forward<Func>(func),
+					str,
+					display_prefix,
+					property,
+					resource
+				);
 				return Ptr{ptr};
 			}
 		}

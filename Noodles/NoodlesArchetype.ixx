@@ -113,7 +113,7 @@ export namespace Noodles
 		}
 
 		std::strong_ordering operator<=>(ArchetypeID const& i1) const;
-		bool operator==(const ArchetypeID& i1) const { return (*this)<=>(i1) == std::strong_ordering::equivalent; }
+		bool operator==(const ArchetypeID& i1) const;
 	};
 
 	struct ArchetypeMountPoint
@@ -206,6 +206,7 @@ export namespace Noodles
 		Potato::IR::Layout GetLayout() const { return archetype_layout; }
 		Potato::IR::Layout GetBufferLayout() const { return { archetype_layout.Align, buffer_archetype_layout_size }; }
 		std::strong_ordering operator<=>(Archetype const&) const;
+		bool operator==(Archetype const& ar) const;
 		std::pmr::memory_resource* GetResource() const { return resource; }
 		std::size_t GetFastIndex() const { return fast_index; }
 

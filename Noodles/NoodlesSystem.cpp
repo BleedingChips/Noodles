@@ -101,6 +101,11 @@ namespace Noodles
 		return re1;
 	}
 
+	bool SystemContext::StartParallel(std::size_t parallel_count)
+	{
+		return system_group.StartParallel(ptr, parallel_count);
+	}
+
 	auto SystemComponentFilter::Create(
 		std::span<SystemRWInfo const> inf,
 		std::pmr::memory_resource* upstream
@@ -286,6 +291,7 @@ namespace Noodles
 		return {};
 	}
 
+	
 
 	SystemEntityFilter::Ptr FilterGenerator::CreateEntityFilter(std::span<SystemRWInfo const> rw_infos)
 	{
@@ -316,9 +322,35 @@ namespace Noodles
 		return {};
 	}
 
+	static Potato::Format::StaticFormatPattern<u8"{}{}{}-[{}]:[{}]"> system_static_format_pattern;
+
+	std::size_t SystemHolder::FormatDisplayNameSize(std::u8string_view prefix, SystemProperty property)
+	{
+		Potato::Format::FormatWritter<char8_t> wri;
+		system_static_format_pattern.Format(wri, property.group_name, property.system_name, prefix, property.group_name, property.system_name);
+		return wri.GetWritedSize();
+	}
+
+	bool SystemHolder::FormatDisplayName(std::span<char8_t> output, std::u8string_view prefix, SystemProperty property)
+	{
+		Potato::Format::FormatWritter<char8_t> wri(output);
+		return system_static_format_pattern.Format(wri, property.group_name, property.system_name, prefix, property.group_name, property.system_name);
+	}
+
+	SystemHolder::SystemHolder(std::span<std::byte> output, std::u8string_view prefix, SystemProperty in_property)
+	{
+		std::span<char8_t> tem{reinterpret_cast<char8_t*>(output.data()), output.size() / sizeof(char8_t)};
+		auto re = FormatDisplayName(tem, prefix, in_property);
+		assert(re);
+		std::u8string_view tstr{ tem };
+		property.group_name = tstr.substr(0, in_property.group_name.size());
+		property.system_name = tstr.substr(in_property.group_name.size(), in_property.system_name.size());
+		display_name = tstr.substr(in_property.system_name.size() + in_property.group_name.size());
+	}
+
 	TickSystemsGroup::TickSystemsGroup(std::pmr::memory_resource* resource)
 		: system_holder_resource(resource), graphic_node(resource),
-		system_contexts(resource),
+		total_string(resource), total_rw_info(resource), need_destroy_graphic(resource),
 		tick_systems_running_graphic_line(resource),
 		startup_system(resource)
 	{
@@ -359,10 +391,10 @@ namespace Noodles
 
 			for (auto& ite : span)
 			{
-				auto ite_pro = ite.GetProperty();
+				auto ite_pro = ite.GetProperty(total_string);
 				if (!ite_pro.IsSameSystem(property))
 				{
-					auto ite_mutex = ite.GetMutex();
+					auto ite_mutex = ite.GetMutex(total_rw_info);
 					if (ite_mutex.IsConflict(mutex))
 					{
 						auto K = priority.CompareCustomPriority(
@@ -490,297 +522,470 @@ namespace Noodles
 			}
 		}
 
-		std::pmr::u8string total_string(resource);
+		Potato::Misc::IndexSpan<> group_name{ total_string.size(), total_string.size() };
 
-		Potato::Format::FormatWritter<char8_t> format_writer;
-
-		static Potato::Format::StaticFormatPattern<u8"{}{}{}-[{}]:[{}]"> for_pattern;
-
-		for_pattern.Format(format_writer, property.group_name, property.system_name, display_name_proxy, property.group_name, property.system_name);
-
-		total_string.resize(
-			format_writer.GetWritedSize()
+		total_string.reserve(
+			group_name.End() + property.group_name.size() + property.system_name.size()
 		);
 
+		total_string.append(property.group_name);
+
+		group_name.BackwardEnd(property.group_name.size());
+
+		Potato::Misc::IndexSpan<> system_name{ total_string.size(), total_string.size() };
+
+		total_string.append(property.system_name);
+
+		system_name.BackwardEnd(property.system_name.size());
+
+		Potato::Misc::IndexSpan<> rw_index{ total_rw_info.size(), total_rw_info.size() };
+
+		total_rw_info.reserve(
+			rw_index.End() + generator.component_rw_infos.size()
+		);
+
+		total_rw_info.insert(
+			total_rw_info.end(),
+			generator.component_rw_infos.begin(),
+			generator.component_rw_infos.end()
+		);
+
+		rw_index.BackwardEnd(generator.component_rw_infos.size());
+		
+		/*
+		Potato::Format::FormatWritter<char8_t> format_writer;
+
+		system_static_format_pattern.Format(format_writer, property.group_name, property.system_name, display_name_proxy, property.group_name, property.system_name);
+
 		Potato::Format::FormatWritter<char8_t> format_writer2{ total_string };
+		*/
 
-		for_pattern.Format(format_writer2, property.group_name, property.system_name, display_name_proxy, property.group_name, property.system_name);
+		//for_pattern.Format(format_writer2, property.group_name, property.system_name, display_name_proxy, property.group_name, property.system_name);
 
-		auto mutex = generator.GetMutex();
+		std::pmr::vector<TriggerTo> tris(resource);
 
-		std::pmr::vector<SystemRWInfo> infos(resource);
-
+		for (auto& ite : d_line)
 		{
-			
-			infos.reserve(
-				mutex.component_rw_infos.size()
-			);
+			if(ite.from == result.ite_index)
+			{
+				tris.push_back({ite.is_mutex, ite.to});
+				if(!ite.is_mutex)
+				{
+					graphic_node[ite.to].in_degree += 1;
+				}
+			}
+		}
 
-			infos.insert(
-				infos.end(),
-				mutex.component_rw_infos.begin(),
-				mutex.component_rw_infos.end()
-			);
-
+		for(auto& ite : d_line)
+		{
+			if(ite.from != result.ite_index)
+			{
+				graphic_node[ite.from].trigger_to.emplace_back(
+					ite.is_mutex,
+					ite.to
+				);
+			}
 		}
 
 		graphic_node.emplace(
 			insert_ite,
 			layer,
 			priority,
-			std::move(total_string),
-			Potato::Misc::IndexSpan<>{ 0, property.group_name.size() },
-			Potato::Misc::IndexSpan<>{ property.group_name.size(), property.group_name.size() + property.system_name.size() },
-			Potato::Misc::IndexSpan<>{ property.group_name.size() + property.system_name.size(), format_writer.GetWritedSize() },
-			std::move(infos),
-			Potato::Misc::IndexSpan<>{ 0, mutex.component_rw_infos.size() },
-			std::pmr::vector<TriggerTo>{resource},
+			group_name,
+			system_name,
+			rw_index,
+			std::move(tris),
 			result.in_degree,
 			std::move(ptr)
 		);
 
-		for (auto& ite : d_line)
-		{
-			graphic_node[ite.from].trigger_to.emplace_back(
-				ite.is_mutex,
-				ite.to
-			);
-			if(!ite.is_mutex)
-			{
-				graphic_node[ite.to].in_degree += 1;
-			}
-		}
-
 		need_refresh_dependence = true;
 	}
 
-
-	void TickSystemsGroup::FlushAndInitRegisterSystem(ArchetypeComponentManager& manager)
+	bool TickSystemsGroup::StartupNewLayerSystems(void(*func)(void* obj, TickSystemRunningIndex index, std::u8string_view), void* data)
 	{
+		auto span = std::span(startup_system).subspan(startup_system_context_ite);
+		std::optional<std::size_t> cache_index;
+		for(auto& ite : span)
+		{
+			if (!cache_index.has_value())
+			{
+				cache_index = ite.layer;
+			}
+			if (*cache_index == ite.layer)
+			{
+				++startup_system_context_ite;
+				++current_level_system_waiting;
+				{
+					DispatchSystemImp(*ite.to);
+				}
+				
+				ite.to->AddRef();
+				func(data, { reinterpret_cast<std::size_t>(ite.to.GetPointer()), 0 }, ite.display_name);
+			}
+			else
+			{
+				return true;
+			}
+		}
+		return cache_index.has_value();
+	}
+
+	bool TickSystemsGroup::SynFlushAndDispatchImp(ArchetypeComponentManager& manager, void(*func)(void* obj, TickSystemRunningIndex index, std::u8string_view), void* data)
+	{
+		std::lock_guard lg(tick_system_running_mutex);
 		startup_system_context_ite = 0;
 		current_level_system_waiting = 0;
-		if (need_refresh_dependence)
+
 		{
-			need_refresh_dependence = false;
-
-			system_contexts.clear();
-			startup_system.clear();
-			tick_systems_running_graphic_line.clear();
-
-			if (!need_destroy_graphic.empty())
+			std::lock_guard lg(graphic_mutex);
+			if (need_refresh_dependence)
 			{
-				for (auto ite : need_destroy_graphic)
+				need_refresh_dependence = false;
+
+				startup_system.clear();
+				tick_systems_running_graphic_line.clear();
+				temporary_context.clear();
+				running_context.clear();
+
+				if (!need_destroy_graphic.empty())
 				{
-					assert(ite < graphic_node.size());
-					auto& tar = graphic_node[ite];
-					auto start = std::find_if(graphic_node.begin(), graphic_node.end(), 
-					[&](StorageSystemHolder& gn) { return gn.layer >= tar.layer; }
-					);
-					assert(start <= graphic_node.begin() + ite);
-					for (auto ite2 = start; ite2 < graphic_node.end(); ++ite2)
+					for (auto ite : need_destroy_graphic)
 					{
-						if (ite2->layer == tar.layer)
+						assert(ite < graphic_node.size());
+						auto& tar = graphic_node[ite];
+
+						total_string.erase(
+							total_string.begin() + tar.group_name.Begin(),
+							total_string.begin() + tar.system_name.End()
+						);
+
+						std::size_t str_size = tar.group_name.Size() + tar.system_name.Size();
+
+						total_rw_info.erase(
+							total_rw_info.begin() + tar.component_filter.Begin(),
+							total_rw_info.begin() + tar.component_filter.End()
+						);
+
+						std::size_t rw_size = tar.component_filter.Size();
+
+						for (auto ite2 = graphic_node.begin() + ite + 1; ite2 != graphic_node.end(); ++ite2)
 						{
-							for (auto& ite3 : ite2->trigger_to)
+							if (ite2->group_name.Begin() >= tar.system_name.End())
 							{
-								std::erase_if(
-									ite2->trigger_to, [=](TriggerTo const& to) { return to.to == ite; }
-								);
+								ite2->group_name = {
+									ite2->group_name.Begin() - str_size,
+									ite2->group_name.End() - str_size,
+								};
+
+								ite2->system_name = {
+									ite2->system_name.Begin() - str_size,
+									ite2->system_name.End() - str_size,
+								};
+							}
+
+							if (ite2->component_filter.Begin() >= tar.component_filter.End())
+							{
+								ite2->component_filter = {
+									ite2->component_filter.Begin() - rw_size,
+									ite2->component_filter.End() - rw_size,
+								};
 							}
 						}
-						else
+
+						auto start = std::find_if(graphic_node.begin(), graphic_node.end(),
+							[&](StorageSystemHolder& gn) { return gn.layer >= tar.layer; }
+						);
+						assert(start <= graphic_node.begin() + ite);
+						for (auto ite2 = start; ite2 < graphic_node.end(); ++ite2)
 						{
-							for (auto& ite3 : ite2->trigger_to)
+							if (ite2->layer == tar.layer)
 							{
-								if (ite3.to > ite)
-									ite3.to -= 1;
+								for (auto& ite3 : ite2->trigger_to)
+								{
+									std::erase_if(
+										ite2->trigger_to, [=](TriggerTo const& to) { return to.to == ite; }
+									);
+								}
+							}
+							else
+							{
+								for (auto& ite3 : ite2->trigger_to)
+								{
+									if (ite3.to > ite)
+										ite3.to -= 1;
+								}
 							}
 						}
+						std::size_t unique_code = reinterpret_cast<std::size_t>(tar.system_obj.GetPointer());
+						manager.ErasesComponentFilter(unique_code);
+						graphic_node.erase(graphic_node.begin() + ite);
 					}
-					std::size_t unique_code = reinterpret_cast<std::size_t>(tar.system_obj.GetPointer());
-					manager.ErasesComponentFilter(unique_code);
-					graphic_node.erase(graphic_node.begin() + ite);
+					need_destroy_graphic.clear();
 				}
-				need_destroy_graphic.clear();
-			}
 
-			
-			std::size_t index = 0;
-			for (auto& ite : graphic_node)
-			{
-				auto& cur = *ite.system_obj;
 
-				std::size_t o_size = tick_systems_running_graphic_line.size();
-				for (auto& ite2 : ite.trigger_to)
+				std::size_t index = 0;
+				for (auto& ite : graphic_node)
 				{
-					auto& toref = graphic_node[ite2.to];
-					tick_systems_running_graphic_line.emplace_back(
-						ite2.is_mutex,
-						ite2.to,
-						toref.display_name.Slice(std::u8string_view(toref.total_string))
-					);
-				}
+					auto& cur = *ite.system_obj;
 
-				system_contexts.emplace_back(
-					RunningStatus::Ready,
-					ite.in_degree,
-					ite.in_degree,
-					0,
-					Potato::Misc::IndexSpan<>{o_size, tick_systems_running_graphic_line.size() },
-					ite.system_obj
-				);
+					std::lock_guard lg(cur.mutex);
 
-				if(ite.in_degree == 0)
-				{
-					startup_system.emplace_back(
-						ite.layer,
-						index,
-						ite.display_name.Slice(std::u8string_view(ite.total_string))
+					std::size_t o_size = tick_systems_running_graphic_line.size();
+					for (auto& ite2 : ite.trigger_to)
+					{
+						auto& toref = graphic_node[ite2.to];
+						tick_systems_running_graphic_line.emplace_back(
+							ite2.is_mutex,
+							ite2.to,
+							toref.system_obj,
+							toref.system_obj->GetDisplayName()
+						);
+					}
+
+					cur.status = RunningStatus::Ready;
+					cur.request_parallel = 0;
+
+					cur.fast_index = running_context.size();
+
+					running_context.emplace_back(
+						ite.in_degree,
+						ite.in_degree,
+						0,
+						Potato::Misc::IndexSpan<>{ o_size, tick_systems_running_graphic_line.size()},
+						ite.system_obj
 					);
+
+					if (ite.in_degree == 0)
+					{
+						startup_system.emplace_back(
+							ite.layer,
+							ite.system_obj,
+							ite.system_obj->GetDisplayName()
+						);
+					}
+					++index;
 				}
-				++index;
 			}
-
-			return;
-		}
-
-		for (auto& ite : system_contexts)
-		{
-			ite.status = RunningStatus::Ready;
-			ite.current_in_degree = ite.startup_in_degree;
-			ite.mutex_degree = 0;
 		}
 		
-	}
 
-	std::size_t TickSystemsGroup::SynFlushAndDispatchImp(ArchetypeComponentManager& manager, void(*func)(void* obj, std::size_t, std::u8string_view), void* data)
-	{
-		std::lock_guard lg(graphic_mutex);
-		std::lock_guard lg2(tick_system_running_mutex);
-		FlushAndInitRegisterSystem(manager);
+		for (auto& ite : graphic_node)
+		{
+			auto& ref = *ite.system_obj;
+			std::lock_guard lf(ref.mutex);
+			ref.status = RunningStatus::Ready;
+			ref.request_parallel = 0;
+		}
+
+		for (auto& ite : running_context)
+		{
+			ite.mutex_degree = 0;
+			ite.current_in_degree = ite.startup_in_degree;
+		}
+		
 		if (!startup_system.empty())
 		{
-			std::size_t count = 0;
-			std::optional<std::size_t> cache_index;
-			for (auto& ite : startup_system)
-			{
-				if (!cache_index.has_value())
-				{
-					cache_index = ite.layer;
-				}
-				if (*cache_index == ite.layer)
-				{
-					++startup_system_context_ite;
-					++current_level_system_waiting;
-					++count;
-					DispatchSystemImp(ite.index);
-					func(data, ite.index, ite.display_name);
-				}
-				else
-				{
-					return count;
-				}
-			}
-			return count;
+			return StartupNewLayerSystems(func, data);
 		}
-		return 0;
+		return false;
 	}
 
-	void TickSystemsGroup::DispatchSystemImp(std::size_t index)
+	void TickSystemsGroup::DispatchSystemImp(SystemHolder& ref)
 	{
-		auto& ref = system_contexts[index];
-		ref.status = RunningStatus::Running;
-		auto span = ref.reference_trigger_line.Slice(std::span(tick_systems_running_graphic_line));
-		for (auto ite : span)
 		{
-			auto& ref2 = system_contexts[ite.index];
+			std::lock_guard lg(ref.mutex);
+			assert(ref.status == RunningStatus::Ready);
+			ref.status = RunningStatus::Waiting;
+		}
+
+		auto& ref2 = running_context[ref.fast_index];
+		auto span = ref2.reference_trigger_line.Slice(std::span(tick_systems_running_graphic_line));
+
+		for(auto& ite : span)
+		{
 			if (ite.is_mutex)
 			{
-				ref2.mutex_degree += 1;
+				running_context[ite.to->fast_index].mutex_degree += 1;
 			}
 		}
 	}
 
-	std::optional<std::size_t> TickSystemsGroup::TryDispatchDependenceImp(std::size_t index, void(*func)(void* obj, std::size_t, std::u8string_view), void* data)
+	bool TickSystemsGroup::StartParallel(SystemHolder& system, std::size_t parallel_count)
 	{
-		if (tick_system_running_mutex.try_lock())
+		std::lock_guard lg(system.mutex);
+		if(system.status == RunningStatus::Running && system.request_parallel == 0)
 		{
-			std::size_t count = 0;
-			std::lock_guard lg2(tick_system_running_mutex, std::adopt_lock);
-			assert(index < system_contexts.size());
-			auto& ref = system_contexts[index];
-			assert(ref.status == RunningStatus::Running);
-			ref.status = RunningStatus::Done;
+			system.request_parallel = parallel_count;
+			return true;
+		}
+		return false;
+	}
 
-			auto span = ref.reference_trigger_line.Slice(std::span(tick_systems_running_graphic_line));
-			for (auto ite : span)
+	bool TickSystemsGroup::ExecuteAndDispatchDependence(TickSystemRunningIndex index, ArchetypeComponentManager& manager, Context& context, void(*func)(void* obj, TickSystemRunningIndex, std::u8string_view), void* data)
+	{
+
+		SystemHolder::Ptr ptr{ reinterpret_cast<SystemHolder*>(index.index) };
+		
+
+		SystemContext sys_context{
+			*ptr, manager, context, *this
+		};
+
+		sys_context.self_property = ptr->GetProperty();
+
+		{
+			if(ptr->mutex.try_lock())
 			{
-				auto& ref2 = system_contexts[ite.index];
-				if (ite.is_mutex)
+				std::lock_guard lg(ptr->mutex, std::adopt_lock);
+				switch (ptr->status)
 				{
-					ref2.mutex_degree -= 1;
-				}else
-				{
-					ref2.current_in_degree -= 1;
-				}
-				if(ref2.status == RunningStatus::Ready && ref2.current_in_degree == 0 && ref2.mutex_degree == 0)
-				{
-					++current_level_system_waiting;
-					++count;
-					DispatchSystemImp(ite.index);
-					func(data, ite.index, ite.display_name);
-				}
-			}
-
-
-			--current_level_system_waiting;
-
-
-			if (current_level_system_waiting == 0)
-			{
-				std::optional<std::size_t> cache_layer;
-				while (startup_system_context_ite < startup_system.size())
-				{
-					auto& ref = startup_system[startup_system_context_ite];
-					if(!cache_layer.has_value())
-						cache_layer = ref.layer;
-					if (*cache_layer == ref.layer)
+				case RunningStatus::Waiting:
+					ptr->status = RunningStatus::Running;
+					break;
+				case RunningStatus::WaitingParallel:
+					if(ptr->request_parallel == 0)
 					{
-						++startup_system_context_ite;
-						++current_level_system_waiting;
-						++count;
-						DispatchSystemImp(ref.index);
-						func(data, ref.index, ref.display_name);
+						sys_context.category = SystemCatergory::FinalParallel;
+						ptr->status = RunningStatus::Running;
 					}else
 					{
-						break;
+						sys_context.category = SystemCatergory::Parallel;
+						sys_context.parameter = index.parameter;
+					}
+					break;
+				default:
+					assert(false);
+					break;
+				}
+			}else
+			{
+				//ptr->AddRef();
+				func(data, index, ptr->GetDisplayName());
+				return true;
+			}
+		}
+
+		ptr->SubRef();
+
+		ptr->Execute(sys_context);
+
+		RunningStatus status = RunningStatus::Done;
+		
+
+		{
+			std::lock_guard lg2(ptr->mutex);
+
+			switch(ptr->status)
+			{
+			case RunningStatus::Running:
+				if(ptr->request_parallel == 0)
+				{
+					ptr->status = RunningStatus::Done;
+					break;
+				}else
+				{
+					ptr->status = RunningStatus::WaitingParallel;
+					status = RunningStatus::WaitingParallel;
+					for(std::size_t i = 0; i < ptr->request_parallel; ++i)
+					{
+						ptr->AddRef();
+						func(data, { index.index, i}, ptr->GetDisplayName());
+					}
+					return true;
+				}
+				break;
+			case RunningStatus::WaitingParallel:
+				status = RunningStatus::WaitingParallel;
+				--ptr->request_parallel;
+				if(ptr->request_parallel == 0)
+				{
+					ptr->AddRef();
+					func(data, { index.index, 0 }, ptr->GetDisplayName());
+				}
+				return true;
+				break;
+			default:
+				assert(false);
+				break;
+			}
+		}
+
+		if(status == RunningStatus::Done)
+		{
+			{
+				std::lock_guard lg(tick_system_running_mutex);
+
+				auto index = ptr->fast_index;
+				auto& ref = running_context[index];
+
+				auto span = ref.reference_trigger_line.Slice(std::span(tick_systems_running_graphic_line));
+
+				for (auto& ite : span)
+				{
+					{
+						auto& tar = running_context[ite.to_index];
+						if (ite.is_mutex)
+						{
+							assert(tar.mutex_degree > 0);
+							tar.mutex_degree -= 1;
+						}
+						else {
+							assert(tar.current_in_degree > 0);
+							tar.current_in_degree -= 1;
+						}
+
+						{
+
+							if(ref.mutex_degree == 0 && ref.current_in_degree == 0)
+							{
+								auto& ref2 = *tar.to;
+								std::lock_guard lg(ref2.mutex);
+								if(ref2.status == RunningStatus::Ready)
+								{
+									ref2.status = RunningStatus::Waiting;
+
+									auto span2 = tar.reference_trigger_line.Slice(std::span(tick_systems_running_graphic_line));
+
+									for (auto& ite : span)
+									{
+										if (ite.is_mutex)
+										{
+											running_context[ite.to_index].mutex_degree += 1;
+										}
+									}
+								}
+								ref2.AddRef();
+								func(data, {reinterpret_cast<std::size_t>(tar.to.GetPointer()), 0}, ref2.GetDisplayName());
+								++current_level_system_waiting;
+							}
+						}
 					}
 				}
+
+				--current_level_system_waiting;
+				if(current_level_system_waiting == 0)
+				{
+					StartupNewLayerSystems(func, data);
+				}
+				return current_level_system_waiting != 0;
 			}
-			return current_level_system_waiting;
-		}
-		else
+		}else
 		{
-			return std::nullopt;
+			assert(false);
+			{
+				std::lock_guard lg(ptr->mutex);
+				assert(ptr->status == RunningStatus::WaitingParallel);
+				ptr->request_parallel -= 0;
+				if(ptr->request_parallel == 0)
+				{
+					ptr->AddRef();
+					func(data, {reinterpret_cast<std::size_t>(ptr.GetPointer()), 0}, ptr->GetDisplayName());
+				}
+				return true;
+			}
 		}
-	}
-
-	void TickSystemsGroup::ExecuteSystem(std::size_t index, ArchetypeComponentManager& manager, Context& context)
-	{
-		SystemHolder::Ptr holder;
-		std::int32_t layer;
-		SystemProperty pro;
-		{
-			std::shared_lock sl(graphic_mutex);
-			assert(index < graphic_node.size());
-			auto& ptr = graphic_node[index];
-			holder = ptr.system_obj;
-			layer = ptr.layer;
-			pro = ptr.GetProperty();
-		}
-		assert(holder);
-		holder->Execute(manager, context, layer, pro);
-
 	}
 	
 }

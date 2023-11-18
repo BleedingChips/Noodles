@@ -7,7 +7,7 @@ module NoodlesContext;
 namespace Noodles
 {
 
-	/*
+
 	constexpr std::u8string_view TaskName = u8"Noodles Startup";
 
 	auto Context::Create(ContextConfig config, Potato::Task::TaskContext::Ptr TaskPtr, std::u8string_view context_name, std::pmr::memory_resource* UpstreamResource)->Ptr
@@ -42,11 +42,11 @@ namespace Noodles
 			}
 
 			component_manager.UpdateEntityStatus();
-			auto count = tick_system_group.SynFlushAndDispatch(component_manager, [&](std::size_t index, std::u8string_view display_name)
+			auto count = tick_system_group.SynFlushAndDispatch(component_manager, [&](TickSystemRunningIndex ruing_index, std::u8string_view display_name)
 			{
 				auto new_property = status.Property;
-				new_property.AppendData = index + 1;
-				new_property.AppendData2 = 0;
+				new_property.AppendData = ruing_index.index + 1;
+				new_property.AppendData2 = ruing_index.parameter;
 				new_property.TaskName = display_name;
 				task_context->CommitTask(
 					this,
@@ -63,16 +63,15 @@ namespace Noodles
 		}else
 		{
 			auto index = status.Property.AppendData - 1;
-			if(status.Property.AppendData2 == 0)
-			{
-				tick_system_group.ExecuteSystem(index, component_manager, *this);
-				status.Property.AppendData2 = 1;
-			}
 
-			auto re = tick_system_group.TryDispatchDependence(index, [&](std::size_t i, std::u8string_view dis)
-			{
+			auto re = tick_system_group.ExecuteAndDispatchDependence(
+				{index, status.Property.AppendData2},
+				component_manager,
+				*this,
+				[&](TickSystemRunningIndex i, std::u8string_view dis)
+				{
 					auto new_property = status.Property;
-					new_property.AppendData = i + 1;
+					new_property.AppendData = i.index + 1;
 					new_property.AppendData2 = 0;
 					new_property.TaskName = dis;
 					task_context->CommitTask(
@@ -86,16 +85,8 @@ namespace Noodles
 					{
 
 					}
-			});
-
-			if(!re.has_value())
-			{
-				task_context->CommitTask(
-					this,
-					status.Property
-				);
-				return;
-			}
+				}
+			);
 		}
 
 		std::size_t E = 0;
@@ -160,5 +151,4 @@ namespace Noodles
 		}
 		return false;
 	}
-	*/
 }

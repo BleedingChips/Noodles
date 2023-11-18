@@ -16,14 +16,17 @@ namespace Noodles
 		);
 	}
 
+	bool ArchetypeID::operator==(const ArchetypeID& i1) const
+	{
+		return layout == i1.layout && id == i1.id;
+	}
+
 	std::strong_ordering ArchetypeMountPoint::operator<=>(ArchetypeMountPoint const& mp) const
 	{
-		auto re = index <=> mp.index;
-		if(re == std::strong_ordering::equivalent)
-		{
-			re = buffer <=> mp.buffer;
-		}
-		return re;
+		return Potato::Misc::PriorityCompareStrongOrdering(
+			index, mp.index,
+			buffer, mp.buffer
+		);
 	}
 
 	ArchetypeMountPoint::operator bool() const
@@ -47,11 +50,11 @@ namespace Noodles
 				elements.end(),
 				[&](Element const& e)
 				{
-					return (id <=> e.id) != std::strong_ordering::greater;
+					return id <= e.id;
 				}
 			);
 
-			if (find != elements.end() && (find->id <=> id) == std::strong_ordering::equivalent)
+			if (find != elements.end() && find->id == id)
 			{
 				if (id.is_singleton)
 				{
@@ -103,7 +106,7 @@ namespace Noodles
 	{
 		auto find = std::find_if(elements.begin(), elements.end(), [&](Element const& e)
 		{
-			return (e.id.id <=> id) == std::strong_ordering::equivalent;
+			return e.id.id == id;
 		});
 
 		if(find != elements.end())
@@ -168,10 +171,7 @@ namespace Noodles
 
 		std::sort(temp_buffer.begin(), temp_buffer.end(), [](Element const& E, Element const& E2)
 			{
-				auto re = E.id <=> E2.id;
-				if (re != std::strong_ordering::less)
-					return true;
-				return false;
+				return E.id >= E2.id;
 			});
 
 		Potato::IR::Layout layout;
@@ -241,8 +241,7 @@ namespace Noodles
 		std::size_t index = 0;
 		for(auto& ite : infos)
 		{
-			auto re = type_id <=> ite.id.id;
-			if (re == std::strong_ordering::equal)
+			if (type_id == ite.id.id)
 			{
 				return Location{index, ite.count};
 			}
@@ -397,6 +396,11 @@ namespace Noodles
 			}
 		}
 		return re; 
+	}
+
+	bool Archetype::operator==(Archetype const& ar) const
+	{
+		return this->operator<=>(ar) == std::strong_ordering::equal;
 	}
 
 }
