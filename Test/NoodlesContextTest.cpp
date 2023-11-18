@@ -10,12 +10,12 @@ void PrintMark(Noodles::SystemContext& context)
 {
 	std::lock_guard lg(PrintMutex);
 	std::println("---{0}---", std::string_view{
-		reinterpret_cast<char const*>(context.self_property.system_name.data()),
-		context.self_property.system_name.size()
+		reinterpret_cast<char const*>(context.GetProperty().system_name.data()),
+		context.GetProperty().system_name.size()
 		});
 }
 
-void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration dua = std::chrono::milliseconds{ 2000 })
+void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration dua = std::chrono::milliseconds{ 200 })
 {
 	{
 		std::lock_guard lg(PrintMutex);
@@ -38,7 +38,7 @@ void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration du
 
 void PrintSystem(Noodles::SystemContext& context)
 {
-	UniquePrint(context.self_property.system_name);
+	UniquePrint(context.GetProperty().system_name);
 }
 
 std::partial_ordering CustomPriority(SystemProperty const& p1, SystemProperty const& p2)
@@ -112,7 +112,7 @@ int main()
 		},
 		[](SystemContext& context, std::size_t)
 		{
-			UniquePrint(context.self_property.system_name);
+			UniquePrint(context.GetProperty().system_name);
 		}
 	);
 
@@ -128,7 +128,7 @@ int main()
 		},
 		[](SystemContext& context, std::size_t)
 		{
-			UniquePrint(context.self_property.system_name);
+			UniquePrint(context.GetProperty().system_name);
 		}
 	);
 
@@ -144,7 +144,11 @@ int main()
 		},
 		[](SystemContext& context, std::size_t)
 		{
-			UniquePrint(context.self_property.system_name);
+			UniquePrint(context.GetProperty().system_name);
+			if (context.GetSystemCategory() == SystemCatergory::Normal)
+			{
+				context.StartParallel(10);
+			}
 		}
 	);
 
