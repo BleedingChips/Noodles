@@ -40,43 +40,38 @@ int main()
 {
 
 	{
-		std::vector<Noodles::ArchetypeID> ids{
-		ArchetypeID::Create<A>(),
-		ArchetypeID::Create<B>(),
-		ArchetypeID::Create<C>(),
-		ArchetypeID::Create<Report>(),
-		};
-
-		std::vector<Noodles::ArchetypeID> idscc{
-			ArchetypeID::Create<A>(),
-			ArchetypeID::Create<B>(),
-			ArchetypeID::Create<C>(),
-			ArchetypeID::Create<D>(),
-			ArchetypeID::Create<Report>(),
-		};
 
 		ArchetypeComponentManager manager;
 
-		auto entity = manager.CreateEntityDefer(std::span(ids), [](EntityConstructor& cons)
-			{
-				cons.Construct<A>(
-					A{ 10 }
-				);
-			});
+		EntityConstructor e_const1;
 
-		auto entity2 = manager.CreateEntityDefer(std::span(ids), [](EntityConstructor& cons)
-			{
-				cons.Construct<A>(
-					A{ 9 }
-				);
-			});
+		e_const1.MoveConstruct(Report{});
+		e_const1.MoveConstruct(B{});
+		e_const1.MoveConstruct(C{});
+		e_const1.MoveConstruct(A{ 10 });
+		e_const1.MoveConstruct(A{ 11 });
+		e_const1.MoveConstruct(D{});
 
-		auto entity3 = manager.CreateEntityDefer(std::span(idscc), [](EntityConstructor& cons)
-			{
-				cons.Construct<A>(
-					A{ 8 }
-				);
-			});
+		auto entity = manager.CreateEntityDefer(e_const1);
+
+
+		EntityConstructor e_const2;
+
+		e_const2.MoveConstruct(Report{});
+		e_const2.MoveConstruct(B{});
+		e_const2.MoveConstruct(C{});
+		e_const2.MoveConstruct(A{ 9});
+
+		auto entity2 = manager.CreateEntityDefer(e_const2);
+
+		EntityConstructor e_const3;
+
+		e_const2.MoveConstruct(Report{});
+		e_const2.MoveConstruct(B{});
+		e_const2.MoveConstruct(C{});
+		e_const2.MoveConstruct(A{ 8 });
+
+		auto entity3 = manager.CreateEntityDefer(e_const3);
 
 		//Manager.DestroyEntity(entity);
 

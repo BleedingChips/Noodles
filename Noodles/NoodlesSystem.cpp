@@ -291,8 +291,6 @@ namespace Noodles
 		return {};
 	}
 
-	
-
 	SystemEntityFilter::Ptr FilterGenerator::CreateEntityFilter(std::span<SystemRWInfo const> rw_infos)
 	{
 		auto ptr = SystemEntityFilter::Create(rw_infos, system_resource);
@@ -320,6 +318,51 @@ namespace Noodles
 			return ptr;
 		}
 		return {};
+	}
+
+
+	std::tuple<void const*, std::size_t> SystemComponentFilter::Wrapper::ReadRaw(UniqueTypeID const& ref, std::size_t index) const
+	{
+		assert(index < id_index.size());
+		auto idi = id_index[index];
+		if(ref == infos[index].type_id)
+		{
+			return { archetype.GetData(idi.index, 0, mp), idi.count };
+		}
+		return {nullptr, 0};
+	}
+
+	std::tuple<void*, std::size_t> SystemComponentFilter::Wrapper::WriteRaw(UniqueTypeID const& ref, std::size_t index) const
+	{
+		assert(index < id_index.size());
+		auto idi = id_index[index];
+		if (ref == infos[index].type_id && infos[index].is_write)
+		{
+			return { archetype.GetData(idi.index, 0, mp), idi.count };
+		}
+		return {nullptr, 0};
+	}
+
+	std::tuple<void const*, std::size_t> SystemEntityFilter::Wrapper::ReadRaw(UniqueTypeID const& ref, std::size_t index) const
+	{
+		assert(index < location.size());
+		auto idi = location[index];
+		if (ref == infos[index].type_id)
+		{
+			return { archetype.GetData(idi.index, 0, mp), idi.count };
+		}
+		return { nullptr, 0 };
+	}
+
+	std::tuple<void*, std::size_t> SystemEntityFilter::Wrapper::WriteRaw(UniqueTypeID const& ref, std::size_t index) const
+	{
+		assert(index < location.size());
+		auto idi = location[index];
+		if (ref == infos[index].type_id && infos[index].is_write)
+		{
+			return { archetype.GetData(idi.index, 0, mp), idi.count };
+		}
+		return { nullptr, 0 };
 	}
 
 	static Potato::Format::StaticFormatPattern<u8"{}{}{}-[{}]:[{}]"> system_static_format_pattern;

@@ -112,6 +112,71 @@ export namespace Noodles
 
 		friend struct SystemContext;
 		friend struct Potato::Pointer::IntrusiveSubWrapperT;
+
+	public:
+
+		struct Wrapper
+		{
+
+			Wrapper(Archetype const& archetype, ArchetypeMountPoint mp, std::span<ArchetypeTypeIDIndex const> id_index, std::span<SystemRWInfo const> infos)
+				: archetype(archetype), mp(mp), id_index(id_index), infos(infos)
+			{
+				
+			}
+			Wrapper(Wrapper const&) = default;
+
+			std::tuple<void const*, std::size_t> ReadRaw(UniqueTypeID const& ref, std::size_t index) const;
+
+			template<typename T>
+			std::span<T const> Read(std::size_t index) const
+			{
+				auto [d, c] = ReadRaw(UniqueTypeID::Create<std::remove_cvref_t<T>>(), index);
+				return std::span<T const>{static_cast<T const*>(d), c};
+			}
+
+			std::tuple<void*, std::size_t> WriteRaw(UniqueTypeID const& ref, std::size_t index) const;
+
+
+			template<typename T>
+			std::span<T> Write(std::size_t index) const
+			{
+				auto [d, c] = WriteRaw(UniqueTypeID::Create<std::remove_cvref_t<T>>(), index);
+				return std::span<T>{static_cast<T*>(d), c};
+			}
+
+		protected:
+
+			Archetype const& archetype;
+			ArchetypeMountPoint mp;
+			std::span<ArchetypeTypeIDIndex const> id_index;
+			std::span<SystemRWInfo const> infos;
+		};
+
+		template<typename Func>
+		bool Foreach(ArchetypeComponentManager& manager, Func&& func) requires(std::is_invocable_r_v<bool, Func, Wrapper>)
+		{
+			std::shared_lock sl(mutex);
+			for(auto& ite : in_direct_mapping)
+			{
+				auto span = std::span(id_index).subspan(ite.offset, ref_infos.size());
+				auto re = manager.ForeachMountPoint(ite.element_index, [&](ArchetypeMountPointRange range)
+				{
+					for(auto& ite2 : range)
+					{
+						Wrapper wrap{range.archetype, ite2, span, ref_infos};
+						if(!func(wrap))
+						{
+							return false;
+						}
+					}
+					return true;
+				});
+				if(!re)
+					return false;
+			}
+			return true;
+		}
+
 	};
 
 	struct SystemEntityFilter : Potato::Pointer::DefaultIntrusiveInterface
@@ -120,6 +185,75 @@ export namespace Noodles
 
 		static auto Create(std::span<SystemRWInfo const> infos, std::pmr::memory_resource* resource)
 			-> Ptr;
+
+		struct Wrapper
+		{
+
+			Wrapper(Archetype const& archetype, ArchetypeMountPoint mp, std::span<Archetype::Location const> location, std::span<SystemRWInfo const> infos)
+				: archetype(archetype), mp(mp), location(location), infos(infos)
+			{
+
+			}
+
+			Wrapper(Wrapper const&) = default;
+
+			std::tuple<void const*, std::size_t> ReadRaw(UniqueTypeID const& ref, std::size_t index) const;
+
+			template<typename T>
+			std::span<T const> Read(std::size_t index) const
+			{
+				auto [d, c] = ReadRaw(UniqueTypeID::Create<std::remove_cvref_t<T>>(), index);
+				return std::span<T const>{static_cast<T const*>(d), c};
+			}
+
+			std::tuple<void*, std::size_t> WriteRaw(UniqueTypeID const& ref, std::size_t index) const;
+
+
+			template<typename T>
+			std::span<T> Write(std::size_t index) const
+			{
+				auto [d, c] = WriteRaw(UniqueTypeID::Create<std::remove_cvref_t<T>>(), index);
+				return std::span<T>{static_cast<T*>(d), c};
+			}
+
+		protected:
+
+			Archetype const& archetype;
+			ArchetypeMountPoint mp;
+
+			std::span<Archetype::Location const> location;
+			std::span<SystemRWInfo const> infos;
+		};
+
+		template<typename Func>
+		bool ForeachEntity(ArchetypeComponentManager& manager, Entity const& entity, Func&& func, std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource())
+			requires(std::is_invocable_r_v<bool, Func, Wrapper>)
+		{
+			bool re = true;
+			auto re2 = manager.ReadEntityMountPoint(entity, [&](EntityStatus status, Archetype const& arc, ArchetypeMountPoint mp)
+			{
+				std::pmr::vector<Archetype::Location> locations(temporary_resource);
+				locations.resize(ref_infos.size());
+
+				for(std::size_t i = 0; i < ref_infos.size(); ++i)
+				{
+					auto loc = arc.LocateTypeID(ref_infos[i].type_id);
+					if(loc.has_value())
+					{
+						locations[i] = *loc;
+					}else
+					{
+						re = false;
+						return;
+					}
+				}
+
+				Wrapper wra{ arc,  mp, std::span(locations), ref_infos};
+				func(wra);
+			});
+
+			return re2 && re;
+		}
 
 	protected:
 

@@ -89,7 +89,41 @@ namespace Noodles
 		o_resource->deallocate(this, size, alignof(ComponentPage));
 	}
 
-	
+	EntityConstructor::EntityConstructor(std::pmr::memory_resource* upstream)
+		: temp_resource(upstream), arc_constructor(&temp_resource), elements(&temp_resource)
+	{
+		arc_constructor.AddElement(ArchetypeComponentManager::EntityPropertyArchetypeID());
+	}
+
+	EntityConstructor::~EntityConstructor()
+	{
+		for(auto& ite : elements)
+		{
+			ite.id.wrapper_function(ArchetypeID::Status::Destruction, ite.buffer, nullptr);
+			temp_resource.deallocate(ite.buffer, ite.id.layout.Size, ite.id.layout.Align);
+		}
+	}
+
+	bool EntityConstructor::MoveConstructRaw(ArchetypeID const& id, void* data)
+	{
+		auto loc = arc_constructor.AddElement(id);
+		if(loc.has_value())
+		{
+			auto adress = temp_resource.allocate(id.layout.Size, id.layout.Align);
+			id.wrapper_function(ArchetypeID::Status::MoveConstruction, adress, data);
+			elements.emplace_back(
+				*loc,
+				id,
+				adress
+			);
+			return true;
+		}
+		return false;
+	}
+
+
+
+	/*
 	EntityConstructor::EntityConstructor(
 		Status status,
 		Archetype::Ptr archetype_ptr,
@@ -140,6 +174,40 @@ namespace Noodles
 		}
 		return false;
 	}
+
+	bool EntityConstructorPrior::MoveConstructRaw(ArchetypeID const& id, void* reference_data)
+	{
+		auto find = std::find_if(components.rbegin(), components.rend(), [&](PriorComponent const& c)
+		{
+			return id == c.id;
+		});
+
+		std::size_t count = 0;
+
+		if(find != components.rend())
+		{
+			if(id.is_singleton)
+				return false;
+			count = find->count + 1;
+		}
+
+		auto adress = resource->allocate(id.layout.Size, id.layout.Align);
+		id.wrapper_function(ArchetypeID::Status::MoveConstruction, adress, reference_data);
+		components.emplace_back(id, adress, count);
+		
+		return true;
+	}
+
+	EntityConstructorPrior::~EntityConstructorPrior()
+	{
+		for(auto& ite : components)
+		{
+			ite.id.wrapper_function(ArchetypeID::Status::Destruction, ite.data, nullptr);
+			resource->deallocate(ite.data, ite.id.layout.Size, ite.id.layout.Align);
+		}
+		components.clear();
+	}
+	*/
 
 	
 	ArchetypeComponentManager::ArchetypeComponentManager(std::pmr::memory_resource* upstream)
@@ -206,15 +274,60 @@ namespace Noodles
 		need_update = false;
 	}
 
-	ArchetypeConstructor ArchetypeComponentManager::CreateArchetypeConstructor(std::pmr::memory_resource* resource)
+	EntityPtr ArchetypeComponentManager::CreateEntityDefer(EntityConstructor const& con)
 	{
-		ArchetypeConstructor constructor{ resource };
-		auto re = constructor.AddElement(EntityPropertyArchetypeID());
-		assert(re);
-		return constructor;
+		std::lock_guard lg(spawn_mutex);
+		Archetype::Ptr ptr = Archetype::Create(con.arc_constructor, &spawned_entities_resource);
+		if(ptr)
+		{
+			assert(entity_resource);
+			EntityPtr entity = Entity::Create(entity_resource->get_resource_interface());
+
+			if (entity)
+			{
+				EntityProperty pro{
+					entity
+				};
+
+				auto layout = ptr->GetLayout();
+				ArchetypeMountPoint mp{
+				spawned_entities_resource.allocate(layout.Size, layout.Align)
+				};
+
+				for (auto& ite : con.elements)
+				{
+					auto loc = ptr->LocateTypeID(ite.id.id);
+					ptr->MoveConstruct(loc->index, ptr->GetData(loc->index, ite.count, mp), ite.buffer);
+				}
+
+				auto loc = ptr->LocateTypeID(EntityPropertyArchetypeID().id);
+				ptr->MoveConstruct(loc->index, ptr->GetData(loc->index, 0, mp), &pro);
+
+
+				{
+					std::shared_lock sl(components_mutex);
+					std::size_t index = 0;
+					for (auto& ite : components)
+					{
+						assert(ite.archetype);
+						if ((*ite.archetype) == (*ptr))
+						{
+							ptr->fast_index = index + 1;
+						}
+						++index;
+					}
+				}
+				entity->archetype = ptr;
+				entity->mount_point = mp;
+				spawned_entities.push_back(entity);
+				need_update = true;
+				return entity;
+			}
+		}
+		return {};
 	}
 
-	
+	/*
 	auto ArchetypeComponentManager::PreCreateEntityImp(std::span<ArchetypeID const> span, std::pmr::memory_resource* resource)
 		->EntityConstructor
 	{
@@ -252,6 +365,7 @@ namespace Noodles
 			};
 		}
 	}
+	*/
 
 	bool ArchetypeComponentManager::ForeachMountPoint(std::size_t element_index, bool(*func)(void*, ArchetypeMountPointRange), void* data) const
 	{
@@ -268,7 +382,7 @@ namespace Noodles
 					*ite.archetype, top->begin(), top->end()
 				};
 				if(!func(data, range))
-					return true;
+					return false;
 				top = top->GetNextPage();
 			}
 			return true;
@@ -296,7 +410,7 @@ namespace Noodles
 					*ite.archetype, top->begin(), top->end()
 				};
 				if (!func(data, range))
-					return true;
+					return false;
 				top = top->GetNextPage();
 			}
 			return true;
@@ -317,6 +431,7 @@ namespace Noodles
 		return false;
 	}
 
+	/*
 	EntityPtr ArchetypeComponentManager::CreateEntityImp(EntityConstructor& constructor)
 	{
 
@@ -368,6 +483,7 @@ namespace Noodles
 		}
 		return {};
 	}
+	*/
 
 	void ArchetypeComponentManager::ReleaseEntity(Entity& storage)
 	{

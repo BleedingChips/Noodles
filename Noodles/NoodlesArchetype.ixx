@@ -135,14 +135,15 @@ export namespace Noodles
 	struct ArchetypeConstructor
 	{
 		ArchetypeConstructor(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		ArchetypeConstructor(ArchetypeConstructor&&) = default;
 
-		bool AddElement(ArchetypeID const& id);
+		std::optional<std::size_t> AddElement(ArchetypeID const& id);
 
 		bool AddElement(std::span<ArchetypeID const> span, std::size_t& bad_index);
 		bool AddElement(std::span<ArchetypeID const> span);
 
 		template<typename Type>
-		bool AddElement() { return AddElement(ArchetypeID::Create<Type>()); }
+		std::optional<std::size_t> AddElement() { return AddElement(ArchetypeID::Create<Type>()); }
 
 		std::optional<std::size_t> Exits(UniqueTypeID const& id) const;
 		operator bool() const { return status == Status::Success; }

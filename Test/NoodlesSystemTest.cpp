@@ -46,7 +46,7 @@ std::partial_ordering CustomPriority(SystemProperty const& p1, SystemProperty co
 	return p1.system_name <=> p2.system_name;
 }
 
-struct A{};
+struct A{ std::size_t index = 0; };
 
 struct B{};
 
@@ -58,6 +58,21 @@ int main()
 	ArchetypeComponentManager manager;
 
 	Noodles::TickSystemsGroup group;
+
+	EntityConstructor ec;
+	ec.MoveConstruct(A{100});
+	ec.MoveConstruct(A{ 99 });
+
+	auto en = manager.CreateEntityDefer(ec);
+	
+	EntityConstructor ec2;
+	ec2.MoveConstruct(A{ 98 });
+	ec2.MoveConstruct(A{ 97 });
+	ec2.MoveConstruct(A{ 96 });
+
+	auto en2 = manager.CreateEntityDefer(ec2);
+
+	manager.UpdateEntityStatus();
 
 
 	struct Text
@@ -126,22 +141,42 @@ int main()
 		}
 	);
 
+	struct Contr
+	{
+		SystemComponentFilter::Ptr filter;
+		SystemEntityFilter::Ptr efilter;
+	};
+
 	auto i5 = group.RegisterDefer(
 		manager, 0, default_pri, SystemProperty{ u8"S3" },
-		[](FilterGenerator& Generator) -> std::size_t
+		[](FilterGenerator& Generator) -> Contr
 		{
 			std::vector<SystemRWInfo> infos = {
 				SystemRWInfo::Create<A>()
 			};
-			Generator.CreateComponentFilter(infos);
-			return 0;
+			auto fil = Generator.CreateComponentFilter(infos);
+			auto k2 = Generator.CreateEntityFilter(infos);
+			return {std::move(fil), std::move(k2)};
 		},
-		[](SystemContext& context, std::size_t)
+		[&](SystemContext& context, Contr& C)
 		{
 			UniquePrint(context.GetProperty().system_name);
 			if(context.GetSystemCategory() == SystemCatergory::Normal)
 			{
 				context.StartParallel(10);
+			}else if(context.GetSystemCategory() == SystemCatergory::FinalParallel)
+			{
+				C.filter->Foreach(manager, [](SystemComponentFilter::Wrapper wra)
+				{
+					auto s = wra.Write<A>(0);
+					return true;
+				});
+
+				C.efilter->ForeachEntity(manager, *en2, [](SystemEntityFilter::Wrapper wra)
+				{
+					auto s = wra.Write<A>(0);
+					return true;
+				});
 			}
 		}
 	);

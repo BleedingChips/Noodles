@@ -90,8 +90,64 @@ export namespace Noodles
 		std::pmr::vector<std::size_t> flags;
 	};
 
-	
+	struct EntityProperty
+	{
+		Entity::Ptr GetEntity() const { return entity; }
 
+		EntityProperty(EntityProperty const&) = default;
+		EntityProperty& operator=(EntityProperty const&) = default;
+		EntityProperty(EntityProperty&&) = default;
+		EntityProperty(Entity::Ptr entity) : entity(std::move(entity)) {}
+		EntityProperty() = default;
+
+	protected:
+
+		
+
+		Entity::Ptr entity;
+
+		friend struct ArchetypeComponentManager;
+	};
+
+
+	struct EntityConstructor
+	{
+		EntityConstructor(std::pmr::memory_resource* upstream = std::pmr::get_default_resource());
+		~EntityConstructor();
+
+		bool MoveConstructRaw(ArchetypeID const& id, void* data);
+
+		template<typename MoveConstructRow>
+		bool MoveConstruct(MoveConstructRow&& roa)
+		{
+			if constexpr (std::is_move_assignable_v<decltype(roa)>)
+			{
+				return MoveConstructRaw(ArchetypeID::Create<std::remove_cvref_t<MoveConstructRow>>(), &roa);
+			}else
+			{
+				std::remove_cvref_t<MoveConstructRow> tem{ std::forward<MoveConstructRow>(roa) };
+				return MoveConstructRaw(ArchetypeID::Create<std::remove_cvref_t<MoveConstructRow>>(), &tem);
+			}
+		}
+
+	protected:
+
+		std::pmr::monotonic_buffer_resource temp_resource;
+		ArchetypeConstructor arc_constructor;
+
+		struct Element
+		{
+			std::size_t count;
+			ArchetypeID id;
+			void* buffer;
+		};
+
+		std::pmr::vector<Element> elements;
+
+		friend struct ArchetypeComponentManager;
+	};
+
+	/*
 	struct EntityConstructor
 	{
 
@@ -142,6 +198,39 @@ export namespace Noodles
 		friend struct ArchetypeComponentManager;
 	};
 
+	struct EntityConstructorPrior
+	{
+
+		EntityConstructorPrior(std::pmr::memory_resource* upstream = std::pmr::get_default_resource())
+			: resource(upstream), components(upstream) {};
+		~EntityConstructorPrior();
+
+		template<typename Type>
+		bool MoveConstruct(Type type)
+		{
+			auto aid = ArchetypeID::Create<std::remove_cvref_t<Type>>();
+			return ConstructRaw(aid, &type);
+		}
+
+		bool MoveConstructRaw(ArchetypeID const& id, void* reference_data);
+
+	protected:
+
+		std::pmr::memory_resource* resource;
+
+		struct PriorComponent
+		{
+			ArchetypeID id;
+			void* data;
+			std::size_t count;
+		};
+
+		std::pmr::vector<PriorComponent> components;
+
+		friend struct ArchetypeComponentManager;
+	};
+	*/
+
 	struct ArchetypeComponentManager;
 
 	struct ArchetypeMountPointRange
@@ -175,28 +264,10 @@ export namespace Noodles
 	struct ArchetypeComponentManager
 	{
 
-		struct EntityProperty
-		{
-			EntityPtr entity;
-		};
-
 		ArchetypeComponentManager(std::pmr::memory_resource* upstream = std::pmr::get_default_resource());
 		~ArchetypeComponentManager();
 
-		ArchetypeConstructor CreateArchetypeConstructor(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
-
-		template<typename Func>
-		EntityPtr CreateEntityDefer(std::span<ArchetypeID const> span, Func&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
-			requires(std::is_invocable_v<Func, EntityConstructor&>)
-		{
-			auto Constructor = PreCreateEntityImp(span, resource);
-			if(Constructor)
-			{
-				func(Constructor);
-				return CreateEntityImp(Constructor);
-			}
-			return {};
-		}
+		EntityPtr CreateEntityDefer(EntityConstructor const& con);
 
 		bool UpdateEntityStatus();
 		bool DestroyEntity(Entity& entity);
@@ -209,9 +280,6 @@ export namespace Noodles
 		static ArchetypeID const& EntityPropertyArchetypeID();
 
 		static void ReleaseEntity(Entity& storage);
-
-		EntityConstructor PreCreateEntityImp(std::span<ArchetypeID const> span, std::pmr::memory_resource* resource);
-		EntityPtr CreateEntityImp(EntityConstructor& constructor);
 
 		struct Element
 		{

@@ -41,7 +41,7 @@ namespace Noodles
 	}
 
 	
-	bool ArchetypeConstructor::AddElement(ArchetypeID const& id)
+	std::optional<std::size_t> ArchetypeConstructor::AddElement(ArchetypeID const& id)
 	{
 		if(*this)
 		{
@@ -59,12 +59,13 @@ namespace Noodles
 				if (id.is_singleton)
 				{
 					status = Status::Bad;
-					return false;
+					return std::nullopt;
 				}
 				else
 				{
+					auto old = find->count;
 					find->count += 1;
-					return true;
+					return old;
 				}
 			}
 			else
@@ -73,10 +74,10 @@ namespace Noodles
 					find,
 					Element{ id, 1 }
 				);
-				return true;
+				return 0;
 			}
 		}
-		return false;
+		return std::nullopt;
 	}
 
 

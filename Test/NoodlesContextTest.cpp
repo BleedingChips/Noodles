@@ -15,7 +15,7 @@ void PrintMark(Noodles::SystemContext& context)
 		});
 }
 
-void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration dua = std::chrono::milliseconds{ 200 })
+void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration dua = std::chrono::milliseconds{ 2000 })
 {
 	{
 		std::lock_guard lg(PrintMutex);
@@ -59,6 +59,8 @@ int main()
 	task_context->FireThreads();
 
 	ContextConfig config{
+	1000,
+		std::chrono::seconds{10}
 	};
 
 	auto context = Context::Create(
