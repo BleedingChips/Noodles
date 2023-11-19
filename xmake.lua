@@ -9,6 +9,8 @@ target("Noodles")
     set_kind("static")
     add_files("Noodles/*.cpp")
     add_files("Noodles/*.ixx")
+    add_files("Noodles/Platform/Windows/Form/*.ixx")
+    add_files("Noodles/Platform/Windows/Form/*.cpp")
     add_deps("Potato")
 target_end()
 
