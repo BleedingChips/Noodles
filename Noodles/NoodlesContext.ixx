@@ -25,7 +25,7 @@ export namespace Noodles
 	struct Context : public Potato::Task::Task
 	{
 
-		using Ptr = Potato::Task::ControlPtr<Context>;
+		using Ptr = Potato::Pointer::IntrusivePtr<Context>;
 
 		static Ptr Create(ContextConfig config, Potato::Task::TaskContext::Ptr ptr, std::u8string_view context_name = u8"Noodles", std::pmr::memory_resource* UpstreamResource = std::pmr::get_default_resource());
 
