@@ -365,6 +365,7 @@ export namespace Noodles
 		bool StartParallel(std::size_t parallel_count);
 
 		SystemCatergory GetSystemCategory() const { return category; }
+		Context& GetContext() const { return global_context; };
 
 	protected:
 
@@ -524,6 +525,8 @@ export namespace Noodles
 		bool StartupNewLayerSystems(void(*func)(void* obj, TickSystemRunningIndex index, std::u8string_view), void* data);
 
 	public:
+
+		bool Empty() const;
 
 		template<typename GeneratorFunc, typename Func>
 		SystemRegisterResult RegisterDefer(ArchetypeComponentManager& manager, std::int32_t layer, SystemPriority priority, SystemProperty property,

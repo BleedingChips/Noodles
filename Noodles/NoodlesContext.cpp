@@ -32,6 +32,12 @@ namespace Noodles
 		this->context_name = context_name;
 	}
 
+	bool Context::RequireExist()
+	{
+		bool re = false;
+		return request_exit.compare_exchange_strong(re, true);
+	}
+
 	void Context::operator()(Potato::Task::ExecuteStatus& status)
 	{
 		if(status.Property.AppendData == 0)
@@ -99,22 +105,25 @@ namespace Noodles
 
 		if (E == 2)
 		{
-			E = 1;
-			auto re = running_task.compare_exchange_strong(E, 2);
-			assert(re);
-			std::chrono::system_clock::time_point require_time;
-			Potato::Task::TaskContext::Ptr re_task_context;
-			auto new_pro = status.Property;
-
-			new_pro.AppendData = 0;
+			if(!request_exit)
 			{
-				std::lock_guard lg(property_mutex);
-				require_time = last_execute_time + config.min_frame_time;
-				re_task_context = task_context;
-				new_pro.TaskPriority = config.priority;
+				E = 1;
+				auto re = running_task.compare_exchange_strong(E, 2);
+				assert(re);
+				std::chrono::system_clock::time_point require_time;
+				Potato::Task::TaskContext::Ptr re_task_context;
+				auto new_pro = status.Property;
+
+				new_pro.AppendData = 0;
+				{
+					std::lock_guard lg(property_mutex);
+					require_time = last_execute_time + config.min_frame_time;
+					re_task_context = task_context;
+					new_pro.TaskPriority = config.priority;
+				}
+				assert(re_task_context);
+				re_task_context->CommitDelayTask(this, require_time, new_pro);
 			}
-			assert(re_task_context);
-			re_task_context->CommitDelayTask(this, require_time, new_pro);
 		}
 	}
 
@@ -131,23 +140,26 @@ namespace Noodles
 
 	bool Context::StartLoop()
 	{
-		std::lock_guard lg(property_mutex);
-		std::size_t E = 0;
-		if(task_context && running_task.compare_exchange_strong(E, 2))
+		if(!tick_system_group.Empty())
 		{
-			
-			if(!task_context->CommitTask(this, {
-				config.priority,
-				TaskName,
-				0, 0
-			}))
+			std::lock_guard lg(property_mutex);
+			std::size_t E = 0;
+			if (task_context && running_task.compare_exchange_strong(E, 2))
 			{
-				E = 2;
-				auto re = running_task.compare_exchange_strong(E, 0);
-				assert(re);
-				return false;
+
+				if (!task_context->CommitTask(this, {
+					config.priority,
+					TaskName,
+					0, 0
+					}))
+				{
+					E = 2;
+					auto re = running_task.compare_exchange_strong(E, 0);
+					assert(re);
+					return false;
+				}
+				return true;
 			}
-			return true;
 		}
 		return false;
 	}

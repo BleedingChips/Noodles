@@ -48,6 +48,8 @@ export namespace Noodles
 			);
 		}
 
+		bool RequireExist();
+
 	protected:
 
 		virtual void operator()(Potato::Task::ExecuteStatus& Status) override;
@@ -58,7 +60,7 @@ export namespace Noodles
 		virtual void Release() override;
 		virtual ~Context() override = default;
 
-		void FlushAndInitTickSystem();
+		std::atomic_bool request_exit = false;
 
 		std::atomic_size_t running_task;
 		std::pmr::u8string context_name;

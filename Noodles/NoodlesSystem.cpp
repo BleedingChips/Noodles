@@ -391,6 +391,12 @@ namespace Noodles
 		display_name = tstr.substr(in_property.system_name.size() + in_property.group_name.size());
 	}
 
+	bool TickSystemsGroup::Empty() const
+	{
+		std::lock_guard lg(graphic_mutex);
+		return graphic_node.empty();
+	}
+
 	TickSystemsGroup::TickSystemsGroup(std::pmr::memory_resource* resource)
 		: system_holder_resource(resource), graphic_node(resource),
 		total_string(resource), total_rw_info(resource), need_destroy_graphic(resource),

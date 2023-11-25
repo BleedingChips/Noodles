@@ -15,7 +15,7 @@ void PrintMark(Noodles::SystemContext& context)
 		});
 }
 
-void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration dua = std::chrono::milliseconds{ 2000 })
+void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration dua = std::chrono::milliseconds{ 1 })
 {
 	{
 		std::lock_guard lg(PrintMutex);
@@ -118,6 +118,8 @@ int main()
 		}
 	);
 
+	int count = 30;
+
 	auto i4 = context->RegisterTickSystemDefer(
 		 0, default_pri, SystemProperty{ u8"S2" },
 		[](FilterGenerator& Generator) -> std::size_t
@@ -128,11 +130,18 @@ int main()
 			Generator.CreateComponentFilter(infos);
 			return 0;
 		},
-		[](SystemContext& context, std::size_t)
+		[&](SystemContext& context, std::size_t)
 		{
 			UniquePrint(context.GetProperty().system_name);
+			count -= 1;
+			if(count == 0)
+			{
+				context.GetContext().RequireExist();
+			}
 		}
 	);
+
+	
 
 	auto i5 = context->RegisterTickSystemDefer(
 		 0, default_pri, SystemProperty{ u8"S3" },
