@@ -50,6 +50,24 @@ export namespace Noodles
 
 		bool RequireExist();
 
+		bool StartSelfParallel(SystemContext& context,  std::size_t count);
+
+		EntityPtr CreateEntityDefer(EntityConstructor const& constructor) { return component_manager.CreateEntityDefer(constructor); }
+
+
+		template<typename Func>
+		bool Foreach(SystemComponentFilter const& filter, Func&& func) requires(std::is_invocable_r_v<bool, Func, SystemComponentFilter::Wrapper>)
+		{
+			return filter.Foreach(component_manager, std::forward<Func>(func));
+		}
+
+
+		template<typename Func>
+		bool ForeachEntity(SystemEntityFilter const& filter, Entity const& entity, Func&& func) requires(std::is_invocable_r_v<bool, Func, SystemEntityFilter::Wrapper>)
+		{
+			return filter.ForeachEntity(component_manager, entity, std::forward<Func>(func));
+		}
+
 	protected:
 
 		virtual void operator()(Potato::Task::ExecuteStatus& Status) override;

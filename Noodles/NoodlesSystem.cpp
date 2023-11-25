@@ -101,11 +101,6 @@ namespace Noodles
 		return re1;
 	}
 
-	bool SystemContext::StartParallel(std::size_t parallel_count)
-	{
-		return system_group.StartParallel(ptr, parallel_count);
-	}
-
 	auto SystemComponentFilter::Create(
 		std::span<SystemRWInfo const> inf,
 		std::pmr::memory_resource* upstream
@@ -694,7 +689,6 @@ namespace Noodles
 
 				startup_system.clear();
 				tick_systems_running_graphic_line.clear();
-				temporary_context.clear();
 				running_context.clear();
 
 				if (!need_destroy_graphic.empty())
@@ -872,14 +866,14 @@ namespace Noodles
 		return false;
 	}
 
-	bool TickSystemsGroup::ExecuteAndDispatchDependence(TickSystemRunningIndex index, ArchetypeComponentManager& manager, Context& context, void(*func)(void* obj, TickSystemRunningIndex, std::u8string_view), void* data)
+	bool TickSystemsGroup::ExecuteAndDispatchDependence(TickSystemRunningIndex index, Context& context, void(*func)(void* obj, TickSystemRunningIndex, std::u8string_view), void* data)
 	{
 
 		SystemHolder::Ptr ptr{ reinterpret_cast<SystemHolder*>(index.index) };
 		
 
 		SystemContext sys_context{
-			*ptr, manager, context, *this
+			*ptr, context
 		};
 
 		sys_context.self_property = ptr->GetProperty();

@@ -46,7 +46,7 @@ std::partial_ordering CustomPriority(SystemProperty const& p1, SystemProperty co
 	return p1.system_name <=> p2.system_name;
 }
 
-struct A {};
+struct A { std::size_t i = 0; };
 
 struct B {};
 
@@ -58,6 +58,7 @@ int main()
 	auto task_context = Potato::Task::TaskContext::Create();
 	task_context->FireThreads();
 
+
 	ContextConfig config{
 	1000,
 		std::chrono::seconds{10}
@@ -67,6 +68,18 @@ int main()
 		config, task_context, u8"Fuck"
 	);
 
+	EntityConstructor ec;
+	ec.MoveConstruct(A{ 100 });
+	ec.MoveConstruct(A{ 99 });
+
+	auto en = context->CreateEntityDefer(ec);
+
+	EntityConstructor ec2;
+	ec2.MoveConstruct(A{ 98 });
+	ec2.MoveConstruct(A{ 97 });
+	ec2.MoveConstruct(A{ 96 });
+
+	auto en2 = context->CreateEntityDefer(ec2);
 
 	struct Text
 	{
@@ -136,29 +149,48 @@ int main()
 			count -= 1;
 			if(count == 0)
 			{
-				context.GetContext().RequireExist();
+				context->RequireExist();
 			}
 		}
 	);
 
-	
+	struct Contr
+	{
+		SystemComponentFilter::Ptr filter;
+		SystemEntityFilter::Ptr efilter;
+	};
 
 	auto i5 = context->RegisterTickSystemDefer(
 		 0, default_pri, SystemProperty{ u8"S3" },
-		[](FilterGenerator& Generator) -> std::size_t
+		[](FilterGenerator& Generator) -> Contr
 		{
 			std::vector<SystemRWInfo> infos = {
 				SystemRWInfo::Create<A>()
 			};
-			Generator.CreateComponentFilter(infos);
-			return 0;
+			auto fil = Generator.CreateComponentFilter(infos);
+			auto k2 = Generator.CreateEntityFilter(infos);
+			return { std::move(fil), std::move(k2) };
 		},
-		[](SystemContext& context, std::size_t)
+		[&](SystemContext& sys_context, Contr const& C)
 		{
-			UniquePrint(context.GetProperty().system_name);
-			if (context.GetSystemCategory() == SystemCatergory::Normal)
+			UniquePrint(sys_context.GetProperty().system_name);
+			if (sys_context.GetSystemCategory() == SystemCatergory::Normal)
 			{
-				context.StartParallel(10);
+				sys_context->StartSelfParallel(sys_context, 10);
+			}
+			else if (sys_context.GetSystemCategory() == SystemCatergory::FinalParallel)
+			{
+				sys_context->Foreach(*C.filter, [](SystemComponentFilter::Wrapper wra)
+					{
+						auto s = wra.Write<A>(0);
+						return true;
+					});
+
+				sys_context->ForeachEntity(*C.efilter, *en2, [](SystemEntityFilter::Wrapper wra)
+					{
+						auto s = wra.Write<A>(0);
+						return true;
+					});
 			}
 		}
 	);

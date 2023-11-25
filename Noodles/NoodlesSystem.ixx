@@ -103,7 +103,7 @@ export namespace Noodles
 		};
 
 		std::span<SystemRWInfo const> ref_infos;
-		std::shared_mutex mutex;
+		mutable std::shared_mutex mutex;
 		std::pmr::vector<InDirectMapping> in_direct_mapping;
 		std::pmr::vector<ArchetypeTypeIDIndex> id_index;
 
@@ -153,7 +153,7 @@ export namespace Noodles
 		};
 
 		template<typename Func>
-		bool Foreach(ArchetypeComponentManager& manager, Func&& func) requires(std::is_invocable_r_v<bool, Func, Wrapper>)
+		bool Foreach(ArchetypeComponentManager& manager, Func&& func) const requires(std::is_invocable_r_v<bool, Func, Wrapper>)
 		{
 			std::shared_lock sl(mutex);
 			for(auto& ite : in_direct_mapping)
@@ -226,7 +226,7 @@ export namespace Noodles
 		};
 
 		template<typename Func>
-		bool ForeachEntity(ArchetypeComponentManager& manager, Entity const& entity, Func&& func, std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource())
+		bool ForeachEntity(ArchetypeComponentManager& manager, Entity const& entity, Func&& func, std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource()) const
 			requires(std::is_invocable_r_v<bool, Func, Wrapper>)
 		{
 			bool re = true;
@@ -359,18 +359,19 @@ export namespace Noodles
 	{
 
 		SystemContext(SystemContext const&) = default;
-		void StartSelfParallel(std::size_t count);
 
 		SystemProperty GetProperty() const { return self_property; };
+
 		bool StartParallel(std::size_t parallel_count);
 
 		SystemCatergory GetSystemCategory() const { return category; }
-		Context& GetContext() const { return global_context; };
+
+		Context* operator->() { return &global_context; }
 
 	protected:
 
-		SystemContext(SystemHolder& ptr, ArchetypeComponentManager& manager, Context& global_context, TickSystemsGroup& system_group)
-			: ptr(ptr), manager(manager), global_context(global_context), system_group(system_group)
+		SystemContext(SystemHolder& ptr, Context& global_context)
+			: ptr(ptr), global_context(global_context)
 		{
 			
 		}
@@ -378,13 +379,12 @@ export namespace Noodles
 		std::int32_t layer = 0;
 		SystemProperty self_property;
 		SystemHolder& ptr;
-		ArchetypeComponentManager& manager;
 		Context& global_context;
-		TickSystemsGroup& system_group;
 		SystemCatergory category = SystemCatergory::Normal;
 		std::size_t parameter = 0;
 
 		friend struct TickSystemsGroup;
+		friend struct Context;
 	};
 
 	struct SystemTemporaryDependenceLine
@@ -465,7 +465,7 @@ export namespace Noodles
 
 		std::pmr::synchronized_pool_resource system_holder_resource;
 
-		std::shared_mutex graphic_mutex;
+		mutable std::shared_mutex graphic_mutex;
 		std::pmr::u8string total_string;
 		std::pmr::vector<SystemRWInfo> total_rw_info;
 		std::pmr::vector<StorageSystemHolder> graphic_node;
@@ -496,31 +496,15 @@ export namespace Noodles
 			SystemHolder::Ptr to;
 		};
 
-		struct TemporaryRunningContext
-		{
-			enum class Category
-			{
-				ParallelTickFunction,
-			};
-
-			Category category = Category::ParallelTickFunction;
-			RunningStatus status = RunningStatus::Ready;
-			std::size_t owner;
-			std::size_t parameter;
-			std::u8string_view display_name;
-			SystemProperty property;
-		};
-
 		std::mutex tick_system_running_mutex;
 		std::pmr::vector<SystemRunningContext> running_context;
 		std::pmr::vector<StartupSystem> startup_system;
-		std::pmr::vector<TemporaryRunningContext> temporary_context;
 		std::pmr::vector<TriggerLine> tick_systems_running_graphic_line;
 		std::size_t startup_system_context_ite = 0;
 		std::size_t current_level_system_waiting = 0;
 
 		bool SynFlushAndDispatchImp(ArchetypeComponentManager& manager, void(*func)(void* obj, TickSystemRunningIndex, std::u8string_view), void* data);
-		bool ExecuteAndDispatchDependence(TickSystemRunningIndex, ArchetypeComponentManager& manager, Context& context, void(*func)(void* obj, TickSystemRunningIndex, std::u8string_view), void* data);
+		bool ExecuteAndDispatchDependence(TickSystemRunningIndex index, Context& context, void(*func)(void* obj, TickSystemRunningIndex, std::u8string_view), void* data);
 		void DispatchSystemImp(SystemHolder& system);
 		bool StartupNewLayerSystems(void(*func)(void* obj, TickSystemRunningIndex index, std::u8string_view), void* data);
 
@@ -553,6 +537,9 @@ export namespace Noodles
 			return re;
 		}
 
+		template<typename GeneratorFunc, typename Func>
+		bool RegisterTemplateFunction();
+
 		//void ExecuteSystem(std::size_t index, ArchetypeComponentManager& manager, Context& context);
 
 		template<typename Func>
@@ -565,9 +552,9 @@ export namespace Noodles
 		}
 
 		template<typename Func>
-		std::optional<std::size_t> ExecuteAndDispatchDependence(TickSystemRunningIndex index, ArchetypeComponentManager& manager, Context& context,  Func&& func) requires(std::is_invocable_v<Func, TickSystemRunningIndex, std::u8string_view>)
+		std::optional<std::size_t> ExecuteAndDispatchDependence(TickSystemRunningIndex index, Context& context,  Func&& func) requires(std::is_invocable_v<Func, TickSystemRunningIndex, std::u8string_view>)
 		{
-			return ExecuteAndDispatchDependence(index, manager, context, [](void* data, TickSystemRunningIndex index, std::u8string_view str)
+			return ExecuteAndDispatchDependence(index, context, [](void* data, TickSystemRunningIndex index, std::u8string_view str)
 				{
 					(*static_cast<Func*>(data))(index, str);
 				}, &func);

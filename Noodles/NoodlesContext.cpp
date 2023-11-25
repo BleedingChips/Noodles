@@ -72,7 +72,6 @@ namespace Noodles
 
 			auto re = tick_system_group.ExecuteAndDispatchDependence(
 				{index, status.Property.AppendData2},
-				component_manager,
 				*this,
 				[&](TickSystemRunningIndex i, std::u8string_view dis)
 				{
@@ -162,5 +161,10 @@ namespace Noodles
 			}
 		}
 		return false;
+	}
+
+	bool Context::StartSelfParallel(SystemContext& context, std::size_t count)
+	{
+		return tick_system_group.StartParallel(context.ptr, count);
 	}
 }
