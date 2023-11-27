@@ -4,6 +4,7 @@ export module NoodlesSystem;
 
 import std;
 
+import PotatoTMP;
 import PotatoMisc;
 import PotatoPointer;
 import PotatoIR;
@@ -293,7 +294,7 @@ export namespace Noodles
 		friend struct TickSystemsGroup;
 	};
 
-	enum class SystemCatergory
+	enum class SystemCategory
 	{
 		Normal,
 		Parallel,
@@ -364,9 +365,19 @@ export namespace Noodles
 
 		bool StartParallel(std::size_t parallel_count);
 
-		SystemCatergory GetSystemCategory() const { return category; }
+		SystemCategory GetSystemCategory() const { return category; }
 
 		Context* operator->() { return &global_context; }
+
+		struct PlaceHolderT {};
+
+		static PlaceHolderT GenerateFilter(FilterGenerator& Filer) { return {}; }
+
+		SystemContext(SystemContext& ref, PlaceHolderT)
+			: ptr(ref.ptr), global_context(ref.global_context), self_property(ref.self_property), category(ref.category), parameter(ref.parameter)
+		{
+			
+		}
 
 	protected:
 
@@ -380,7 +391,7 @@ export namespace Noodles
 		SystemProperty self_property;
 		SystemHolder& ptr;
 		Context& global_context;
-		SystemCatergory category = SystemCatergory::Normal;
+		SystemCategory category = SystemCategory::Normal;
 		std::size_t parameter = 0;
 
 		friend struct TickSystemsGroup;
@@ -635,9 +646,57 @@ export namespace Noodles
 		}
 		return {};
 	}
+	
+	template<typename Parameter>
+	concept IsAcceptableTickSystemParameter = requires(Parameter)
+	{
+		{Parameter::GenerateFilter(std::declval<FilterGenerator&>())};
+		!std::is_same_v<decltype(Parameter::GenerateFilter(std::declval<FilterGenerator&>())), void>;
+		std::is_constructible_v<Parameter, SystemContext&, decltype(Parameter::GenerateFilter(std::declval<FilterGenerator&>()))>;
+	};
+
+	template<typename ...ParT>
+	struct IsAcceptableTickSystemParameters
+	{
+		static constexpr bool value = (true && ... && IsAcceptableTickSystemParameter<ParT>);
+	};
+
+	template<typename FuncT>
+	struct IsAcceptableFunctionT
+	{
+		using FunInfo = Potato::TMP::FunctionInfo<FuncT>;
+		static constexpr bool value = FunInfo::template PackParameters<IsAcceptableTickSystemParameters>::value;
+	};
+
+	template<typename ...ParT>
+	struct ExtractAppendDataForParameters
+	{
+		using Type = std::tuple<
+			std::remove_cvref_t<decltype(ParT::GenerateFilter(std::declval<FilterGenerator&>()))>...
+		>;
+	};
+
+
+	template<typename FuncT>
+	struct ExtractAppendData
+	{
+		using FunInfo = Potato::TMP::FunctionInfo<FuncT>;
+		using Type = typename FunInfo::template PackParameters<ExtractAppendDataForParameters>::Type;
+	};
+
+	template<typename ...ComponentT>
+	struct ComponentFilter
+	{
+		static SystemComponentFilter::Ptr GenerateFilter(FilterGenerator& Generator) { return {}; }
+		ComponentFilter(SystemContext&, SystemComponentFilter::Ptr filter) : filter(filter) {}
+		ComponentFilter(ComponentFilter const&) = default;
+	protected:
+		SystemComponentFilter::Ptr filter;
+	};
 
 
 	/*
+
 	template<typename Func>
 	concept AcceptableSystemObject = true;
 
@@ -685,4 +744,5 @@ export namespace Noodles
 		Distributors{}(context, func);
 	}
 	*/
+
 }

@@ -50,9 +50,20 @@ struct A { std::size_t i = 0; };
 
 struct B {};
 
+void Func(A a){}
+
+void Func2(SystemContext system) {}
+
+void Func3(ComponentFilter<A, B> system) {}
 
 int main()
 {
+
+	static_assert(IsAcceptableFunctionT<decltype(Func3)>::value, "Func");
+
+	using K = typename ExtractAppendData<decltype(Func3)>::Type;
+
+	static_assert(!std::is_same_v<K, std::tuple<SystemComponentFilter::Ptr>>, "Fuck");
 
 
 	auto task_context = Potato::Task::TaskContext::Create();
@@ -174,11 +185,11 @@ int main()
 		[&](SystemContext& sys_context, Contr const& C)
 		{
 			UniquePrint(sys_context.GetProperty().system_name);
-			if (sys_context.GetSystemCategory() == SystemCatergory::Normal)
+			if (sys_context.GetSystemCategory() == SystemCategory::Normal)
 			{
 				sys_context->StartSelfParallel(sys_context, 10);
 			}
-			else if (sys_context.GetSystemCategory() == SystemCatergory::FinalParallel)
+			else if (sys_context.GetSystemCategory() == SystemCategory::FinalParallel)
 			{
 				sys_context->Foreach(*C.filter, [](SystemComponentFilter::Wrapper wra)
 					{

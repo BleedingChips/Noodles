@@ -890,11 +890,11 @@ namespace Noodles
 				case RunningStatus::WaitingParallel:
 					if(ptr->request_parallel == 0)
 					{
-						sys_context.category = SystemCatergory::FinalParallel;
+						sys_context.category = SystemCategory::FinalParallel;
 						ptr->status = RunningStatus::Running;
 					}else
 					{
-						sys_context.category = SystemCatergory::Parallel;
+						sys_context.category = SystemCategory::Parallel;
 						sys_context.parameter = index.parameter;
 					}
 					break;
