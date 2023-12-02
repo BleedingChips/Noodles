@@ -15,7 +15,7 @@ void PrintMark(Noodles::SystemContext& context)
 		});
 }
 
-void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration dua = std::chrono::milliseconds{ 1 })
+void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration dua = std::chrono::milliseconds{ 1000 })
 {
 	{
 		std::lock_guard lg(PrintMutex);
@@ -54,16 +54,19 @@ void Func(A a){}
 
 void Func2(SystemContext system) {}
 
-void Func3(ComponentFilter<A, B> system) {}
+void Func3(SystemContext& context, ComponentFilter<A, B> system, ComponentFilter<A, B> system2, std::size_t& I)
+{
+	I = 10086;
+	volatile int i = 0;
+}
 
 int main()
 {
+	//static_assert(IsAcceptableFunctionT<decltype(Func3)>::value, "Func");
 
-	static_assert(IsAcceptableFunctionT<decltype(Func3)>::value, "Func");
+	//using K = typename ExtractAppendData<decltype(Func3)>::Type;
 
-	using K = typename ExtractAppendData<decltype(Func3)>::Type;
-
-	static_assert(!std::is_same_v<K, std::tuple<SystemComponentFilter::Ptr>>, "Fuck");
+	//static_assert(!std::is_same_v<K, std::tuple<SystemComponentFilter::Ptr>>, "Fuck");
 
 
 	auto task_context = Potato::Task::TaskContext::Create();
@@ -187,13 +190,13 @@ int main()
 			UniquePrint(sys_context.GetProperty().system_name);
 			if (sys_context.GetSystemCategory() == SystemCategory::Normal)
 			{
-				sys_context->StartSelfParallel(sys_context, 10);
+				//sys_context->StartSelfParallel(sys_context, 10);
 			}
 			else if (sys_context.GetSystemCategory() == SystemCategory::FinalParallel)
 			{
 				sys_context->Foreach(*C.filter, [](SystemComponentFilter::Wrapper wra)
 					{
-						auto s = wra.Write<A>(0);
+						auto s = wra.GetSpan<A>(0);
 						return true;
 					});
 
@@ -205,6 +208,26 @@ int main()
 			}
 		}
 	);
+
+
+	auto i6 = context->RegisterTickSystemAutoDefer(
+		0, default_pri, SystemProperty{ u8"S10" },
+		[&](SystemContext& context, std::size_t, ComponentFilter<A const> fil, EntityFilter<A const> enf)
+		{
+			UniquePrint(context.GetProperty().system_name);
+			context->Foreach(fil, [](std::span<A const> span1)-> bool
+			{
+				volatile int i = 0;
+				return true;
+			});
+			context->ForeachEntity(enf, *en2, [](EntityStatus status, std::span<A const> span)->bool
+			{
+				return true;
+			});
+		}
+	);
+
+
 
 	context->StartLoop();
 

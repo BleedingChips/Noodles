@@ -1,5 +1,7 @@
 module;
 
+#include <cassert>
+
 export module NoodlesSystem;
 
 import std;
@@ -128,21 +130,18 @@ export namespace Noodles
 
 			std::tuple<void const*, std::size_t> ReadRaw(UniqueTypeID const& ref, std::size_t index) const;
 
-			template<typename T>
-			std::span<T const> Read(std::size_t index) const
-			{
-				auto [d, c] = ReadRaw(UniqueTypeID::Create<std::remove_cvref_t<T>>(), index);
-				return std::span<T const>{static_cast<T const*>(d), c};
-			}
-
-			std::tuple<void*, std::size_t> WriteRaw(UniqueTypeID const& ref, std::size_t index) const;
-
+			std::tuple<void*, std::size_t> Get(std::size_t index) const;
 
 			template<typename T>
-			std::span<T> Write(std::size_t index) const
+			std::span<T> GetSpan(std::size_t index) const
 			{
-				auto [d, c] = WriteRaw(UniqueTypeID::Create<std::remove_cvref_t<T>>(), index);
-				return std::span<T>{static_cast<T*>(d), c};
+				auto [data, count] = Get(index);
+				assert(infos.size() > index);
+				assert(infos[index].is_write == !std::is_const_v<T>);
+				return std::span<T>{
+					static_cast<T*>(data),
+					count
+				};
 			}
 
 		protected:
@@ -151,6 +150,9 @@ export namespace Noodles
 			ArchetypeMountPoint mp;
 			std::span<ArchetypeTypeIDIndex const> id_index;
 			std::span<SystemRWInfo const> infos;
+
+			friend struct Context;
+			friend struct SystemAutomatic;
 		};
 
 		template<typename Func>
@@ -178,6 +180,7 @@ export namespace Noodles
 			return true;
 		}
 
+		friend struct Context;
 	};
 
 	struct SystemEntityFilter : Potato::Pointer::DefaultIntrusiveInterface
@@ -335,6 +338,16 @@ export namespace Noodles
 		)
 			-> Ptr;
 
+		template<typename Func, typename AppendData>
+		static auto CreateAuto(
+			Func&& func,
+			AppendData&& append_data,
+			SystemProperty property,
+			std::u8string_view display_prefix,
+			std::pmr::memory_resource* resource
+		)
+			-> Ptr;
+
 		virtual void Execute(SystemContext& context) = 0;
 		std::u8string_view GetDisplayName() const { return display_name; }
 		SystemProperty GetProperty() const { return property; };
@@ -369,11 +382,7 @@ export namespace Noodles
 
 		Context* operator->() { return &global_context; }
 
-		struct PlaceHolderT {};
-
-		static PlaceHolderT GenerateFilter(FilterGenerator& Filer) { return {}; }
-
-		SystemContext(SystemContext& ref, PlaceHolderT)
+		SystemContext(SystemContext& ref)
 			: ptr(ref.ptr), global_context(ref.global_context), self_property(ref.self_property), category(ref.category), parameter(ref.parameter)
 		{
 			
@@ -548,6 +557,10 @@ export namespace Noodles
 			return re;
 		}
 
+		template<typename Func>
+		SystemRegisterResult RegisterAutoDefer(ArchetypeComponentManager& manager, std::int32_t layer, SystemPriority priority, SystemProperty property,
+			Func&& func, std::u8string_view display_prefix = {}, std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource());
+
 		template<typename GeneratorFunc, typename Func>
 		bool RegisterTemplateFunction();
 
@@ -586,14 +599,9 @@ export namespace Noodles
 
 		DynamicSystemHolder(AppendData&& append_data, Func&& fun, std::span<std::byte> output, std::u8string_view prefix, SystemProperty in_property, std::pmr::memory_resource* resource)
 			: SystemHolder(output, prefix, in_property), append_data(std::move(append_data)), fun(std::move(fun)), resource(resource)
-		{
+		{}
 
-		}
-
-		virtual void Execute(SystemContext& context) override
-		{
-			fun(context, append_data);
-		}
+		virtual void Execute(SystemContext& context) override { fun(context, append_data); }
 
 		virtual void Release() override
 		{
@@ -646,103 +654,213 @@ export namespace Noodles
 		}
 		return {};
 	}
-	
-	template<typename Parameter>
-	concept IsAcceptableTickSystemParameter = requires(Parameter)
-	{
-		{Parameter::GenerateFilter(std::declval<FilterGenerator&>())};
-		!std::is_same_v<decltype(Parameter::GenerateFilter(std::declval<FilterGenerator&>())), void>;
-		std::is_constructible_v<Parameter, SystemContext&, decltype(Parameter::GenerateFilter(std::declval<FilterGenerator&>()))>;
-	};
 
-	template<typename ...ParT>
-	struct IsAcceptableTickSystemParameters
-	{
-		static constexpr bool value = (true && ... && IsAcceptableTickSystemParameter<ParT>);
-	};
-
-	template<typename FuncT>
-	struct IsAcceptableFunctionT
-	{
-		using FunInfo = Potato::TMP::FunctionInfo<FuncT>;
-		static constexpr bool value = FunInfo::template PackParameters<IsAcceptableTickSystemParameters>::value;
-	};
-
-	template<typename ...ParT>
-	struct ExtractAppendDataForParameters
-	{
-		using Type = std::tuple<
-			std::remove_cvref_t<decltype(ParT::GenerateFilter(std::declval<FilterGenerator&>()))>...
-		>;
-	};
-
-
-	template<typename FuncT>
-	struct ExtractAppendData
-	{
-		using FunInfo = Potato::TMP::FunctionInfo<FuncT>;
-		using Type = typename FunInfo::template PackParameters<ExtractAppendDataForParameters>::Type;
-	};
-
-	template<typename ...ComponentT>
-	struct ComponentFilter
-	{
-		static SystemComponentFilter::Ptr GenerateFilter(FilterGenerator& Generator) { return {}; }
-		ComponentFilter(SystemContext&, SystemComponentFilter::Ptr filter) : filter(filter) {}
-		ComponentFilter(ComponentFilter const&) = default;
-	protected:
-		SystemComponentFilter::Ptr filter;
-	};
-
-
-	/*
-
-	template<typename Func>
-	concept AcceptableSystemObject = true;
 
 	template<typename ParT>
-	struct IsAcceptableParameter
+	concept DetectSystemHasGenerateFilter = requires(ParT)
 	{
-		using PT = std::remove_cvref_t<ParT>;
-		static constexpr bool value = std::is_same_v<SystemContext, PT> || IsAcceptableComponentFilterV<ParT>;
+		{ParT::GenerateFilter(std::declval<FilterGenerator&>())};
+		!std::is_same_v<decltype(ParT::GenerateFilter(std::declval<FilterGenerator&>())), void>;
 	};
 
-	template<typename ...ParT>
-	struct IsAcceptableParameters
+	struct SystemAutomatic
 	{
-		static constexpr bool value = (true && ... && IsAcceptableParameter<ParT>::value);
-	};
 
-	export template<typename ToT>
-		struct ExecuteContextDistributor
-	{
-		ToT operator()(SystemContext& context) = delete;
-	};
+		struct Holder {};
 
-	export template<>
-		struct ExecuteContextDistributor<SystemContext>
-	{
-		SystemContext& operator()(SystemContext& context) { return context; }
-	};
-
-	export template<typename ...ToT>
-		struct ExecuteContextDistributors
-	{
-		template<typename Func>
-		void operator()(SystemContext& context, Func&& func)
+		template<typename ParT>
+		struct ExtractAppendDataForParameter
 		{
-			func(ExecuteContextDistributor<std::remove_cvref_t<ToT>>{}(context)...);
+			using Type = std::conditional_t<std::is_same_v<ParT, SystemContext>, Holder, ParT>;
+			static Type Generate(FilterGenerator& Generator) { return {}; }
+			template<typename ParT2>
+				requires(std::is_same_v<Type, Holder>)
+			static decltype(auto) Translate(SystemContext& context, ParT2&& par2) { return context; }
+			template<typename ParT2>
+				requires(!std::is_same_v<Type, Holder>)
+			static decltype(auto) Translate(SystemContext& context, ParT2&& par2) { return par2; }
+		};
+
+
+		template<DetectSystemHasGenerateFilter ParT>
+		struct ExtractAppendDataForParameter<ParT>
+		{
+			using Type = decltype(ParT::GenerateFilter(std::declval<FilterGenerator&>()));
+			static Type Generate(FilterGenerator& Generator) { return ParT::GenerateFilter(Generator); }
+			template<typename ParT2>
+			static decltype(auto) Translate(SystemContext& context, ParT2&& par2) { return par2; }
+		};
+
+		template<typename ...ParT>
+		struct ExtractAppendDataForParameters
+		{
+
+			using Type = std::tuple<
+				typename ExtractAppendDataForParameter<std::remove_cvref_t<ParT>>::Type...
+			>;
+
+			static Type Construct(FilterGenerator& generator)
+			{
+				return Type{
+					ExtractAppendDataForParameter<std::remove_cvref_t<ParT>>::Generate(generator)...
+				};
+			}
+
+			using Index = std::make_index_sequence<sizeof...(ParT)>;
+		};
+
+		template<typename Func>
+		struct ExtractTickSystem
+		{
+			using Extract = typename Potato::TMP::FunctionInfo<std::remove_cvref_t<Func>>::template PackParameters<ExtractAppendDataForParameters>;
+
+			using AppendDataT = typename Extract::Type;
+
+			static AppendDataT Generate(FilterGenerator& generator){ return Extract::Construct(generator); }
+			static auto Execute(SystemContext& context, AppendDataT& append_data, Func& func)
+			{
+				return std::apply([&](auto&& ...par)
+				{
+					func(
+						ExtractAppendDataForParameter<std::remove_cvref_t<decltype(par)>>::Translate(context, par)...
+					);
+				}, append_data);
+			}
+		};
+
+		template<std::size_t i>
+		struct ApplySingleFilter
+		{
+			template<typename ...OutputTuple>
+			static void Apply(SystemComponentFilter::Wrapper const& filter, std::tuple<std::span<OutputTuple>...>& output)
+			{
+				using Type = typename std::tuple_element_t<i - 1, std::tuple<std::span<OutputTuple>...>>::element_type;
+				std::get<i - 1>(output) = filter.GetSpan<Type>(i - 1);
+				ApplySingleFilter<i - 1>::Apply(filter, output);
+			}
+
+			template<typename ...OutputTuple>
+			static void Apply(Archetype const& arc, ArchetypeMountPoint mp, std::tuple<std::span<OutputTuple>...>& output)
+			{
+				using Type = typename std::tuple_element_t<i - 1, std::tuple<std::span<OutputTuple>...>>::element_type;
+				auto loc = arc.LocateTypeID(UniqueTypeID::Create<std::remove_cvref_t<Type>>());
+				assert(loc);
+				auto data = arc.GetData(loc->index, 0, mp);
+				std::get<i - 1>(output) = {
+					static_cast<Type*>(data),
+					loc->count
+				};
+				ApplySingleFilter<i - 1>::Apply(arc, mp, output);
+			}
+		};
+
+
+		template<>
+		struct ApplySingleFilter<0>
+		{
+			template<typename ...OutputTuple>
+			static void Apply(SystemComponentFilter::Wrapper const& filter, std::tuple<std::span<OutputTuple>...>& output) {}
+			template<typename ...OutputTuple>
+			static void Apply(Archetype const& arc, ArchetypeMountPoint mp, std::tuple<std::span<OutputTuple>...>& output) {}
+		};
+	};
+
+	template<typename Func>
+	struct DynamicAutoSystemHolder : public SystemHolder
+	{
+		using Automatic = SystemAutomatic::ExtractTickSystem<Func>;
+
+		typename Automatic::AppendDataT append_data;
+
+		std::conditional_t<
+			std::is_function_v<Func>,
+			Func*,
+			Func
+		> fun;
+
+		std::pmr::memory_resource* resource;
+
+		DynamicAutoSystemHolder(Automatic::AppendDataT&& append_data, Func&& fun, std::span<std::byte> output, std::u8string_view prefix, SystemProperty in_property, std::pmr::memory_resource* resource)
+			: SystemHolder(output, prefix, in_property), append_data(std::move(append_data)), fun(std::move(fun)), resource(resource)
+		{}
+
+		virtual void Execute(SystemContext& context) override
+		{
+			Automatic::Execute(context, append_data, fun);
+		}
+
+		virtual void Release() override
+		{
+			auto o_res = resource;
+			this->~DynamicAutoSystemHolder();
+			o_res->deallocate(
+				this,
+				sizeof(DynamicAutoSystemHolder),
+				alignof(DynamicAutoSystemHolder)
+			);
 		}
 	};
 
-	template<typename FuncT>
-	void CallSystemFunction(SystemContext& context, FuncT&& func)
+	template<typename Func, typename AppendData>
+	auto SystemHolder::CreateAuto(
+		Func&& func,
+		AppendData&& append_data,
+		SystemProperty property,
+		std::u8string_view display_prefix,
+		std::pmr::memory_resource* resource
+	)
+		-> Ptr
 	{
-		using FuncInfo = Potato::TMP::FunctionInfo<std::remove_pointer_t<std::remove_cvref_t<FuncT>>>;
-		using Distributors = typename FuncInfo::template PackParameters<ExecuteContextDistributors>;
+		using Type = DynamicAutoSystemHolder<std::remove_cvref_t<Func>>;
 
-		Distributors{}(context, func);
+		if (resource != nullptr)
+		{
+			std::size_t dis_size = SystemHolder::FormatDisplayNameSize(display_prefix, property);
+			std::size_t append_size = dis_size * sizeof(char8_t);
+
+			if ((append_size % alignof(Type)) != 0)
+			{
+				append_size += alignof(Type) - (append_size % alignof(Type));
+			}
+			auto buffer = resource->allocate(sizeof(Type) + append_size, alignof(Type));
+			if (buffer != nullptr)
+			{
+				std::span<std::byte> str{ static_cast<std::byte*>(buffer) + sizeof(Type), append_size };
+
+				Type* ptr = new (buffer) Type(
+					std::forward<AppendData>(append_data),
+					std::forward<Func>(func),
+					str,
+					display_prefix,
+					property,
+					resource
+				);
+				return Ptr{ ptr };
+			}
+		}
+		return {};
 	}
-	*/
+
+
+	template<typename Func>
+	SystemRegisterResult TickSystemsGroup::RegisterAutoDefer(ArchetypeComponentManager& manager, std::int32_t layer, SystemPriority priority, SystemProperty property,
+		Func&& func, std::u8string_view display_prefix, std::pmr::memory_resource* temporary_resource)
+	{
+		using Type = SystemAutomatic::ExtractTickSystem<Func>;
+		std::lock_guard lg(graphic_mutex);
+		std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
+		FilterGenerator generator(&temp_resource, &system_holder_resource);
+		auto append = Type::Generate(generator);
+		std::pmr::vector<SystemTemporaryDependenceLine> temp_line{ &temp_resource };
+		auto re = PreRegisterCheck(layer, priority, property, generator.GetMutex(), temp_line);
+		if (re)
+		{
+			auto ptr = SystemHolder::CreateAuto(
+				std::move(func), std::move(append), property, display_prefix, &system_holder_resource
+			);
+			Register(layer, property, priority, manager, generator, re, temp_line, std::move(ptr), display_prefix, &system_holder_resource);
+		}
+		return re;
+	}
 
 }

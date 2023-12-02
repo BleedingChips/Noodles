@@ -327,15 +327,11 @@ namespace Noodles
 		return {nullptr, 0};
 	}
 
-	std::tuple<void*, std::size_t> SystemComponentFilter::Wrapper::WriteRaw(UniqueTypeID const& ref, std::size_t index) const
+	std::tuple<void*, std::size_t> SystemComponentFilter::Wrapper::Get(std::size_t index) const
 	{
 		assert(index < id_index.size());
 		auto idi = id_index[index];
-		if (ref == infos[index].type_id && infos[index].is_write)
-		{
-			return { archetype.GetData(idi.index, 0, mp), idi.count };
-		}
-		return {nullptr, 0};
+		return { archetype.GetData(idi.index, 0, mp), idi.count };
 	}
 
 	std::tuple<void const*, std::size_t> SystemEntityFilter::Wrapper::ReadRaw(UniqueTypeID const& ref, std::size_t index) const

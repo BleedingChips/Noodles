@@ -16,6 +16,49 @@ export import NoodlesSystem;
 export namespace Noodles
 {
 
+	template<typename ...ComponentT>
+	struct ComponentFilter
+	{
+		static ComponentFilter GenerateFilter(FilterGenerator& Generator)
+		{
+			static std::array<SystemRWInfo, sizeof...(ComponentT)> temp_buffer = {
+				SystemRWInfo::Create<ComponentT>()...
+			};
+
+			return { Generator.CreateComponentFilter(std::span(temp_buffer)) };
+		}
+		ComponentFilter(ComponentFilter const&) = default;
+		ComponentFilter(ComponentFilter&&) = default;
+		ComponentFilter() = default;
+	protected:
+		ComponentFilter(SystemComponentFilter::Ptr filter) : filter(std::move(filter)) {}
+		SystemComponentFilter::Ptr filter;
+
+		friend struct Context;
+	};
+
+
+	template<typename ...ComponentT>
+	struct EntityFilter
+	{
+		static EntityFilter GenerateFilter(FilterGenerator& Generator)
+		{
+			static std::array<SystemRWInfo, sizeof...(ComponentT)> temp_buffer = {
+				SystemRWInfo::Create<ComponentT>()...
+			};
+
+			return { Generator.CreateEntityFilter(std::span(temp_buffer)) };
+		}
+		EntityFilter(EntityFilter const&) = default;
+		EntityFilter(EntityFilter&&) = default;
+		EntityFilter() = default;
+	protected:
+		EntityFilter(SystemEntityFilter::Ptr filter) : filter(std::move(filter)) {}
+		SystemEntityFilter::Ptr filter;
+
+		friend struct Context;
+	};
+
 	struct ContextConfig
 	{
 		std::size_t priority = *Potato::Task::TaskPriority::Normal;
@@ -48,6 +91,18 @@ export namespace Noodles
 			);
 		}
 
+		template<typename Func>
+		SystemRegisterResult RegisterTickSystemAutoDefer(
+			std::int32_t layer, SystemPriority priority, SystemProperty property,
+			Func&& func
+		)
+		{
+			std::pmr::monotonic_buffer_resource temp;
+			return tick_system_group.RegisterAutoDefer(
+				component_manager, layer, priority, property, std::forward<Func>(func), context_name, &temp
+			);
+		}
+
 		bool RequireExist();
 
 		bool StartSelfParallel(SystemContext& context,  std::size_t count);
@@ -61,11 +116,44 @@ export namespace Noodles
 			return filter.Foreach(component_manager, std::forward<Func>(func));
 		}
 
+		template<typename ...ParT, typename Func>
+		bool Foreach(ComponentFilter<ParT...> const& filter, Func&& func) requires(std::is_invocable_r_v<bool, Func, std::span<ParT>...>)
+		{
+			if(filter.filter)
+			{
+				return filter.filter->Foreach(component_manager, [&](SystemComponentFilter::Wrapper wra) -> bool
+					{
+						std::tuple<std::span<ParT>...> temp_pars;
+						SystemAutomatic::ApplySingleFilter<sizeof...(ParT)>::Apply(wra, temp_pars);
+						return std::apply(func, temp_pars);
+					});
+			}
+			return false;
+		}
+
 
 		template<typename Func>
 		bool ForeachEntity(SystemEntityFilter const& filter, Entity const& entity, Func&& func) requires(std::is_invocable_r_v<bool, Func, SystemEntityFilter::Wrapper>)
 		{
 			return filter.ForeachEntity(component_manager, entity, std::forward<Func>(func));
+		}
+
+		template<typename ...ParT, typename Func>
+		bool ForeachEntity(EntityFilter<ParT...> const& filter, Entity const& entity, Func&& func) requires(std::is_invocable_r_v<bool, Func, EntityStatus, std::span<ParT>...>)
+		{
+			if (filter.filter)
+			{
+				return component_manager.ReadEntityMountPoint(entity, [&](EntityStatus status, Archetype const& ar, ArchetypeMountPoint mp) -> bool
+				{
+					std::tuple<std::span<ParT>...> temp_pars;
+					SystemAutomatic::ApplySingleFilter<sizeof...(ParT)>::Apply(ar, mp, temp_pars);
+					return std::apply([&](auto& ...ar)
+					{
+						return func(status, std::forward<decltype(ar)&&>(ar)...);
+					}, temp_pars);
+				});
+			}
+			return false;
 		}
 
 	protected:
@@ -93,4 +181,6 @@ export namespace Noodles
 		std::pmr::memory_resource* resource;
 		
 	};
+
+	
 }
