@@ -1,6 +1,6 @@
 import std;
-import PotatoTaskSystem;
-import NoodlesContext;
+
+import Noodles;
 
 using namespace Noodles;
 
@@ -72,9 +72,10 @@ int main()
 	auto task_context = Potato::Task::TaskContext::Create();
 	task_context->FireThreads();
 
+	
 
 	ContextConfig config{
-	1000,
+		*Potato::Task::TaskPriority::Normal,
 		std::chrono::seconds{10}
 	};
 
@@ -190,7 +191,7 @@ int main()
 			UniquePrint(sys_context.GetProperty().system_name);
 			if (sys_context.GetSystemCategory() == SystemCategory::Normal)
 			{
-				sys_context->StartSelfParallel(sys_context, 10);
+				//sys_context->StartSelfParallel(sys_context, 10);
 			}
 			else if (sys_context.GetSystemCategory() == SystemCategory::FinalParallel)
 			{
@@ -205,11 +206,6 @@ int main()
 						auto s = wra.Write<A>(0);
 						return true;
 					});
-			}else if(sys_context.GetSystemCategory() == SystemCategory::Parallel)
-			{
-				auto index = sys_context.GetParallelIndex();
-				volatile int i = 0;
-				return;
 			}
 		}
 	);

@@ -380,6 +380,8 @@ export namespace Noodles
 
 		SystemCategory GetSystemCategory() const { return category; }
 
+		std::size_t GetParallelIndex() const { return parameter; }
+
 		Context* operator->() { return &global_context; }
 
 		SystemContext(SystemContext& ref)

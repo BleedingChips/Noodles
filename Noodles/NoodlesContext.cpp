@@ -48,7 +48,7 @@ namespace Noodles
 			}
 
 			component_manager.UpdateEntityStatus();
-			auto count = tick_system_group.SynFlushAndDispatch(component_manager, [&](TickSystemRunningIndex ruing_index, std::u8string_view display_name)
+			auto has_system = tick_system_group.SynFlushAndDispatch(component_manager, [&](TickSystemRunningIndex ruing_index, std::u8string_view display_name)
 			{
 				auto new_property = status.Property;
 				new_property.AppendData = ruing_index.index + 1;
@@ -66,6 +66,10 @@ namespace Noodles
 
 				}
 			});
+			if(!has_system)
+			{
+				request_exit = true;
+			}
 		}else
 		{
 			auto index = status.Property.AppendData - 1;
@@ -77,7 +81,7 @@ namespace Noodles
 				{
 					auto new_property = status.Property;
 					new_property.AppendData = i.index + 1;
-					new_property.AppendData2 = 0;
+					new_property.AppendData2 = i.parameter;
 					new_property.TaskName = dis;
 					task_context->CommitTask(
 						this,

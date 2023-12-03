@@ -100,6 +100,8 @@ export namespace Noodles
 		EntityProperty(Entity::Ptr entity) : entity(std::move(entity)) {}
 		EntityProperty() = default;
 
+		using NoodlesSingletonRequire = void;
+
 	protected:
 
 		
@@ -146,90 +148,6 @@ export namespace Noodles
 
 		friend struct ArchetypeComponentManager;
 	};
-
-	/*
-	struct EntityConstructor
-	{
-
-		enum class Status
-		{
-			Done,
-			BadArchetype,
-			BadMemoryResource
-		};
-
-		template<typename Type>
-		bool Construct(Type&& type, std::size_t i = 0)
-		{
-			return Construct(UniqueTypeID::Create<std::remove_cvref_t<Type>>(), &type, i);
-		}
-
-		bool Construct(UniqueTypeID const& id, void* source, std::size_t count = 0);
-
-		operator bool() const { return status == Status::Done; }
-
-	protected:
-
-		EntityConstructor(EntityConstructor&&) = default;
-
-		EntityConstructor(Status status) : status(status) {}
-
-		EntityConstructor(
-			Status status,
-			Archetype::Ptr archetype_ptr,
-			ArchetypeMountPoint mount_point,
-			std::pmr::memory_resource* resource
-		);
-
-		Status status = Status::Done;
-		Archetype::Ptr archetype_ptr;
-		ArchetypeMountPoint mount_point;
-
-		struct InitBit
-		{
-			std::size_t index;
-			std::size_t count;
-			bool operator==(InitBit const& ib) const{ return index == ib.index && count == ib.count; }
-		};
-
-		std::pmr::vector<InitBit> construct_record;
-		std::size_t entity_property_index = 0;
-
-		friend struct ArchetypeComponentManager;
-	};
-
-	struct EntityConstructorPrior
-	{
-
-		EntityConstructorPrior(std::pmr::memory_resource* upstream = std::pmr::get_default_resource())
-			: resource(upstream), components(upstream) {};
-		~EntityConstructorPrior();
-
-		template<typename Type>
-		bool MoveConstruct(Type type)
-		{
-			auto aid = ArchetypeID::Create<std::remove_cvref_t<Type>>();
-			return ConstructRaw(aid, &type);
-		}
-
-		bool MoveConstructRaw(ArchetypeID const& id, void* reference_data);
-
-	protected:
-
-		std::pmr::memory_resource* resource;
-
-		struct PriorComponent
-		{
-			ArchetypeID id;
-			void* data;
-			std::size_t count;
-		};
-
-		std::pmr::vector<PriorComponent> components;
-
-		friend struct ArchetypeComponentManager;
-	};
-	*/
 
 	struct ArchetypeComponentManager;
 
