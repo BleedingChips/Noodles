@@ -642,6 +642,11 @@ namespace Noodles
 		need_refresh_dependence = true;
 	}
 
+	constexpr std::size_t SystemWaitingToRun = 0;
+	constexpr std::size_t SystemDone = 1;
+	constexpr std::size_t SystemParallelDone = 2;
+	constexpr std::size_t SystemParallelStartUpNumber = 3;
+
 	bool TickSystemsGroup::StartupNewLayerSystems(void(*func)(void* obj, TickSystemRunningIndex index, std::u8string_view), void* data)
 	{
 		auto span = std::span(startup_system).subspan(startup_system_context_ite);
@@ -661,7 +666,7 @@ namespace Noodles
 				}
 				
 				ite.to->AddRef();
-				func(data, { reinterpret_cast<std::size_t>(ite.to.GetPointer()), 0 }, ite.display_name);
+				func(data, { reinterpret_cast<std::size_t>(ite.to.GetPointer()), SystemWaitingToRun }, ite.display_name);
 			}
 			else
 			{
@@ -836,7 +841,7 @@ namespace Noodles
 		{
 			std::lock_guard lg(ref.mutex);
 			assert(ref.status == RunningStatus::Ready);
-			ref.status = RunningStatus::Waiting;
+			ref.status = RunningStatus::Running;
 		}
 
 		auto& ref2 = running_context[ref.fast_index];
@@ -854,7 +859,7 @@ namespace Noodles
 	bool TickSystemsGroup::StartParallel(SystemHolder& system, std::size_t parallel_count)
 	{
 		std::lock_guard lg(system.mutex);
-		if(system.status == RunningStatus::Running && system.request_parallel == 0)
+		if(system.status == RunningStatus::Running && system.request_parallel == 0 && std::numeric_limits<std::size_t>::max() - parallel_count <= SystemParallelStartUpNumber)
 		{
 			system.request_parallel = parallel_count;
 			return true;
@@ -866,163 +871,138 @@ namespace Noodles
 	{
 
 		SystemHolder::Ptr ptr{ reinterpret_cast<SystemHolder*>(index.index) };
-		
 
-		SystemContext sys_context{
-			*ptr, context
-		};
-
-		sys_context.self_property = ptr->GetProperty();
-
+		while(true)
 		{
-			if(ptr->mutex.try_lock())
+			switch(index.parameter)
 			{
-				std::lock_guard lg(ptr->mutex, std::adopt_lock);
-				switch (ptr->status)
-				{
-				case RunningStatus::Waiting:
-					ptr->status = RunningStatus::Running;
-					break;
-				case RunningStatus::WaitingParallel:
-					if(ptr->request_parallel == 0)
-					{
-						sys_context.category = SystemCategory::FinalParallel;
-						ptr->status = RunningStatus::Running;
-					}else
-					{
-						sys_context.category = SystemCategory::Parallel;
-						sys_context.parameter = index.parameter;
-					}
-					break;
-				default:
-					assert(false);
-					break;
-				}
-			}else
+			case SystemWaitingToRun:
 			{
-				//ptr->AddRef();
-				func(data, index, ptr->GetDisplayName());
-				return true;
-			}
-		}
-
-		ptr->SubRef();
-
-		ptr->Execute(sys_context);
-
-		RunningStatus status = RunningStatus::Done;
-		
-
-		{
-			std::lock_guard lg2(ptr->mutex);
-
-			switch(ptr->status)
-			{
-			case RunningStatus::Running:
-				if(ptr->request_parallel == 0)
-				{
-					ptr->status = RunningStatus::Done;
-					break;
-				}else
-				{
-					ptr->status = RunningStatus::WaitingParallel;
-					status = RunningStatus::WaitingParallel;
-					for(std::size_t i = 0; i < ptr->request_parallel; ++i)
-					{
-						ptr->AddRef();
-						func(data, { index.index, i}, ptr->GetDisplayName());
-					}
-					return true;
-				}
-				break;
-			case RunningStatus::WaitingParallel:
-				status = RunningStatus::WaitingParallel;
-				--ptr->request_parallel;
-				if(ptr->request_parallel == 0)
-				{
-					ptr->AddRef();
-					func(data, { index.index, 0 }, ptr->GetDisplayName());
-				}
-				return true;
-				break;
-			default:
-				assert(false);
+				SystemContext sys_context{
+				*ptr, context
+				};
+				sys_context.self_property = ptr->GetProperty();
+				ptr->Execute(sys_context);
+				index.parameter = SystemDone;
 				break;
 			}
-		}
-
-		if(status == RunningStatus::Done)
-		{
+				
+			case SystemDone:
 			{
-				std::lock_guard lg(tick_system_running_mutex);
-
-				auto index = ptr->fast_index;
-				auto& ref = running_context[index];
-
-				auto span = ref.reference_trigger_line.Slice(std::span(tick_systems_running_graphic_line));
-
-				for (auto& ite : span)
 				{
+					std::lock_guard lg(ptr->mutex);
+					if (ptr->request_parallel != 0)
 					{
-						auto& tar = running_context[ite.to_index];
-						if (ite.is_mutex)
+						for (std::size_t i = 0; i < ptr->request_parallel; ++i)
 						{
-							assert(tar.mutex_degree > 0);
-							tar.mutex_degree -= 1;
+							func(data, { index.index, i + SystemParallelStartUpNumber }, ptr->GetDisplayName());
 						}
-						else {
-							assert(tar.current_in_degree > 0);
-							tar.current_in_degree -= 1;
-						}
+						return true;
+					}
+				}
 
+				if (tick_system_running_mutex.try_lock())
+				{
+					std::lock_guard lg(tick_system_running_mutex, std::adopt_lock);
+					ptr->SubRef();
+					auto index = ptr->fast_index;
+					auto& ref = running_context[index];
+
+					auto span = ref.reference_trigger_line.Slice(std::span(tick_systems_running_graphic_line));
+
+					for (auto& ite : span)
+					{
 						{
-
-							if(ref.mutex_degree == 0 && ref.current_in_degree == 0)
+							auto& tar = running_context[ite.to_index];
+							if (ite.is_mutex)
 							{
-								auto& ref2 = *tar.to;
-								std::lock_guard lg(ref2.mutex);
-								if(ref2.status == RunningStatus::Ready)
+								assert(tar.mutex_degree > 0);
+								tar.mutex_degree -= 1;
+							}
+							else {
+								assert(tar.current_in_degree > 0);
+								tar.current_in_degree -= 1;
+							}
+
+							{
+
+								if (ref.mutex_degree == 0 && ref.current_in_degree == 0)
 								{
-									ref2.status = RunningStatus::Waiting;
-
-									auto span2 = tar.reference_trigger_line.Slice(std::span(tick_systems_running_graphic_line));
-
-									for (auto& ite : span)
+									auto& ref2 = *tar.to;
+									std::lock_guard lg(ref2.mutex);
+									if (ref2.status == RunningStatus::Ready)
 									{
-										if (ite.is_mutex)
+										ref2.status = RunningStatus::Running;
+
+										auto span2 = tar.reference_trigger_line.Slice(std::span(tick_systems_running_graphic_line));
+
+										for (auto& ite : span)
 										{
-											running_context[ite.to_index].mutex_degree += 1;
+											if (ite.is_mutex)
+											{
+												running_context[ite.to_index].mutex_degree += 1;
+											}
 										}
 									}
+									ref2.AddRef();
+									func(data, { reinterpret_cast<std::size_t>(tar.to.GetPointer()), SystemWaitingToRun }, ref2.GetDisplayName());
+									++current_level_system_waiting;
 								}
-								ref2.AddRef();
-								func(data, {reinterpret_cast<std::size_t>(tar.to.GetPointer()), 0}, ref2.GetDisplayName());
-								++current_level_system_waiting;
 							}
 						}
 					}
-				}
 
-				--current_level_system_waiting;
-				if(current_level_system_waiting == 0)
-				{
-					StartupNewLayerSystems(func, data);
+					--current_level_system_waiting;
+					if (current_level_system_waiting == 0)
+					{
+						StartupNewLayerSystems(func, data);
+					}
+					return current_level_system_waiting != 0;
 				}
-				return current_level_system_waiting != 0;
+				else
+				{
+					func(data, index, ptr->GetDisplayName());
+					return true;
+				}
+				break;
 			}
-		}else
-		{
-			assert(false);
+			case SystemParallelDone:
 			{
-				std::lock_guard lg(ptr->mutex);
-				assert(ptr->status == RunningStatus::WaitingParallel);
-				ptr->request_parallel -= 0;
-				if(ptr->request_parallel == 0)
+				SystemContext sys_context{
+					*ptr, context
+				};
+				sys_context.self_property = ptr->GetProperty();
+				sys_context.category = SystemCategory::FinalParallel;
+				ptr->Execute(sys_context);
+				index.parameter = SystemDone;
+				break;
+			}
+			default:
+			{
+				assert(index.parameter >= SystemParallelStartUpNumber);
+				SystemContext sys_context{
+					*ptr, context
+				};
+				sys_context.self_property = ptr->GetProperty();
+				sys_context.category = SystemCategory::Parallel;
+				sys_context.parameter = index.parameter - SystemParallelStartUpNumber;
+				ptr->Execute(sys_context);
 				{
-					ptr->AddRef();
-					func(data, {reinterpret_cast<std::size_t>(ptr.GetPointer()), 0}, ptr->GetDisplayName());
+					std::lock_guard lg(ptr->mutex);
+					assert(ptr->request_parallel > 0);
+					ptr->request_parallel -= 1;
+					if (ptr->request_parallel == 0)
+					{
+						index.parameter = SystemParallelDone;
+						break;
+					}else
+					{
+						return true;
+					}
 				}
-				return true;
+				break;
+			}
+				
 			}
 		}
 	}

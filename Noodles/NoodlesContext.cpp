@@ -54,7 +54,7 @@ namespace Noodles
 				new_property.AppendData = ruing_index.index + 1;
 				new_property.AppendData2 = ruing_index.parameter;
 				new_property.TaskName = display_name;
-				task_context->CommitTask(
+				status.Context.CommitTask(
 					this,
 					new_property
 				);
@@ -83,7 +83,7 @@ namespace Noodles
 					new_property.AppendData = i.index + 1;
 					new_property.AppendData2 = i.parameter;
 					new_property.TaskName = dis;
-					task_context->CommitTask(
+					status.Context.CommitTask(
 						this,
 						new_property
 					);
@@ -118,12 +118,10 @@ namespace Noodles
 				auto new_pro = status.Property;
 
 				new_pro.AppendData = 0;
-				{
-					std::lock_guard lg(property_mutex);
-					require_time = last_execute_time + config.min_frame_time;
-					re_task_context = task_context;
-					new_pro.TaskPriority = config.priority;
-				}
+				std::lock_guard lg(property_mutex);
+				require_time = last_execute_time + config.min_frame_time;
+				re_task_context = task_context;
+				new_pro.TaskPriority = config.priority;
 				assert(re_task_context);
 				re_task_context->CommitDelayTask(this, require_time, new_pro);
 			}

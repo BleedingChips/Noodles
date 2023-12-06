@@ -315,7 +315,6 @@ export namespace Noodles
 	export enum class RunningStatus
 	{
 		PreInit,
-		Waiting,
 		Ready,
 		Running,
 		Done,
