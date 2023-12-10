@@ -175,7 +175,7 @@ export namespace Noodles
 		virtual void AddRef() const = 0;
 		virtual void SubRef() const = 0;
 
-		friend struct Potato::Pointer::IntrusiveSubWrapperT;
+		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 		friend struct ArchetypeComponentManager;
 	};
 

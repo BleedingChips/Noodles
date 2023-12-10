@@ -65,7 +65,7 @@ export namespace Noodles
 		std::chrono::milliseconds min_frame_time = std::chrono::milliseconds{ 13 };
 	};
 
-	struct Context : public Potato::Task::Task
+	struct Context : public Potato::Task::Task, public Potato::Pointer::DefaultIntrusiveInterface
 	{
 
 		using Ptr = Potato::Pointer::IntrusivePtr<Context>;
@@ -163,6 +163,8 @@ export namespace Noodles
 		Context(ContextConfig config, Potato::Task::TaskContext::Ptr TaskPtr, std::u8string_view context_name, std::pmr::memory_resource* up_stream);
 
 		//virtual void ControlRelease() override;
+		virtual void AddRef() const override { return DefaultIntrusiveInterface::AddRef(); }
+		virtual void SubRef() const override { return DefaultIntrusiveInterface::SubRef(); }
 		virtual void Release() override;
 		virtual ~Context() override = default;
 
@@ -179,6 +181,8 @@ export namespace Noodles
 		ArchetypeComponentManager component_manager;
 		TickSystemsGroup tick_system_group;
 		std::pmr::memory_resource* resource;
+
+		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 		
 	};
 

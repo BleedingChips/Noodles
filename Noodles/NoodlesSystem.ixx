@@ -114,7 +114,7 @@ export namespace Noodles
 		virtual void SubRef() const override;
 
 		friend struct SystemContext;
-		friend struct Potato::Pointer::IntrusiveSubWrapperT;
+		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 
 	public:
 
@@ -271,7 +271,7 @@ export namespace Noodles
 		std::pmr::memory_resource* resource = nullptr;
 		std::size_t allocate_size = 0;
 
-		friend struct Potato::Pointer::IntrusiveSubWrapperT;
+		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 	};
 
 
