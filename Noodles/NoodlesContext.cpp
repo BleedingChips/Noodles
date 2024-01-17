@@ -10,14 +10,14 @@ namespace Noodles
 
 	constexpr std::u8string_view TaskName = u8"Noodles Startup";
 
-	auto Context::Create(ContextConfig config, Potato::Task::TaskContext::Ptr TaskPtr, std::u8string_view context_name, std::pmr::memory_resource* UpstreamResource)->Ptr
+	auto Context::Create(ContextConfig config, std::u8string_view context_name, std::pmr::memory_resource* UpstreamResource)->Ptr
 	{
-		if(TaskPtr && UpstreamResource != nullptr)
+		if(UpstreamResource != nullptr)
 		{
 			auto Adress = UpstreamResource->allocate(sizeof(Context), alignof(Context));
 			if(Adress != nullptr)
 			{
-				return new (Adress) Context{ config, std::move(TaskPtr), context_name, UpstreamResource };
+				return new (Adress) Context{ config, context_name, UpstreamResource };
 			}else
 			{
 				return {};
@@ -26,8 +26,8 @@ namespace Noodles
 		return {};
 	}
 
-	Context::Context(ContextConfig config, Potato::Task::TaskContext::Ptr TaskPtr, std::u8string_view context_name, std::pmr::memory_resource* up_stream)
-		: task_context(std::move(TaskPtr)), context_name(up_stream), resource(up_stream), config(config), component_manager(up_stream), tick_system_group(up_stream)
+	Context::Context(ContextConfig config, std::u8string_view context_name, std::pmr::memory_resource* up_stream)
+		: context_name(up_stream), resource(up_stream), config(config), component_manager(up_stream), tick_system_group(up_stream)
 	{
 		this->context_name = context_name;
 	}
@@ -40,21 +40,21 @@ namespace Noodles
 
 	void Context::operator()(Potato::Task::ExecuteStatus& status)
 	{
-		if(status.Property.AppendData == 0)
+		if(status.task_property.user_data[0] == 0)
 		{
 			{
 				std::lock_guard lg2(property_mutex);
-				last_execute_time = std::chrono::system_clock::now();
+				last_execute_time = std::chrono::steady_clock::now();
 			}
 
 			component_manager.UpdateEntityStatus();
 			auto has_system = tick_system_group.SynFlushAndDispatch(component_manager, [&](TickSystemRunningIndex ruing_index, std::u8string_view display_name)
 			{
-				auto new_property = status.Property;
-				new_property.AppendData = ruing_index.index + 1;
-				new_property.AppendData2 = ruing_index.parameter;
-				new_property.TaskName = display_name;
-				status.Context.CommitTask(
+				auto new_property = status.task_property;
+				new_property.user_data[0] = ruing_index.index + 1;
+				new_property.user_data[1] = ruing_index.parameter;
+				new_property.name = display_name;
+				status.context.CommitTask(
 					this,
 					new_property
 				);
@@ -72,18 +72,18 @@ namespace Noodles
 			}
 		}else
 		{
-			auto index = status.Property.AppendData - 1;
+			auto index = status.task_property.user_data[0] - 1;
 
 			auto re = tick_system_group.ExecuteAndDispatchDependence(
-				{index, status.Property.AppendData2},
+				{index, status.task_property.user_data[1]},
 				*this,
 				[&](TickSystemRunningIndex i, std::u8string_view dis)
 				{
-					auto new_property = status.Property;
-					new_property.AppendData = i.index + 1;
-					new_property.AppendData2 = i.parameter;
-					new_property.TaskName = dis;
-					status.Context.CommitTask(
+					auto new_property = status.task_property;
+					new_property.user_data[0] = i.index + 1;
+					new_property.user_data[1] = i.parameter;
+					new_property.name = dis;
+					status.context.CommitTask(
 						this,
 						new_property
 					);
@@ -113,17 +113,18 @@ namespace Noodles
 				E = 1;
 				auto re = running_task.compare_exchange_strong(E, 2);
 				assert(re);
-				std::chrono::system_clock::time_point require_time;
+				std::chrono::steady_clock::time_point require_time;
 				Potato::Task::TaskContext::Ptr re_task_context;
-				auto new_pro = status.Property;
+				auto new_pro = status.task_property;
 
-				new_pro.AppendData = 0;
-				std::lock_guard lg(property_mutex);
-				require_time = last_execute_time + config.min_frame_time;
-				re_task_context = task_context;
-				new_pro.TaskPriority = config.priority;
-				assert(re_task_context);
-				re_task_context->CommitDelayTask(this, require_time, new_pro);
+				new_pro.user_data[0] = 0;
+				new_pro.name = context_name;
+
+				{
+					std::lock_guard lg(property_mutex);
+					require_time = last_execute_time + config.min_frame_time;
+					status.context.CommitDelayTask(this, require_time, new_pro);
+				}
 			}
 		}
 	}
@@ -139,20 +140,24 @@ namespace Noodles
 		);
 	}
 
-	bool Context::StartLoop()
+	bool Context::StartLoop(Potato::Task::TaskContext& context, ContextProperty property)
 	{
 		if(!tick_system_group.Empty())
 		{
 			std::lock_guard lg(property_mutex);
 			std::size_t E = 0;
-			if (task_context && running_task.compare_exchange_strong(E, 2))
+			if (running_task.compare_exchange_strong(E, 2))
 			{
+				Potato::Task::TaskProperty tp{
+					property.priority,
+					context_name,
+					{0, 0},
+					property.category,
+					property.group_id,
+					property.thread_id
+				};
 
-				if (!task_context->CommitTask(this, {
-					config.priority,
-					TaskName,
-					0, 0
-					}))
+				if (!context.CommitTask(this, tp))
 				{
 					E = 2;
 					auto re = running_task.compare_exchange_strong(E, 0);

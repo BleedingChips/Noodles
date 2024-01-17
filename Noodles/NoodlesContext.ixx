@@ -61,8 +61,18 @@ export namespace Noodles
 
 	struct ContextConfig
 	{
-		std::size_t priority = *Potato::Task::TaskPriority::Normal;
 		std::chrono::milliseconds min_frame_time = std::chrono::milliseconds{ 13 };
+	};
+
+	using Priority = Potato::Task::Priority;
+	using Category = Potato::Task::Category;
+
+	struct ContextProperty
+	{
+		Priority priority = Priority::Normal;
+		Category category = Category::GLOBAL_TASK;
+		std::size_t group_id = 0;
+		std::thread::id thread_id;
 	};
 
 	struct Context : public Potato::Task::Task, public Potato::Pointer::DefaultIntrusiveInterface
@@ -70,9 +80,9 @@ export namespace Noodles
 
 		using Ptr = Potato::Pointer::IntrusivePtr<Context>;
 
-		static Ptr Create(ContextConfig config, Potato::Task::TaskContext::Ptr ptr, std::u8string_view context_name = u8"Noodles", std::pmr::memory_resource* UpstreamResource = std::pmr::get_default_resource());
+		static Ptr Create(ContextConfig config, std::u8string_view context_name = u8"Noodles", std::pmr::memory_resource* UpstreamResource = std::pmr::get_default_resource());
 
-		bool StartLoop();
+		bool StartLoop(Potato::Task::TaskContext& context, ContextProperty property);
 
 		template<typename GeneratorFunc, typename Func>
 		SystemRegisterResult RegisterTickSystemDefer(
@@ -160,7 +170,7 @@ export namespace Noodles
 
 		virtual void operator()(Potato::Task::ExecuteStatus& Status) override;
 
-		Context(ContextConfig config, Potato::Task::TaskContext::Ptr TaskPtr, std::u8string_view context_name, std::pmr::memory_resource* up_stream);
+		Context(ContextConfig config, std::u8string_view context_name, std::pmr::memory_resource* up_stream);
 
 		//virtual void ControlRelease() override;
 		virtual void AddRef() const override { return DefaultIntrusiveInterface::AddRef(); }
@@ -174,9 +184,8 @@ export namespace Noodles
 		std::pmr::u8string context_name;
 
 		std::mutex property_mutex;
-		Potato::Task::TaskContext::Ptr task_context;
 		ContextConfig config;
-		std::chrono::system_clock::time_point last_execute_time;
+		std::chrono::steady_clock::time_point last_execute_time;
 
 		ArchetypeComponentManager component_manager;
 		TickSystemsGroup tick_system_group;

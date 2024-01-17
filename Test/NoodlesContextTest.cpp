@@ -70,16 +70,15 @@ int main()
 
 
 	auto task_context = Potato::Task::TaskContext::Create();
-	task_context->FireThreads();
 
+	task_context->AddGroupThread({}, Potato::Task::TaskContext::GetSuggestThreadCount());
 
-	ContextConfig config{
-	1000,
-		std::chrono::seconds{10}
-	};
+	ContextConfig config;
+
+	config.min_frame_time = std::chrono::seconds{10};
 
 	auto context = Context::Create(
-		config, task_context, u8"Fuck"
+		config, u8"Fuck"
 	);
 
 	EntityConstructor ec;
@@ -234,9 +233,10 @@ int main()
 
 
 
-	context->StartLoop();
+	context->StartLoop(*task_context, {});
 
-	task_context->FlushTask();
+	task_context->ProcessTask({});
+	task_context->CloseAllThreadAndWait();
 
 	return 0;
 }
