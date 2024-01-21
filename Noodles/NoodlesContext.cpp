@@ -114,7 +114,6 @@ namespace Noodles
 				auto re = running_task.compare_exchange_strong(E, 2);
 				assert(re);
 				std::chrono::steady_clock::time_point require_time;
-				Potato::Task::TaskContext::Ptr re_task_context;
 				auto new_pro = status.task_property;
 
 				new_pro.user_data[0] = 0;

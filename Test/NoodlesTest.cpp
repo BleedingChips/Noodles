@@ -69,7 +69,7 @@ int main()
 	//static_assert(!std::is_same_v<K, std::tuple<SystemComponentFilter::Ptr>>, "Fuck");
 
 
-	auto task_context = Potato::Task::TaskContext::Create();
+	Potato::Task::TaskContext task_context;
 
 	
 
@@ -227,12 +227,11 @@ int main()
 	);
 
 
-	task_context->AddGroupThread({}, Potato::Task::TaskContext::GetSuggestThreadCount());
+	task_context.AddGroupThread({}, Potato::Task::TaskContext::GetSuggestThreadCount());
 
-	context->StartLoop(*task_context, {});
+	context->StartLoop(task_context, {});
 
-	task_context->ProcessTask({});
-	task_context->CloseAllThreadAndWait();
+	task_context.ProcessTaskUntillNoExitsTask({});
 
 	return 0;
 }

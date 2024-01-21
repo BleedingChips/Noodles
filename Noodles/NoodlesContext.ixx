@@ -75,7 +75,7 @@ export namespace Noodles
 		std::thread::id thread_id;
 	};
 
-	struct Context : public Potato::Task::Task, public Potato::Pointer::DefaultIntrusiveInterface
+	struct Context : protected Potato::Task::Task, public Potato::Pointer::DefaultIntrusiveInterface
 	{
 
 		using Ptr = Potato::Pointer::IntrusivePtr<Context>;
