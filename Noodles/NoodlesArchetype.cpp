@@ -10,8 +10,7 @@ namespace Noodles
 	std::strong_ordering ArchetypeID::operator<=>(ArchetypeID const& i2) const
 	{
 		return Potato::Misc::PriorityCompareStrongOrdering(
-			layout.Align, i2.layout.Align,
-			layout.Size, i2.layout.Size,
+				layout, i2.layout,
 			i2.id, id
 		);
 	}
@@ -24,16 +23,17 @@ namespace Noodles
 	std::strong_ordering ArchetypeMountPoint::operator<=>(ArchetypeMountPoint const& mp) const
 	{
 		return Potato::Misc::PriorityCompareStrongOrdering(
-			index, mp.index,
+			//index, mp.index,
 			buffer, mp.buffer
 		);
 	}
 
 	ArchetypeMountPoint::operator bool() const
 	{
-		return buffer != nullptr && element_count >= 1 && index < element_count;
+		return buffer != nullptr;
 	}
 
+	/*
 	ArchetypeConstructor::ArchetypeConstructor(std::pmr::memory_resource* resource)
 		: elements(resource)
 	{
@@ -116,103 +116,86 @@ namespace Noodles
 		}else
 			return std::nullopt;
 	}
+	*/
 
 
-	auto Archetype::Create(ArchetypeConstructor const& ref_info, std::pmr::memory_resource* resource)
+	auto Archetype::Create(std::span<ArchetypeID const> id, std::pmr::memory_resource* resource)
 	->Ptr
 	{
-		assert(resource != nullptr);
 
-		if(ref_info)
+		if(resource != nullptr && id.size() >= 1)
 		{
-			auto info_size = ref_info.elements.size() * sizeof(Element);
-			auto total_size = info_size + sizeof(Archetype);
-			auto adress = resource->allocate(total_size, alignof(Archetype));
-			if (adress != nullptr)
+			auto layout = Potato::IR::Layout::Get<Archetype>();
+			auto list_layout = Potato::IR::Layout::GetArray<Archetype::Element>(id.size());
+			auto offset = Potato::IR::InsertLayoutCPP(layout, list_layout);
+			Potato::IR::FixLayoutCPP(layout);
+
+			auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, layout);
+			if(record)
 			{
-				Ptr ptr = new (adress) Archetype{
-					ref_info,
-					std::span<std::byte>{static_cast<std::byte*>(adress) + sizeof(Archetype), info_size},
-					resource,
-					total_size
-				};
-				
-				assert(ptr);
-				return ptr;
+				auto span = record.GetArray<Archetype::Element>(id.size(), offset);
+				for(std::size_t i = 0; i < id.size(); ++i)
+				{
+					new (&span[i]) Archetype::Element{id[i], 0};
+				}
+
+				return new (record.Get()) Archetype {record, span};
+			}
+		}
+		return {};
+	}
+
+	Archetype::Ptr Archetype::Clone(std::pmr::memory_resource* o_resource) const
+	{
+		if(o_resource != nullptr)
+		{
+			auto layout = Potato::IR::Layout::Get<Archetype>();
+			auto list_layout = Potato::IR::Layout::GetArray<Archetype::Element>(infos.size());
+			auto offset = Potato::IR::InsertLayoutCPP(layout, list_layout);
+			Potato::IR::FixLayoutCPP(layout);
+			auto re = Potato::IR::MemoryResourceRecord::Allocate(o_resource, layout);
+			if (re)
+			{
+				auto span = re.GetArray<Element>(infos.size());
+				for(auto ite = span.begin(), ite2 = infos.begin(); ite != span.end(); ++ite, ++ite2)
+				{
+					new (&*ite) Element{*ite2};
+				}
+				return new (re.Get()) Archetype{*this, span, record};
 			}
 		}
 		return {};
 	}
 	
 	Archetype::Archetype(
-		ArchetypeConstructor const& contructor,
-		std::span<std::byte> buffer, 
-		std::pmr::memory_resource* resouce, 
-		std::size_t allocated_size)
-		: resource(resouce), allocated_size(allocated_size)
+		Potato::IR::MemoryResourceRecord record,
+		std::span<Element> infos
+		)
+		: record(record), infos(infos)
 	{
-		assert(contructor.elements.size() * sizeof(Element) <= buffer.size());
-		std::span<Element> temp_buffer{
-			reinterpret_cast<Element*>(buffer.data()),
-			contructor.elements.size()
-		};
-
-		infos = temp_buffer;
-
-		std::size_t index = 0;
-		for (auto& ite : contructor.elements)
-		{
-			assert(index < temp_buffer.size());
-			new (&temp_buffer[index]) Element{
-				ite.id,
-				ite.count
-			};
-			++index;
-		}
-
-		std::sort(temp_buffer.begin(), temp_buffer.end(), [](Element const& E, Element const& E2)
+		std::sort(infos.begin(), infos.end(), [](Archetype::Element const& E1, Archetype::Element const& E2)
 			{
-				return E.id >= E2.id;
+				return (E1.id.layout <=> E2.id.layout) == std::strong_ordering::greater;
 			});
 
-		Potato::IR::Layout layout;
-
-		for (auto& ite : temp_buffer)
+		for(auto& ite : infos)
 		{
-			auto counted_layout = ite.id.layout;
-			counted_layout.Size *= ite.count;
-			ite.offset = Potato::IR::InsertLayoutCPP(layout, counted_layout);
+			ite.offset = Potato::IR::InsertLayoutCPP(archetype_layout, ite.id.layout);
+			type_id_hash_code += ite.id.id.HashCode();
 		}
 
-		infos = temp_buffer;
-
-		buffer_archetype_layout_size = layout.Size;
-
-		Potato::IR::FixLayoutCPP(layout);
-
-		archetype_layout = layout;
+		single_layout = archetype_layout;
+		Potato::IR::FixLayoutCPP(single_layout);
 	}
 
 	Archetype::Archetype(
 		Archetype const& ref,
-		std::span<std::byte> buffer,
-		std::pmr::memory_resource* resource, std::size_t allocated_size
-	) : resource(resource), allocated_size(allocated_size)
+		std::span<Element> infos,
+		Potato::IR::MemoryResourceRecord record
+	) : record(record), type_id_hash_code(ref.type_id_hash_code),
+		single_layout(ref.single_layout), archetype_layout(ref.archetype_layout),
+		infos(infos)
 	{
-		assert(ref.infos.size() * sizeof(Element) <= buffer.size());
-		std::span<Element> new_infos{
-			reinterpret_cast<Element*>(buffer.data()),
-			ref.infos.size()
-		};
-		std::size_t count = 0;
-		for (auto& ite : ref.infos)
-		{
-			new (&new_infos[count]) Element{ ite };
-			count += 1;
-		}
-		archetype_layout = ref.archetype_layout;
-		infos = new_infos;
-		buffer_archetype_layout_size = ref.buffer_archetype_layout_size;
 	}
 
 	Archetype::~Archetype()
@@ -226,27 +209,20 @@ namespace Noodles
 
 	void Archetype::Release()
 	{
-		auto old_resource = resource;
-		auto old_size = allocated_size;
+		auto re = record;
 		this->~Archetype();
-		old_resource->deallocate(
-			this,
-			old_size,
-			alignof(Archetype)
-		);
+		re.Deallocate();
 	}
 
 	auto Archetype::LocateTypeID(UniqueTypeID const& type_id) const
-		-> std::optional<Location>
+		-> std::optional<std::size_t>
 	{
-		std::size_t index = 0;
-		for(auto& ite : infos)
+		for(auto ite = infos.begin(); ite != infos.end(); ++ite)
 		{
-			if (type_id == ite.id.id)
+			if(type_id == ite->id.id)
 			{
-				return Location{index, ite.count};
+				return static_cast<std::size_t>(std::distance(infos.begin(), ite));
 			}
-			++index;
 		}
 		return std::nullopt;
 	}
@@ -257,27 +233,11 @@ namespace Noodles
 		return infos[index].id.id;
 	}
 
-	UniqueTypeID const& Archetype::GetTypeID(std::size_t index, std::size_t& count) const
-	{
-		assert(GetTypeIDCount() > index);
-		auto& ref = infos[index];
-		count = ref.count;
-		return ref.id.id;
-	}
-
-	void* Archetype::GetData(std::size_t locate_index, std::size_t count, ArchetypeMountPoint mount_point) const
+	void* Archetype::GetData(std::size_t locate_index, ArchetypeMountPoint mount_point) const
 	{
 		assert(GetTypeIDCount() > locate_index);
 		assert(mount_point);
-		auto& ref = infos[locate_index];
-		assert(count < ref.count);
-		auto layout = ref.id.layout;
-		auto offset = ref.offset;
-		return static_cast<void*>(
-			static_cast<std::byte*>(mount_point.buffer) 
-			+ offset * mount_point.element_count 
-			+ layout.Size * (mount_point.index * ref.count + count)
-			);
+		return mount_point.GetBuffer(infos[locate_index].offset);
 	}
 
 	void Archetype::Destruction(ArchetypeMountPoint mount_point) const
@@ -285,21 +245,9 @@ namespace Noodles
 		assert(mount_point);
 		for(auto& ite : infos)
 		{
-			auto layout = ite.id.layout;
-			auto offset = ite.offset;
-
-			auto buffer_offset = offset * mount_point.element_count
-				+ layout.Size * (mount_point.index * ite.count);
-
-			for(std::size_t count = 0; count < ite.count; ++count)
-			{
-				
-				auto target_adress = static_cast<void*>(
-					static_cast<std::byte*>(mount_point.buffer) + 
-					buffer_offset + layout.Size * count
-					);
-				ite.id.wrapper_function(ArchetypeID::Status::Destruction, target_adress, nullptr);
-			}
+			ite.id.wrapper_function(
+				ArchetypeID::Status::Destruction, mount_point.GetBuffer(ite.offset), nullptr
+			);
 		}
 	}
 
@@ -307,28 +255,23 @@ namespace Noodles
 	{
 		for (auto& ite : infos)
 		{
-			auto layout = ite.id.layout;
-			auto offset = ite.offset;
+			auto tar1 = target_mp.GetBuffer(ite.offset);
+			auto tar2 = source_mp.GetBuffer(ite.offset);
+			ite.id.wrapper_function(ArchetypeID::Status::MoveConstruction, tar1, tar2);
+		}
+	}
 
-			auto buffer_offset1 = offset * target_mp.element_count
-				+ layout.Size * (target_mp.index * ite.count);
-
-			auto buffer_offset2 = offset * source_mp.element_count
-				+ layout.Size * (source_mp.index * ite.count);
-
-			for (std::size_t count = 0; count < ite.count; ++count)
+	bool Archetype::CheckUniqueArchetypeID(std::span<ArchetypeID const> ids)
+	{
+		for(auto ite = ids.begin(); ite != ids.end(); ++ite)
+		{
+			for(auto ite2 = ite + 1; ite2 != ids.end(); ++ite2)
 			{
-				auto target_adress1 = static_cast<void*>(
-					static_cast<std::byte*>(target_mp.buffer) +
-					buffer_offset1 + layout.Size * count
-					);
-				auto target_adress2 = static_cast<void*>(
-					static_cast<std::byte*>(source_mp.buffer) +
-					buffer_offset2 + layout.Size * count
-					);
-				ite.id.wrapper_function(ArchetypeID::Status::MoveConstruction, target_adress1, target_adress2);
+				if(*ite == *ite2)
+					return false;
 			}
 		}
+		return true;
 	}
 
 	void Archetype::MoveConstruct(std::size_t locate_index, void* target, void* source) const
@@ -355,53 +298,21 @@ namespace Noodles
 		ref.id.wrapper_function(ArchetypeID::Status::DefaultConstruction, target, nullptr);
 	}
 
-	Archetype::Ptr Archetype::Clone(std::pmr::memory_resource* o_resource) const
+	bool Archetype::operator==(Archetype const& i2) const
 	{
-		if(o_resource != nullptr)
+		if(type_id_hash_code == i2.type_id_hash_code && archetype_layout == i2.archetype_layout)
 		{
-			auto new_adress = o_resource->allocate(allocated_size, alignof(Archetype));
-			if(new_adress != nullptr)
+			if(infos.size() == i2.infos.size())
 			{
-				Ptr ptr = new (new_adress) Archetype{
-					*this,
-					std::span<std::byte>{ reinterpret_cast<std::byte*>(new_adress) + sizeof(Archetype), sizeof(Element) * infos.size()},
-					o_resource, allocated_size };
-
-				assert(ptr);
-				return ptr;
+				for(auto ite = infos.begin(), ite2 = i2.infos.begin(); ite != infos.end(); ++ite, ++ite2)
+				{
+					if(*ite != *ite2)
+						return false;
+				}
+				return true;
 			}
 		}
-		return {};
-	}
-
-	std::strong_ordering Archetype::operator<=>(Archetype const& i2) const
-	{
-		auto re = Potato::Misc::PriorityCompareStrongOrdering(
-			infos.size(), i2.infos.size(),
-			archetype_layout.Align, i2.archetype_layout.Align,
-			archetype_layout.Size, i2.archetype_layout.Size
-		);
-
-		if(re == std::strong_ordering::equivalent)
-		{
-			for (std::size_t i = 0; i < infos.size(); ++i)
-			{
-				auto& it1 = infos[i];
-				auto& it2 = i2.infos[i];
-				re = Potato::Misc::PriorityCompareStrongOrdering(
-					it1.id, it2.id,
-					it1.count, it2.count
-				);
-				if (re != std::strong_ordering::equivalent)
-					return re;
-			}
-		}
-		return re; 
-	}
-
-	bool Archetype::operator==(Archetype const& ar) const
-	{
-		return this->operator<=>(ar) == std::strong_ordering::equal;
+		return false;
 	}
 
 }

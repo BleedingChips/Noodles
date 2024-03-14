@@ -7,7 +7,7 @@ module NoodlesContext;
 namespace Noodles
 {
 
-
+	/*
 	constexpr std::u8string_view TaskName = u8"Noodles Startup";
 
 	auto Context::Create(ContextConfig config, std::u8string_view context_name, std::pmr::memory_resource* UpstreamResource)->Ptr
@@ -173,4 +173,5 @@ namespace Noodles
 	{
 		return tick_system_group.StartParallel(context.ptr, count);
 	}
+	*/
 }

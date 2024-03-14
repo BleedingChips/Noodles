@@ -17,6 +17,7 @@ import PotatoFormat;
 export import NoodlesArchetype;
 export import NoodlesComponent;
 
+/*
 export namespace Noodles
 {
 	struct Context;
@@ -865,3 +866,4 @@ export namespace Noodles
 	}
 
 }
+*/

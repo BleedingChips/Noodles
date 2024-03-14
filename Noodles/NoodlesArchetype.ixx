@@ -31,30 +31,31 @@ export namespace Noodles
 
 		std::strong_ordering operator<=>(UniqueTypeID const& i1) const { return id <=> i1.id; }
 		bool operator==(const UniqueTypeID& i1) const { return id == i1.id; }
+		decltype(auto) HashCode() const {return id.HashCode(); }
 
 	protected:
 		Potato::IR::TypeID id;
 	};
 
+	/*
 	template<typename Type>
-	struct SingletonRequire
+	struct ThreadSafeMarker
 	{
 		static constexpr bool value = false;
 	};
 
 	template<typename Type>
-	concept IsSingletonRequire = requires(Type t)
+	concept HasThreadSafeMarker = requires(Type t)
 	{
-		typename Type::NoodlesSingletonRequire;
+		typename Type::NoodlesThreadSafeMarker;
 	};
 
-	template<IsSingletonRequire Type>
-	struct SingletonRequire<Type>
+	template<HasThreadSafeMarker Type>
+	struct ThreadSafeMarker<Type>
 	{
 		static constexpr bool value = true;
 	};
-
-	
+	*/
 
 	struct ArchetypeID
 	{
@@ -67,16 +68,17 @@ export namespace Noodles
 
 		UniqueTypeID id;
 		Potato::IR::Layout layout;
+		//bool thread_safe = false;
 		void (*wrapper_function)(Status status, void* self, void* target) = nullptr;
-		bool is_singleton = false;
+		
 
 		ArchetypeID(
 			UniqueTypeID id,
 			Potato::IR::Layout layout,
-			void (*wrapper_function)(Status status, void* self, void* target),
-			bool is_singleton
+			//bool thread_safe,
+			void (*wrapper_function)(Status status, void* self, void* target)
 		)
-			: id(id), layout(layout), wrapper_function(wrapper_function), is_singleton(is_singleton)
+			: id(id), layout(layout), wrapper_function(wrapper_function)
 		{
 			
 		}
@@ -87,9 +89,10 @@ export namespace Noodles
 		template<typename Type>
 		static ArchetypeID Create()
 		{
-			return {
+			static ArchetypeID id{
 				UniqueTypeID::Create<Type>(),
 				Potato::IR::Layout::Get<Type>(),
+				//ThreadSafeMarker<Type>::value,
 				[](Status status, void* self, void* target)
 				{
 					switch(status)
@@ -107,9 +110,9 @@ export namespace Noodles
 						assert(false);
 						break;
 					}
-				},
-				SingletonRequire<Type>::value
+				}
 			};
+			return id;
 		}
 
 		std::strong_ordering operator<=>(ArchetypeID const& i1) const;
@@ -126,52 +129,11 @@ export namespace Noodles
 		ArchetypeMountPoint& operator --() { assert(index > 0); index -= 1; return *this; }
 		ArchetypeMountPoint& operator -=(std::size_t i) { index -= i; return *this; }
 		std::strong_ordering operator<=>(ArchetypeMountPoint const& mp) const;
-		bool operator==(ArchetypeMountPoint const& i2) const { return buffer == i2.buffer && element_count == i2.element_count && index == i2.index; }
+		bool operator==(ArchetypeMountPoint const& i2) const { return buffer == i2.buffer; }
 		operator bool() const;
 		ArchetypeMountPoint& operator*(){ return *this; }
 		ArchetypeMountPoint const& operator*() const { return *this; }
-	};
-
-	struct ArchetypeConstructor
-	{
-		ArchetypeConstructor(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
-		ArchetypeConstructor(ArchetypeConstructor&&) = default;
-
-		std::optional<std::size_t> AddElement(ArchetypeID const& id);
-
-		bool AddElement(std::span<ArchetypeID const> span, std::size_t& bad_index);
-		bool AddElement(std::span<ArchetypeID const> span);
-
-		template<typename Type>
-		std::optional<std::size_t> AddElement() { return AddElement(ArchetypeID::Create<Type>()); }
-
-		std::optional<std::size_t> Exits(UniqueTypeID const& id) const;
-		operator bool() const { return status == Status::Success; }
-
-	protected:
-
-		struct Element
-		{
-			ArchetypeID id;
-			std::size_t count;
-
-			Element(ArchetypeID const& id, std::size_t count) : id(id), count(count) {}
-			Element(Element const&) = default;
-			Element(Element &&) = default;
-			Element& operator=(Element const&) = default;
-		};
-
-		enum class Status
-		{
-			Bad,
-			Success,
-		};
-
-		Status status = Status::Success;
-
-		std::pmr::vector<Element> elements;
-
-		friend struct Archetype;
+		void* GetBuffer(std::size_t offset) const { return static_cast<std::byte*>(buffer) + offset * element_count;}
 	};
 
 
@@ -179,22 +141,16 @@ export namespace Noodles
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<Archetype>;
 
-		static Ptr Create(ArchetypeConstructor const& reference, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		static Ptr Create(std::span<ArchetypeID const> id, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
-		struct Location
-		{
-			std::size_t index = 0;
-			std::size_t count = 0;
-		};
-
-		std::optional<Location> LocateTypeID(UniqueTypeID const& type_id) const;
+		std::optional<std::size_t> LocateTypeID(UniqueTypeID const& type_id) const;
+		std::optional<std::size_t> LocateTypeID(ArchetypeID const& type_id) const { return LocateTypeID(type_id.id); }
 
 		std::size_t GetTypeIDCount() const { return infos.size(); }
 
 		UniqueTypeID const& GetTypeID(std::size_t index) const;
-		UniqueTypeID const& GetTypeID(std::size_t index, std::size_t& count) const;
 
-		void* GetData(std::size_t locate_index, std::size_t count, ArchetypeMountPoint mount_point) const;
+		void* GetData(std::size_t locate_index, ArchetypeMountPoint mount_point) const;
 
 		void MoveConstruct(std::size_t locate_index, void* target, void* source) const;
 		void Destruction(std::size_t locate_index, void* target) const;
@@ -203,56 +159,53 @@ export namespace Noodles
 		void MoveConstruct(ArchetypeMountPoint target_mp, ArchetypeMountPoint source_mp) const;
 
 		Archetype::Ptr Clone(std::pmr::memory_resource* o_resource) const;
+		std::size_t GetHashCode() const { return type_id_hash_code; }
 
-		Potato::IR::Layout GetLayout() const { return archetype_layout; }
-		Potato::IR::Layout GetBufferLayout() const { return { archetype_layout.Align, buffer_archetype_layout_size }; }
-		std::strong_ordering operator<=>(Archetype const&) const;
+		Potato::IR::Layout GetSingleLayout() const { return single_layout; }
+		Potato::IR::Layout GetArchetypeLayout() const { return archetype_layout; }
+		//std::strong_ordering operator<=>(Archetype const&) const;
 		bool operator==(Archetype const& ar) const;
-		std::pmr::memory_resource* GetResource() const { return resource; }
-		std::size_t GetFastIndex() const { return fast_index; }
+		std::pmr::memory_resource* GetResource() const { return record.GetResource(); }
+		std::size_t GetElementCount() const { return infos.size(); }
+
+		static bool CheckUniqueArchetypeID(std::span<ArchetypeID const>);
 
 	protected:
 
-		
+		struct Element
+		{
+			ArchetypeID id;
+			std::size_t offset = 0;
+
+			Element(ArchetypeID id, std::size_t offset) : id(id), offset(offset) {};
+			Element(Element const&) = default;
+			Element(Element&&) = default;
+			Element& operator=(Element const&) = default;
+			Element& operator=(Element&&) = default;
+			bool operator==(Element const& i) const { return offset == i.offset && id == i.id; }
+		};
+
 		Archetype(
-			ArchetypeConstructor const& contructor,
-			std::span<std::byte> buffer,
-			std::pmr::memory_resource*, std::size_t allocated_size
+			Potato::IR::MemoryResourceRecord record,
+			std::span<Element> infos
 			);
 
 		Archetype(
 			Archetype const& ref,
-			std::span<std::byte> buffer,
-			std::pmr::memory_resource*, std::size_t allocated_size
+			std::span<Element> infos,
+			Potato::IR::MemoryResourceRecord record
 		);
 
 
 		~Archetype();
 
-		
-
 		virtual void Release() override;
 
-
-		struct Element
-		{
-			ArchetypeID id;
-			std::size_t count = 1;
-			std::size_t offset = 0;
-
-			Element(ArchetypeID id, std::size_t count) : id(id), count(count){};
-			Element(Element const&) = default;
-			Element(Element &&) = default;
-			Element& operator=(Element const&) = default;
-			Element& operator=(Element&&) = default;
-		};
-
-		std::pmr::memory_resource* resource = nullptr;
+		Potato::IR::MemoryResourceRecord record;
+		std::size_t type_id_hash_code = 0;
+		Potato::IR::Layout single_layout;
 		Potato::IR::Layout archetype_layout;
-		std::size_t buffer_archetype_layout_size = 0;
-		std::span<Element const> infos;
-		std::size_t allocated_size = 0;
-		std::size_t fast_index = 0;
+		std::span<Element> infos;
 
 		friend struct ArchetypeComponentManager;
 	};

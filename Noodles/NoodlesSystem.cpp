@@ -8,6 +8,7 @@ import PotatoFormat;
 namespace Noodles
 {
 
+	/*
 	std::strong_ordering SystemPriority::ComparePriority(SystemPriority const& p2) const
 	{
 		return Potato::Misc::PriorityCompareStrongOrdering(
@@ -590,15 +591,7 @@ namespace Noodles
 			generator.component_rw_infos.end()
 		);
 
-		rw_index.BackwardEnd(generator.component_rw_infos.size());
-		
-		/*
-		Potato::Format::FormatWritter<char8_t> format_writer;
-
-		system_static_format_pattern.Format(format_writer, property.group_name, property.system_name, display_name_proxy, property.group_name, property.system_name);
-
-		Potato::Format::FormatWritter<char8_t> format_writer2{ total_string };
-		*/
+		rw_index.BackwardEnd(generator.component_rw_infos.size()); 
 
 		//for_pattern.Format(format_writer2, property.group_name, property.system_name, display_name_proxy, property.group_name, property.system_name);
 
@@ -1006,5 +999,6 @@ namespace Noodles
 			}
 		}
 	}
+	*/
 	
 }

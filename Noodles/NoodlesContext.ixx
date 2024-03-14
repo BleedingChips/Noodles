@@ -16,6 +16,7 @@ export import NoodlesSystem;
 export namespace Noodles
 {
 
+	/*
 	template<typename ...ComponentT>
 	struct ComponentFilter
 	{
@@ -194,6 +195,6 @@ export namespace Noodles
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 		
 	};
-
+	*/
 	
 }

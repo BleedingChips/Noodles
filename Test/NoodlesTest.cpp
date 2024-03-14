@@ -6,6 +6,7 @@ using namespace Noodles;
 
 std::mutex PrintMutex;
 
+/*
 void PrintMark(Noodles::SystemContext& context)
 {
 	std::lock_guard lg(PrintMutex);
@@ -59,6 +60,7 @@ void Func3(SystemContext& context, ComponentFilter<A, B> system, ComponentFilter
 	I = 10086;
 	volatile int i = 0;
 }
+*/
 
 int main()
 {
@@ -69,6 +71,7 @@ int main()
 	//static_assert(!std::is_same_v<K, std::tuple<SystemComponentFilter::Ptr>>, "Fuck");
 
 
+	/*
 	Potato::Task::TaskContext task_context;
 
 	
@@ -232,6 +235,7 @@ int main()
 	context->StartLoop(task_context, {});
 
 	task_context.ProcessTaskUntillNoExitsTask({});
+	*/
 
 	return 0;
 }

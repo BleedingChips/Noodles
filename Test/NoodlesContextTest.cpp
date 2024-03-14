@@ -6,6 +6,7 @@ using namespace Noodles;
 
 std::mutex PrintMutex;
 
+/*
 void PrintMark(Noodles::SystemContext& context)
 {
 	std::lock_guard lg(PrintMutex);
@@ -46,6 +47,7 @@ std::partial_ordering CustomPriority(SystemProperty const& p1, SystemProperty co
 	return p1.system_name <=> p2.system_name;
 }
 
+
 struct A { std::size_t i = 0; };
 
 struct B {};
@@ -59,9 +61,11 @@ void Func3(SystemContext& context, ComponentFilter<A, B> system, ComponentFilter
 	I = 10086;
 	volatile int i = 0;
 }
+*/
 
 int main()
 {
+	/*
 	//static_assert(IsAcceptableFunctionT<decltype(Func3)>::value, "Func");
 
 	//using K = typename ExtractAppendData<decltype(Func3)>::Type;
@@ -239,6 +243,7 @@ int main()
 	context->StartLoop(task_context, {});
 
 	task_context.ProcessTaskUntillNoExitsTask({});
+	*/
 
 	return 0;
 }

@@ -38,7 +38,19 @@ struct E
 
 int main()
 {
+	ArchetypeComponentManager manager;
 
+
+	auto entity = manager.CreateEntityDefer(
+		Report{}, A{}
+	);
+
+
+
+
+
+
+	/*
 	{
 
 		ArchetypeComponentManager manager;
@@ -119,6 +131,7 @@ int main()
 				}
 		});
 	}
+	*/
 
 	return 0;
 }
