@@ -156,7 +156,7 @@ namespace Noodles
 			auto re = Potato::IR::MemoryResourceRecord::Allocate(o_resource, layout);
 			if (re)
 			{
-				auto span = re.GetArray<Element>(infos.size());
+				auto span = re.GetArray<Element>(infos.size(), offset);
 				for(auto ite = span.begin(), ite2 = infos.begin(); ite != span.end(); ++ite, ++ite2)
 				{
 					new (&*ite) Element{*ite2};

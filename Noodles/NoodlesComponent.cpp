@@ -119,6 +119,32 @@ namespace Noodles
 		
 	}
 
+	void ComponentFilterInterface::OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype)
+	{
+		std::lock_guard lg(filter_mutex);
+		auto aspan = GetArchetypeIndex();
+		assert(aspan.size() > 0);
+		auto old_size = indexs.size();
+		indexs.resize(old_size + aspan.size());
+		auto out_span = std::span(indexs).subspan(old_size);
+		out_span[0] = archetype_index;
+		out_span = out_span.subspan(1);
+		for(auto& ite : aspan)
+		{
+			auto ind = archetype.LocateTypeID(ite);
+			if (ind.has_value())
+			{
+				out_span[0] = *ind;
+				out_span = out_span.subspan(1);
+			}
+			else
+			{
+				indexs.resize(old_size);
+				return;
+			}
+		}
+	}
+
 
 	ArchetypeComponentManager::ArchetypeComponentManager(std::pmr::memory_resource* upstream)
 		:components(upstream), spawned_entities(upstream), new_archetype(upstream), temp_archetype_resource(upstream),

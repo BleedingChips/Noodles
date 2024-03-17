@@ -226,17 +226,16 @@ export namespace Noodles
 
 		virtual ~ComponentFilterInterface() = default;
 
-		//bool Foreach(std::size_t index, ArchetypeComponentManager& mananger, std::span<void*> output)
-
 	protected:
 
 		ComponentFilterInterface(std::pmr::memory_resource* resource)
 			: indexs(resource) {}
 
+		std::mutex filter_mutex;
 		std::pmr::vector<std::size_t> indexs;
 
-		virtual std::span<ArchetypeID const> GetArchetypeIndex() = 0;
-		virtual void OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype) = 0;
+		virtual std::span<UniqueTypeID> GetArchetypeIndex() const = 0;
+		virtual void OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype);
 
 
 		//virtual bool Collect(std::size_t archetype_index, Archetype const& archetype) = 0;
