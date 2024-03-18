@@ -2,6 +2,7 @@ import std;
 
 import NoodlesComponent;
 import NoodlesSystem;
+import PotatoIR;
 
 using namespace Noodles;
 
@@ -35,9 +36,24 @@ struct E
 	using NoodlesSingletonRequire = std::size_t;
 };
 
+template<typename ...AT>
+struct TestComponentFilter : public ComponentFilterInterface
+{
+	virtual void AddFilterRef() const override {};
+	virtual void SubFilterRef() const override {};
+	virtual std::span<UniqueTypeID const> GetArchetypeIndex() const override
+	{
+		static std::array<UniqueTypeID, sizeof...(AT)> TemBuffer{UniqueTypeID::Create<std::remove_cvref_t<AT>>()...};
+		return std::span(TemBuffer);
+	}
+};
+
 
 int main()
 {
+
+	TestComponentFilter<Report, A> TF;
+
 	ArchetypeComponentManager manager;
 
 
@@ -45,6 +61,13 @@ int main()
 		Report{}, A{}
 	);
 
+	manager.RegisterComponentFilter(&TF, 0);
+
+	Potato::IR::Layout layout{4, 4};
+	Potato::IR::Layout layout2{ 4, 8 };
+	bool io = layout > layout2;
+
+	volatile int i = 0;
 
 
 

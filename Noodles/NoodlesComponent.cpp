@@ -125,7 +125,7 @@ namespace Noodles
 		auto aspan = GetArchetypeIndex();
 		assert(aspan.size() > 0);
 		auto old_size = indexs.size();
-		indexs.resize(old_size + aspan.size());
+		indexs.resize(old_size + aspan.size() + 1);
 		auto out_span = std::span(indexs).subspan(old_size);
 		out_span[0] = archetype_index;
 		out_span = out_span.subspan(1);
@@ -325,6 +325,36 @@ namespace Noodles
 		}
 
 		return {{}, ArchetypeMountPoint{}, 0};
+	}
+
+	bool ArchetypeComponentManager::RegisterComponentFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id)
+	{
+		if(ptr)
+		{
+			std::size_t  index = 0;
+			{
+				std::shared_lock sl(components_mutex);
+				for(auto& ite : components)
+				{
+					assert(ite.archetype);
+					ptr->OnCreatedArchetype(index, *ite.archetype);
+					++index;
+				}
+			}
+			{
+				std::lock_guard sl(archetype_mutex);
+				for(auto& ite : new_archetype)
+				{
+					assert(ite);
+					ptr->OnCreatedArchetype(index, *ite);
+					++index;
+				}
+			}
+			std::lock_guard lg(filter_mapping_mutex);
+			filter_mapping.emplace_back(std::move(ptr), group_id);
+			return true;
+		}
+		return false;
 	}
 
 	/*

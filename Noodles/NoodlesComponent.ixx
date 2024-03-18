@@ -228,13 +228,13 @@ export namespace Noodles
 
 	protected:
 
-		ComponentFilterInterface(std::pmr::memory_resource* resource)
+		ComponentFilterInterface(std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 			: indexs(resource) {}
 
 		std::mutex filter_mutex;
 		std::pmr::vector<std::size_t> indexs;
 
-		virtual std::span<UniqueTypeID> GetArchetypeIndex() const = 0;
+		virtual std::span<UniqueTypeID const> GetArchetypeIndex() const = 0;
 		virtual void OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype);
 
 
