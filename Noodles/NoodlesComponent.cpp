@@ -90,7 +90,7 @@ namespace Noodles
 		o_resource->deallocate(this, size, alignof(ComponentPage));
 	}
 
-	auto Entity::Create(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, std::pmr::memory_resource* resource)
+	auto Entity::Create(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, std::size_t archetype_index, std::pmr::memory_resource* resource)
 		-> Ptr
 	{
 		if(archetype && mount_point)
@@ -98,7 +98,7 @@ namespace Noodles
 			auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, Potato::IR::Layout::Get<Entity>());
 			if (record)
 			{
-				Ptr TPtr{ new (record.Get()) Entity{std::move(archetype), mount_point, record } };
+				Ptr TPtr{ new (record.Get()) Entity{std::move(archetype), mount_point, archetype_index, record } };
 				return TPtr;
 			}
 		}
@@ -113,8 +113,8 @@ namespace Noodles
 		orecord.Deallocate();
 	}
 
-	Entity::Entity(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, Potato::IR::MemoryResourceRecord record)
-		: record(record), archetype(std::move(archetype)), mount_point(mount_point)
+	Entity::Entity(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, std::size_t archetype_index, Potato::IR::MemoryResourceRecord record)
+		: record(record), archetype(std::move(archetype)), mount_point(mount_point), archetype_index(archetype_index)
 	{
 		
 	}
@@ -125,10 +125,11 @@ namespace Noodles
 		auto aspan = GetArchetypeIndex();
 		assert(aspan.size() > 0);
 		auto old_size = indexs.size();
-		indexs.resize(old_size + aspan.size() + 1);
+		indexs.resize(old_size + aspan.size() + 2);
 		auto out_span = std::span(indexs).subspan(old_size);
 		out_span[0] = archetype_index;
-		out_span = out_span.subspan(1);
+		out_span[1] = reinterpret_cast<std::size_t>(&archetype);
+		out_span = out_span.subspan(2);
 		for(auto& ite : aspan)
 		{
 			auto ind = archetype.LocateTypeID(ite);
@@ -145,10 +146,50 @@ namespace Noodles
 		}
 	}
 
+	std::tuple<Archetype::Ptr, ArchetypeMountPoint> ArchetypeComponentManager::ReadEntityImp(Entity const& entity, ComponentFilterInterface const& interface, std::size_t count, std::span<std::size_t> output_index)
+	{
+		Archetype::Ptr arc;
+		std::size_t archetype_index;
+		ArchetypeMountPoint mp;
+		{
+			std::shared_lock sl(entity.mutex);
+			arc = entity.archetype;
+			archetype_index = entity.archetype_index;
+			mp = entity.mount_point;
+		}
+		if(arc)
+		{
+			std::shared_lock sl(interface.filter_mutex);
+			assert(count == interface.GetArchetypeIndex().size());
+			auto span = std::span(interface.indexs);
+			while(!span.empty())
+			{
+				if(span[0] == archetype_index)
+				{
+					if(span[1] == reinterpret_cast<std::size_t>(arc.GetPointer()))
+					{
+						std::memcpy(output_index.data(), span.data() + 2, sizeof(std::size_t) * count);
+						return { arc, mp };
+					}else
+					{
+						break;
+					}
+				}else if(span[0] > archetype_index)
+				{
+					break;
+				}else
+				{
+					span = span.subspan(count + 2);
+				}
+			}
+		}
+		return {{}, {}};
+	}
+
 
 	ArchetypeComponentManager::ArchetypeComponentManager(std::pmr::memory_resource* upstream)
 		:components(upstream), spawned_entities(upstream), new_archetype(upstream), temp_archetype_resource(upstream),
-		archetype_resource(upstream), entity_resource(decltype(entity_resource)::Type::Create(upstream)),
+		archetype_resource(upstream),
 		removed_entities(upstream), components_resource(upstream)
 	{
 		

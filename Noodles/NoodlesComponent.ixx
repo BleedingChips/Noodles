@@ -105,8 +105,8 @@ export namespace Noodles
 
 	protected:
 
-		Entity(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, Potato::IR::MemoryResourceRecord record);
-		static Ptr Create(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		Entity(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, std::size_t archetype_index, Potato::IR::MemoryResourceRecord record);
+		static Ptr Create(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, std::size_t archetype_index, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 		decltype(auto) GetResource() const { return record.GetResource(); }
 
 		virtual void Release() override;
@@ -115,7 +115,7 @@ export namespace Noodles
 		mutable std::shared_mutex mutex;
 		EntityStatus status = EntityStatus::PreInit;
 		Archetype::Ptr archetype;
-		std::size_t archetype_index = std::numeric_limits<std::size_t>::max();
+		std::size_t archetype_index;
 		ArchetypeMountPoint mount_point;
 
 		friend struct ArchetypeComponentManager;
@@ -142,45 +142,6 @@ export namespace Noodles
 
 		friend struct ArchetypeComponentManager;
 	};
-
-	/*
-	struct EntityConstructor
-	{
-		EntityConstructor(std::pmr::memory_resource* upstream = std::pmr::get_default_resource());
-		~EntityConstructor();
-
-		bool MoveConstructRaw(ArchetypeID const& id, void* data);
-
-		template<typename MoveConstructRow>
-		bool MoveConstruct(MoveConstructRow&& roa)
-		{
-			if constexpr (std::is_move_assignable_v<decltype(roa)>)
-			{
-				return MoveConstructRaw(ArchetypeID::Create<std::remove_cvref_t<MoveConstructRow>>(), &roa);
-			}else
-			{
-				std::remove_cvref_t<MoveConstructRow> tem{ std::forward<MoveConstructRow>(roa) };
-				return MoveConstructRaw(ArchetypeID::Create<std::remove_cvref_t<MoveConstructRow>>(), &tem);
-			}
-		}
-
-	protected:
-
-		std::pmr::monotonic_buffer_resource temp_resource;
-		ArchetypeConstructor arc_constructor;
-
-		struct Element
-		{
-			std::size_t count;
-			ArchetypeID id;
-			void* buffer;
-		};
-
-		std::pmr::vector<Element> elements;
-
-		friend struct ArchetypeComponentManager;
-	};
-	*/
 
 	struct ArchetypeMountPointRange
 	{
@@ -231,21 +192,34 @@ export namespace Noodles
 		ComponentFilterInterface(std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 			: indexs(resource) {}
 
-		std::mutex filter_mutex;
+		mutable std::shared_mutex filter_mutex;
 		std::pmr::vector<std::size_t> indexs;
 
 		virtual std::span<UniqueTypeID const> GetArchetypeIndex() const = 0;
 		virtual void OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype);
 
-
-		//virtual bool Collect(std::size_t archetype_index, Archetype const& archetype) = 0;
-
-
 		virtual void AddFilterRef() const = 0;
 		virtual void SubFilterRef() const = 0;
 
-		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 		friend struct ArchetypeComponentManager;
+	};
+
+	struct SingletonInterface
+	{
+		
+	};
+
+	struct SingletonFilterInterface
+	{
+
+
+	protected:
+
+		friend struct ComponentFilterInterface::Wrapper;
+		friend struct ArchetypeComponentManager;
+
+		virtual void AddFilterRef() const = 0;
+		virtual void SubFilterRef() const = 0;
 	};
 
 	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, ArchetypeMountPoint mp, std::span<std::size_t> index){}
@@ -271,19 +245,14 @@ export namespace Noodles
 		ArchetypeComponentManager(std::pmr::memory_resource* upstream = std::pmr::get_default_resource());
 		~ArchetypeComponentManager();
 
-		/*
-		template<typename Func>
-		EntityPtr CreateEntityDeferFromFunction(std::span<ArchetypeID const> IDs, Func&& func) requires(std::is_invocable_v<Func, std::span<void*>>)
-		{
-			return CreateEntityDeferImp(IDs, [](void* obj, std::span<void*> buffer)
-			{
-				(*static_cast<Func*>(obj))(buffer);
-			}, &func);
-		}
-		*/
-
 		template<typename ...AT>
 		EntityPtr CreateEntityDefer(AT&& ...at)
+		{
+			return CreateEntityDeferWithMemoryResource(std::pmr::get_default_resource(), std::forward<AT>(at)...);
+		}
+
+		template<typename ...AT>
+		EntityPtr CreateEntityDeferWithMemoryResource(std::pmr::memory_resource* resource, AT&& ...at)
 		{
 
 			static_assert(!Potato::TMP::IsRepeat<EntityProperty, std::remove_cvref_t<AT>...>::Value, "Archetype require no repeat component type");
@@ -297,8 +266,8 @@ export namespace Noodles
 			auto [archetype_ptr, mp, archetype_index] = CreateArchetype(archetype_ids, output_index);
 			if(archetype_ptr)
 			{
-				assert(entity_resource);
-				EntityPtr entity_ptr = Entity::Create(archetype_ptr, mp, entity_resource->get_resource_interface());
+				assert(resource != nullptr);
+				EntityPtr entity_ptr = Entity::Create(archetype_ptr, mp, archetype_index, resource);
 				EntityProperty pro{entity_ptr};
 				archetype_ptr->MoveConstruct(output_index[0], archetype_ptr->GetData(output_index[0], mp), &pro);
 				try
@@ -325,7 +294,23 @@ export namespace Noodles
 		std::size_t ErasesComponentFilter(std::size_t group_id);
 		std::size_t ArchetypeCount() const;
 
+		template<typename Func>
+		bool ReadyEntity(Entity const& entity, ComponentFilterInterface const& interface, std::size_t count, std::span<std::size_t> output_index, Func&& func)
+			requires(std::is_invocable_v<Func, Archetype const&, ArchetypeMountPoint, std::span<std::size_t>>)
+		{
+			std::lock_guard lg(components_mutex);
+			auto [archetype, mp] = ReadEntityImp(entity, interface, count, output_index);
+			if(archetype)
+			{
+				std::forward<Func>(func)(*archetype, mp, output_index.subspan(0, count));
+				return true;
+			}
+			return false;
+		}
+
 	protected:
+
+		std::tuple<Archetype::Ptr, ArchetypeMountPoint> ReadEntityImp(Entity const& entity, ComponentFilterInterface const& interface, std::size_t count, std::span<std::size_t> output_index);
 
 		std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::size_t> CreateArchetype(std::span<ArchetypeID const> ids, std::span<std::size_t> output);
 		static bool CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<ArchetypeID const> ids, std::span<std::size_t> output);
@@ -394,8 +379,6 @@ export namespace Noodles
 
 		std::shared_mutex filter_mapping_mutex;
 		std::pmr::vector<CompFilterElement> filter_mapping;
-
-		Memory::IntrusiveMemoryResource<std::pmr::synchronized_pool_resource>::Ptr entity_resource;
 
 		friend struct EntityConstructor;
 		friend struct ComponentFilterInterface;

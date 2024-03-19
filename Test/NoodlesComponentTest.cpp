@@ -46,22 +46,34 @@ struct TestComponentFilter : public ComponentFilterInterface
 		static std::array<UniqueTypeID, sizeof...(AT)> TemBuffer{UniqueTypeID::Create<std::remove_cvref_t<AT>>()...};
 		return std::span(TemBuffer);
 	}
+	static constexpr std::size_t Count() { return sizeof...(AT); }
 };
 
 
 int main()
 {
 
-	TestComponentFilter<Report, A> TF;
+	TestComponentFilter<Report, A, EntityProperty> TF;
 
 	ArchetypeComponentManager manager;
 
 
 	auto entity = manager.CreateEntityDefer(
-		Report{}, A{}
+		Report{}, A{10086}
 	);
 
 	manager.RegisterComponentFilter(&TF, 0);
+
+	std::array<std::size_t, decltype(TF)::Count()> TemBuffer;
+
+	manager.ReadyEntity(*entity, TF, TemBuffer.size(), std::span(TemBuffer), 
+		[](Archetype const& archetype, ArchetypeMountPoint mp, std::span<std::size_t> indexs)
+		{
+			auto D1 = static_cast<Report*>(archetype.GetData(indexs[0], mp));
+			auto D2 = static_cast<A*>(archetype.GetData(indexs[1], mp));
+			auto D3 = static_cast<EntityProperty*>(archetype.GetData(indexs[2], mp));
+			volatile int i = 0;
+		});
 
 	Potato::IR::Layout layout{4, 4};
 	Potato::IR::Layout layout2{ 4, 8 };
