@@ -49,11 +49,20 @@ struct TestComponentFilter : public ComponentFilterInterface
 	static constexpr std::size_t Count() { return sizeof...(AT); }
 };
 
+template<typename AT>
+struct TestSingletonFilter : public SingletonFilterInterface
+{
+	virtual void AddFilterRef() const override {};
+	virtual void SubFilterRef() const override {};
+	virtual UniqueTypeID RequireTypeID() const override { return UniqueTypeID::Create<AT>(); }
+};
+
 
 int main()
 {
 
 	TestComponentFilter<Report, A, EntityProperty> TF;
+	TestSingletonFilter<A> ATF;
 
 	ArchetypeComponentManager manager;
 
@@ -74,6 +83,10 @@ int main()
 			auto D3 = static_cast<EntityProperty*>(archetype.GetData(indexs[2], mp));
 			volatile int i = 0;
 		});
+
+	auto K = manager.CreateSingletonType<A>(100);
+
+	manager.RegisterSingletonFilter(&ATF, 0);
 
 	Potato::IR::Layout layout{4, 4};
 	Potato::IR::Layout layout2{ 4, 8 };

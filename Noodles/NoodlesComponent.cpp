@@ -159,7 +159,7 @@ namespace Noodles
 		}
 		if(arc)
 		{
-			std::shared_lock sl(interface.filter_mutex);
+			std::lock_guard sl(interface.filter_mutex);
 			assert(count == interface.GetArchetypeIndex().size());
 			auto span = std::span(interface.indexs);
 			while(!span.empty())
@@ -396,6 +396,46 @@ namespace Noodles
 			return true;
 		}
 		return false;
+	}
+
+	bool ArchetypeComponentManager::RegisterSingletonFilter(SingletonFilterInterface::Ptr ptr, std::size_t group_id)
+	{
+		if(ptr)
+		{
+			std::lock_guard lg(ptr->mutex);
+			if(ptr->owner_id == 0)
+			{
+				ptr->owner_id = reinterpret_cast<std::size_t>(this);
+				ptr->singleton_reference = std::numeric_limits<std::size_t>::max();
+				auto RID = ptr->RequireTypeID();
+
+				std::size_t index = 0;
+				{
+					std::shared_lock sl(singletons_mutex);
+					for (auto& ite : singletons)
+					{
+						if (ite.id == RID)
+						{
+							ptr->singleton_reference = index;
+							break;
+						}
+						++index;
+					}
+				}
+				singleton_filters.emplace_back(std::move(ptr), group_id);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool ArchetypeComponentManager::ForceUpdateState()
+	{
+		bool Updated = false;
+
+
+
+		return Updated;
 	}
 
 	/*

@@ -192,7 +192,7 @@ export namespace Noodles
 		ComponentFilterInterface(std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 			: indexs(resource) {}
 
-		mutable std::shared_mutex filter_mutex;
+		mutable std::mutex filter_mutex;
 		std::pmr::vector<std::size_t> indexs;
 
 		virtual std::span<UniqueTypeID const> GetArchetypeIndex() const = 0;
@@ -206,12 +206,50 @@ export namespace Noodles
 
 	struct SingletonInterface
 	{
-		
+		struct Wrapper
+		{
+			template<typename T>
+			void AddRef(T* ref) { ref->AddSingletonRef(); }
+			template<typename T>
+			void SubRef(T* ref) { ref->SubSingletonRef(); }
+		};
+
+		using Ptr = Potato::Pointer::IntrusivePtr<SingletonInterface, Wrapper>;
+
+		virtual void* Get() = 0;
+		virtual void const* Get() const = 0;
+		virtual ~SingletonInterface() = default;
+
+	protected:
+
+		virtual void AddSingletonRef() const = 0;
+		virtual void SubSingletonRef() const = 0;
+
+	};
+
+	template<typename Type>
+	struct SingletonType : public SingletonInterface 
+	{
+
+		template<typename ...OT>
+		SingletonType(Potato::IR::MemoryResourceRecord record, OT&& ...ot)
+			: record(record), Data(std::forward<OT>(ot)...) {}
+
+		Potato::IR::MemoryResourceRecord record;
+		Type Data;
+
+		virtual void* Get() { return &Data; }
+		virtual void const* Get() const { return &Data; }
+		virtual void AddSingletonRef() const {}
+		virtual void SubSingletonRef() const { auto re = record; this->~SingletonType(); re.Deallocate(); }
+
 	};
 
 	struct SingletonFilterInterface
 	{
+		using Ptr = Potato::Pointer::IntrusivePtr<SingletonFilterInterface, ComponentFilterInterface::Wrapper>;
 
+		virtual UniqueTypeID RequireTypeID() const = 0;
 
 	protected:
 
@@ -220,6 +258,12 @@ export namespace Noodles
 
 		virtual void AddFilterRef() const = 0;
 		virtual void SubFilterRef() const = 0;
+
+	private:
+
+		std::mutex mutex;
+		std::size_t singleton_reference = std::numeric_limits<std::size_t>::max();
+		std::size_t owner_id = 0;
 	};
 
 	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, ArchetypeMountPoint mp, std::span<std::size_t> index){}
@@ -288,9 +332,11 @@ export namespace Noodles
 			return {};
 		}
 
-		bool UpdateEntityStatus();
+		bool ForceUpdateState();
+
 		bool DestroyEntity(Entity& entity);
 		bool RegisterComponentFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id);
+		bool RegisterSingletonFilter(SingletonFilterInterface::Ptr ptr, std::size_t group_id);
 		std::size_t ErasesComponentFilter(std::size_t group_id);
 		std::size_t ArchetypeCount() const;
 
@@ -306,6 +352,29 @@ export namespace Noodles
 				return true;
 			}
 			return false;
+		}
+
+		template<typename SingType, typename ...OT>
+		SingType* CreateSingletonType(OT&& ...ot)
+		{
+			using Type = SingletonType<std::remove_cvref_t<SingType>>;
+
+			auto ID = UniqueTypeID::Create<std::remove_cvref<SingType>>();
+
+			std::lock_guard lg(pre_init_singletons_mutex);
+			auto f = std::find(exist_singleton_id.begin(), exist_singleton_id.end(), ID);
+			if(f == exist_singleton_id.end())
+			{
+				auto re = Potato::IR::MemoryResourceRecord::Allocate<Type>(&singleton_resource);
+				if(re)
+				{
+					Type* ptr = new (re.Get()) Type {re, std::forward<OT>(ot)...};
+					pre_init_singletons.emplace_back(ptr, ID);
+					exist_singleton_id.push_back(ID);
+					return &ptr->Data;
+				}
+			}
+			return nullptr;
 		}
 
 	protected:
@@ -377,8 +446,29 @@ export namespace Noodles
 			std::size_t group_id;
 		};
 
+		struct SingletonFilterInterfaceElement
+		{
+			SingletonFilterInterface::Ptr ptr;
+			std::size_t group_id;
+		};
+
 		std::shared_mutex filter_mapping_mutex;
 		std::pmr::vector<CompFilterElement> filter_mapping;
+		std::pmr::vector<SingletonFilterInterfaceElement> singleton_filters;
+
+		struct SingletonElement
+		{
+			SingletonInterface::Ptr single;
+			UniqueTypeID id;
+		};
+
+		std::shared_mutex singletons_mutex;
+		std::pmr::vector<SingletonElement> singletons;
+
+		std::mutex pre_init_singletons_mutex;
+		std::pmr::vector<SingletonElement> pre_init_singletons;
+		std::pmr::vector<UniqueTypeID> exist_singleton_id;
+		std::pmr::unsynchronized_pool_resource singleton_resource;
 
 		friend struct EntityConstructor;
 		friend struct ComponentFilterInterface;
