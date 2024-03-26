@@ -92,6 +92,7 @@ export namespace Noodles
 
 	enum class EntityStatus
 	{
+		Free,
 		PreInit,
 		Normal,
 		Destroy,
@@ -105,18 +106,19 @@ export namespace Noodles
 
 	protected:
 
-		Entity(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, std::size_t archetype_index, Potato::IR::MemoryResourceRecord record);
-		static Ptr Create(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, std::size_t archetype_index, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		Entity(Potato::IR::MemoryResourceRecord record);
+		static Ptr Create(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 		decltype(auto) GetResource() const { return record.GetResource(); }
 
 		virtual void Release() override;
 
 		Potato::IR::MemoryResourceRecord record;
 		mutable std::shared_mutex mutex;
-		EntityStatus status = EntityStatus::PreInit;
+		EntityStatus status = EntityStatus::Free;
 		Archetype::Ptr archetype;
-		std::size_t archetype_index;
-		ArchetypeMountPoint mount_point;
+		ArchetypeMountPoint mount_point = {};
+		std::size_t owner_id = 0;
+		std::size_t archetype_index = std::numeric_limits<std::size_t>::max();
 
 		friend struct ArchetypeComponentManager;
 	};
@@ -308,26 +310,35 @@ export namespace Noodles
 
 			std::array<std::size_t, sizeof...(at) + 1> output_index;
 			auto [archetype_ptr, mp, archetype_index] = CreateArchetype(archetype_ids, output_index);
-			if(archetype_ptr)
+			if(archetype_ptr && mp)
 			{
 				assert(resource != nullptr);
-				EntityPtr entity_ptr = Entity::Create(archetype_ptr, mp, archetype_index, resource);
-				EntityProperty pro{entity_ptr};
-				archetype_ptr->MoveConstruct(output_index[0], archetype_ptr->GetData(output_index[0], mp), &pro);
-				try
+				EntityPtr entity_ptr = Entity::Create(resource);
+				if (entity_ptr)
 				{
-					ArchetypeComponentManagerConstructHelper(*archetype_ptr, mp, std::span(output_index).subspan(1), std::forward<AT>(at)...);
-				}catch(...)
-				{
-					archetype_ptr->Destruction(output_index[0], archetype_ptr->GetData(output_index[0], mp));
-					std::lock_guard lg(archetype_mutex);
-					temp_archetype_resource.deallocate(mp.GetBuffer(0), archetype_ptr->GetSingleLayout().Size);
-					throw;
+					EntityProperty pro{ entity_ptr };
+					archetype_ptr->MoveConstruct(output_index[0], archetype_ptr->GetData(output_index[0], mp), &pro);
+					try
+					{
+						ArchetypeComponentManagerConstructHelper(*archetype_ptr, mp, std::span(output_index).subspan(1), std::forward<AT>(at)...);
+						entity_ptr->archetype = archetype_ptr;
+						entity_ptr->archetype_index = archetype_index;
+						entity_ptr->mount_point = mp;
+						entity_ptr->owner_id = reinterpret_cast<std::size_t>(this);
+						entity_ptr->status = EntityStatus::PreInit;
+						std::lock_guard lg(spawn_mutex);
+						spawned_entities.emplace_back(entity_ptr, SpawnedStatus::New);
+						need_update = true;
+						return entity_ptr;
+					}
+					catch (...)
+					{
+						archetype_ptr->Destruction(output_index[0], archetype_ptr->GetData(output_index[0], mp));
+						std::lock_guard lg(temp_resource_mutex);
+						temp_resource.deallocate(mp.GetBuffer(0), archetype_ptr->GetSingleLayout().Size);
+						throw;
+					}
 				}
-				
-				std::lock_guard lg(spawn_mutex);
-				spawned_entities.emplace_back(entity_ptr, mp);
-				return entity_ptr;
 			}
 			return {};
 		}
@@ -377,6 +388,8 @@ export namespace Noodles
 			return nullptr;
 		}
 
+		bool ReleaseEntity(Entity::Ptr storage);
+
 	protected:
 
 		std::tuple<Archetype::Ptr, ArchetypeMountPoint> ReadEntityImp(Entity const& entity, ComponentFilterInterface const& interface, std::size_t count, std::span<std::size_t> output_index);
@@ -398,8 +411,6 @@ export namespace Noodles
 			ComponentConstructorHelper(input.subspan(1), std::forward<AT>(at)...);
 		}
 
-		static void ReleaseEntity(Entity& storage);
-
 		struct Element
 		{
 			Archetype::Ptr archetype;
@@ -412,32 +423,26 @@ export namespace Noodles
 		std::pmr::vector<Element> components;
 		std::pmr::synchronized_pool_resource components_resource;
 
+		enum class SpawnedStatus
+		{
+			New,
+			NewButNeedRemove,
+			RemoveOld
+		};
+
 		struct SpawnedElement
 		{
 			EntityPtr entity;
-			ArchetypeMountPoint mp;
+			SpawnedStatus status;
 		};
 
 		std::mutex archetype_mutex;
-		std::size_t startup_index = 0;
 		std::pmr::vector<Archetype::Ptr> new_archetype;
 		std::pmr::monotonic_buffer_resource archetype_resource;
-		std::pmr::monotonic_buffer_resource temp_archetype_resource;
 
 		std::mutex spawn_mutex;
 		std::pmr::vector<SpawnedElement> spawned_entities;
-		
 		bool need_update = false;
-
-		struct RemoveEntity
-		{
-			Archetype::Ptr archetype;
-			std::size_t fast_index = std::numeric_limits<std::size_t>::max();;
-			ArchetypeMountPoint mount_point;
-			EntityStatus last_status;
-		};
-
-		std::pmr::vector<RemoveEntity> removed_entities;
 		
 
 		struct CompFilterElement
@@ -469,6 +474,9 @@ export namespace Noodles
 		std::pmr::vector<SingletonElement> pre_init_singletons;
 		std::pmr::vector<UniqueTypeID> exist_singleton_id;
 		std::pmr::unsynchronized_pool_resource singleton_resource;
+
+		std::mutex temp_resource_mutex;
+		std::pmr::monotonic_buffer_resource temp_resource;
 
 		friend struct EntityConstructor;
 		friend struct ComponentFilterInterface;

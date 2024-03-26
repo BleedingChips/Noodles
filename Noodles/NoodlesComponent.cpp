@@ -90,17 +90,14 @@ namespace Noodles
 		o_resource->deallocate(this, size, alignof(ComponentPage));
 	}
 
-	auto Entity::Create(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, std::size_t archetype_index, std::pmr::memory_resource* resource)
+	auto Entity::Create(std::pmr::memory_resource* resource)
 		-> Ptr
 	{
-		if(archetype && mount_point)
+		auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, Potato::IR::Layout::Get<Entity>());
+		if (record)
 		{
-			auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, Potato::IR::Layout::Get<Entity>());
-			if (record)
-			{
-				Ptr TPtr{ new (record.Get()) Entity{std::move(archetype), mount_point, archetype_index, record } };
-				return TPtr;
-			}
+			Ptr TPtr{ new (record.Get()) Entity{record } };
+			return TPtr;
 		}
 		
 		return {};
@@ -113,8 +110,8 @@ namespace Noodles
 		orecord.Deallocate();
 	}
 
-	Entity::Entity(Archetype::Ptr archetype, ArchetypeMountPoint mount_point, std::size_t archetype_index, Potato::IR::MemoryResourceRecord record)
-		: record(record), archetype(std::move(archetype)), mount_point(mount_point), archetype_index(archetype_index)
+	Entity::Entity(Potato::IR::MemoryResourceRecord record)
+		: record(record)
 	{
 		
 	}
@@ -153,6 +150,10 @@ namespace Noodles
 		ArchetypeMountPoint mp;
 		{
 			std::shared_lock sl(entity.mutex);
+			if (entity.owner_id != reinterpret_cast<std::size_t>(this))
+			{
+				return { {}, {} };
+			}
 			arc = entity.archetype;
 			archetype_index = entity.archetype_index;
 			mp = entity.mount_point;
@@ -188,9 +189,8 @@ namespace Noodles
 
 
 	ArchetypeComponentManager::ArchetypeComponentManager(std::pmr::memory_resource* upstream)
-		:components(upstream), spawned_entities(upstream), new_archetype(upstream), temp_archetype_resource(upstream),
-		archetype_resource(upstream),
-		removed_entities(upstream), components_resource(upstream)
+		:components(upstream), spawned_entities(upstream), new_archetype(upstream), temp_resource(upstream),
+		archetype_resource(upstream),components_resource(upstream)
 	{
 		
 	}
@@ -308,6 +308,7 @@ namespace Noodles
 
 
 		std::lock_guard lg(archetype_mutex);
+		std::lock_guard lg2(temp_resource_mutex);
 		if(!archetype_ptr)
 		{
 			for (auto& ite : new_archetype)
@@ -324,7 +325,7 @@ namespace Noodles
 		}
 		if (!archetype_ptr)
 		{
-			std::pmr::vector<ArchetypeID> temp_ids(&temp_archetype_resource);
+			std::pmr::vector<ArchetypeID> temp_ids(&temp_resource);
 			temp_ids.reserve(ids.size());
 			for (auto& ite : ids)
 			{
@@ -361,7 +362,7 @@ namespace Noodles
 
 		if (archetype_ptr)
 		{
-			auto mp = Potato::IR::MemoryResourceRecord::Allocate(&temp_archetype_resource, archetype_ptr->GetSingleLayout());
+			auto mp = Potato::IR::MemoryResourceRecord::Allocate(&temp_resource, archetype_ptr->GetSingleLayout());
 			return { archetype_ptr, {mp.Get(), 1, 0}, archetype_index };
 		}
 
@@ -429,9 +430,120 @@ namespace Noodles
 		return false;
 	}
 
+	bool ArchetypeComponentManager::ReleaseEntity(Entity::Ptr ptr)
+	{
+		if(ptr)
+		{
+			std::lock_guard lg(ptr->mutex);
+			if (ptr->owner_id != reinterpret_cast<std::size_t>(this))
+				return false;
+			switch(ptr->status)
+			{
+			case EntityStatus::PreInit:
+				{
+					std::lock_guard lg(spawn_mutex);
+					for(auto& ite : spawned_entities)
+					{
+						if(ite.entity == ptr)
+						{
+							assert(ite.status == SpawnedStatus::New);
+							ite.status = SpawnedStatus::NewButNeedRemove;
+							ptr->status = EntityStatus::PendingDestroy;
+							return true;
+						}
+					}
+				}
+				break;
+			case EntityStatus::Normal:
+			{
+				std::lock_guard lg(spawn_mutex);
+				spawned_entities.emplace_back(
+					ptr, SpawnedStatus::RemoveOld
+				);
+				ptr->status = EntityStatus::PendingDestroy;
+				return true;
+			}
+			default:
+				break;
+			}
+		}
+		return false;
+	}
+
 	bool ArchetypeComponentManager::ForceUpdateState()
 	{
 		bool Updated = false;
+
+		{
+
+			{
+
+				std::lock_guard lg(components_mutex);
+				
+				std::lock_guard lg22(temp_resource);
+
+
+				if(need_update)
+				{
+					need_update = false;
+					std::lock_guard lg2(archetype_mutex);
+					for (auto& ite : new_archetype)
+					{
+						components.emplace_back(
+							std::move(ite),
+							{}, {}, 0
+						);
+					}
+					new_archetype.clear();
+					Updated = true;
+
+					struct EmptyEntity
+					{
+						std::size_t archetype_index;
+						ArchetypeMountPoint mp;
+						bool used = false;
+					};
+
+					std::pmr::vector<EmptyEntity> removed_entity(&temp_resource);
+
+					std::lock_guard lg3(spawn_mutex);
+
+					for (auto& ite : spawned_entities)
+					{
+						if (ite.status != SpawnedStatus::New)
+						{
+							std::lock_guard lg(ite.entity->mutex);
+							ite.entity->archetype->Destruction(
+								ite.entity->mount_point
+							);
+
+							if (ite.status == SpawnedStatus::RemoveOld)
+							{
+								removed_entity.emplace_back(
+									ite.entity->archetype_index, ite.entity->mount_point, false);
+							}
+
+							ite.entity->status = EntityStatus::Free;
+							ite.entity->archetype = {};
+							ite.entity->archetype_index = std::numeric_limits<std::size_t>::max();
+							ite.entity->mount_point = {};
+						}
+					}
+
+					for(auto& ite : spawned_entities)
+					{
+						if(ite.status == SpawnedStatus::New)
+						{
+							for(auto& ite2 : removed_entity)
+							{
+								
+							}
+						}
+					}
+				}
+			}
+		}
+
 
 
 
