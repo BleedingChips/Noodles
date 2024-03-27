@@ -198,7 +198,7 @@ namespace Noodles
 
 
 	ArchetypeComponentManager::ArchetypeComponentManager(std::pmr::memory_resource* upstream)
-		:components(upstream), spawned_entities(upstream), new_archetype(upstream), temp_resource(upstream),
+		:components(upstream), spawned_entities(upstream), temp_resource(upstream),
 		archetype_resource(upstream),components_resource(upstream)
 	{
 		
@@ -227,10 +227,7 @@ namespace Noodles
 		}
 
 		{
-			std::lock_guard lg(pre_init_singletons_mutex);
-			pre_init_singletons.clear();
-			exist_singleton_id.clear();
-
+			std::lock_guard lg(singletons_read_mutex);
 			std::lock_guard lg2(singletons_mutex);
 			singletons.clear();
 		}
@@ -253,7 +250,8 @@ namespace Noodles
 		}
 
 		{
-			std::lock_guard lg(components_mutex);
+			std::lock_guard lg(components_read_mutex);
+			std::lock_guard lg2(component_mutex);
 			for(auto& ite : components)
 			{
 				auto ite2 = ite.top_page;
@@ -310,7 +308,8 @@ namespace Noodles
 		std::size_t archetype_index = 0;
 
 		{
-			std::shared_lock sl(components_mutex);
+			std::shared_lock sl(components_read_mutex);
+			std::lock_guard sl2(component_mutex);
 
 			for(auto& ite : components)
 			{
@@ -323,60 +322,51 @@ namespace Noodles
 					archetype_index += 1;
 				}
 			}
-		}
 
-
-		std::lock_guard lg(archetype_mutex);
-		if(!archetype_ptr)
-		{
-			for (auto& ite : new_archetype)
+			if(!archetype_ptr)
 			{
-				if (CheckIsSameArchetype(*ite, hash_code, ids, output))
+				std::pmr::vector<ArchetypeID> temp_ids(&temp_resource);
+				temp_ids.reserve(ids.size());
+				for (auto& ite : ids)
 				{
-					archetype_ptr = ite;
-					break;
-				}else
-				{
-					archetype_index += 1;
+					temp_ids.push_back(ite);
 				}
-			}
-		}
-		if (!archetype_ptr)
-		{
-			std::pmr::vector<ArchetypeID> temp_ids(&temp_resource);
-			temp_ids.reserve(ids.size());
-			for (auto& ite : ids)
-			{
-				temp_ids.push_back(ite);
-			}
-			std::sort(temp_ids.begin(), temp_ids.end(), [](ArchetypeID const& a1, ArchetypeID const& a2)
-				{
-					return a1 > a2;
-				});
-			archetype_ptr = Archetype::Create(temp_ids, &archetype_resource);
-			if(archetype_ptr)
-			{
-				{
-					std::shared_lock sl(filter_mapping_mutex);
-					for(auto& ite : filter_mapping)
+				std::sort(temp_ids.begin(), temp_ids.end(), [](ArchetypeID const& a1, ArchetypeID const& a2)
 					{
-						if(ite.filter)
+						return a1 > a2;
+					});
+				archetype_ptr = Archetype::Create(temp_ids, &archetype_resource);
+
+				if (archetype_ptr)
+				{
+					components.emplace_back(
+						archetype_ptr,
+						ComponentPage::Ptr{},
+						ComponentPage::Ptr{},
+						0
+					);
+					{
+						std::shared_lock sl(filter_mapping_mutex);
+						for (auto& ite : filter_mapping)
 						{
-							ite.filter->OnCreatedArchetype(archetype_index, *archetype_ptr);
+							if (ite.filter)
+							{
+								ite.filter->OnCreatedArchetype(archetype_index, *archetype_ptr);
+							}
 						}
 					}
+					auto ite_span = output;
+					for (auto ite : ids)
+					{
+						auto re = archetype_ptr->LocateTypeID(ite.id);
+						assert(re);
+						ite_span[0] = *re;
+						ite_span = ite_span.subspan(1);
+					}
 				}
-				auto ite_span = output;
-				for (auto ite : ids)
-				{
-					auto re = archetype_ptr->LocateTypeID(ite.id);
-					assert(re);
-					ite_span[0] = *re;
-					ite_span = ite_span.subspan(1);
-				}
-				new_archetype.push_back(archetype_ptr);
 			}
 		}
+
 
 		if (archetype_ptr)
 		{
@@ -384,7 +374,7 @@ namespace Noodles
 			return { archetype_ptr, {mp.Get(), 1, 0}, archetype_index };
 		}
 
-		return {{}, ArchetypeMountPoint{}, 0};
+		return { {}, ArchetypeMountPoint{}, 0 };
 	}
 
 	bool ArchetypeComponentManager::RegisterComponentFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id)
@@ -393,20 +383,12 @@ namespace Noodles
 		{
 			std::size_t  index = 0;
 			{
-				std::shared_lock sl(components_mutex);
+				std::shared_lock sl(components_read_mutex);
+				std::lock_guard lg(component_mutex);
 				for(auto& ite : components)
 				{
 					assert(ite.archetype);
 					ptr->OnCreatedArchetype(index, *ite.archetype);
-					++index;
-				}
-			}
-			{
-				std::lock_guard sl(archetype_mutex);
-				for(auto& ite : new_archetype)
-				{
-					assert(ite);
-					ptr->OnCreatedArchetype(index, *ite);
 					++index;
 				}
 			}
@@ -430,7 +412,8 @@ namespace Noodles
 
 				std::size_t index = 0;
 				{
-					std::shared_lock sl(singletons_mutex);
+					std::shared_lock sl(singletons_read_mutex);
+					std::lock_guard lg(singletons_mutex);
 					for (auto& ite : singletons)
 					{
 						if (ite.id == RID)
@@ -494,21 +477,12 @@ namespace Noodles
 
 		{
 			{
-
-				std::lock_guard lg(components_mutex);
+				std::lock_guard sl(components_read_mutex);
+				std::lock_guard lg(component_mutex);
 
 				if(need_update)
 				{
 					need_update = false;
-					std::lock_guard lg2(archetype_mutex);
-					for (auto& ite : new_archetype)
-					{
-						components.emplace_back(
-							std::move(ite),
-							ComponentPage::Ptr{}, ComponentPage::Ptr{}, 0
-						);
-					}
-					new_archetype.clear();
 					Updated = true;
 
 					struct EmptyEntity

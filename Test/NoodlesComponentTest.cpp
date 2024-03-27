@@ -102,6 +102,15 @@ int main()
 
 		manager.ForceUpdateState();
 
+		manager.ReadyEntity(*entity, TF, TemBuffer.size(), std::span(TemBuffer),
+			[](Archetype const& archetype, ArchetypeMountPoint mp, std::span<std::size_t> indexs)
+			{
+				auto D1 = static_cast<Report*>(archetype.GetData(indexs[0], mp));
+				auto D2 = static_cast<A*>(archetype.GetData(indexs[1], mp));
+				auto D3 = static_cast<EntityProperty*>(archetype.GetData(indexs[2], mp));
+				volatile int i = 0;
+			});
+
 		volatile int i = 0;
 	}
 	

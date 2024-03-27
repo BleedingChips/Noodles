@@ -355,7 +355,7 @@ export namespace Noodles
 		bool ReadyEntity(Entity const& entity, ComponentFilterInterface const& interface, std::size_t count, std::span<std::size_t> output_index, Func&& func)
 			requires(std::is_invocable_v<Func, Archetype const&, ArchetypeMountPoint, std::span<std::size_t>>)
 		{
-			std::lock_guard lg(components_mutex);
+			std::shared_lock sl(components_read_mutex);
 			auto [archetype, mp] = ReadEntityImp(entity, interface, count, output_index);
 			if(archetype)
 			{
@@ -372,16 +372,19 @@ export namespace Noodles
 
 			auto ID = UniqueTypeID::Create<std::remove_cvref<SingType>>();
 
-			std::lock_guard lg(pre_init_singletons_mutex);
-			auto f = std::find(exist_singleton_id.begin(), exist_singleton_id.end(), ID);
-			if(f == exist_singleton_id.end())
+			std::shared_lock sl(singletons_read_mutex);
+			std::lock_guard lg(singletons_mutex);
+			auto f = std::find_if(singletons.begin(), singletons.end(), [=](SingletonElement const& ele)
+			{
+				return ele.id == ID;
+			});
+			if(f == singletons.end())
 			{
 				auto re = Potato::IR::MemoryResourceRecord::Allocate<Type>(&singleton_resource);
 				if(re)
 				{
 					Type* ptr = new (re.Get()) Type {re, std::forward<OT>(ot)...};
-					pre_init_singletons.emplace_back(ptr, ID);
-					exist_singleton_id.push_back(ID);
+					singletons.emplace_back(ptr, ID);
 					return &ptr->Data;
 				}
 			}
@@ -419,9 +422,22 @@ export namespace Noodles
 			std::size_t total_count;
 		};
 
-		mutable std::shared_mutex components_mutex;
+		mutable std::shared_mutex components_read_mutex;
+		mutable std::mutex component_mutex;
 		std::pmr::vector<Element> components;
-		std::pmr::synchronized_pool_resource components_resource;
+		std::pmr::unsynchronized_pool_resource components_resource;
+		std::pmr::unsynchronized_pool_resource archetype_resource;
+
+		struct SingletonElement
+		{
+			SingletonInterface::Ptr single;
+			UniqueTypeID id;
+		};
+
+		mutable std::shared_mutex singletons_read_mutex;
+		mutable std::mutex singletons_mutex;
+		std::pmr::vector<SingletonElement> singletons;
+		std::pmr::synchronized_pool_resource singleton_resource;
 
 		ArchetypeMountPoint AllocateAndConstructMountPoint(Element& tar, ArchetypeMountPoint mp);
 		void CopyMountPointFormLast(Element& tar, ArchetypeMountPoint mp);
@@ -438,10 +454,6 @@ export namespace Noodles
 			EntityPtr entity;
 			SpawnedStatus status;
 		};
-
-		std::mutex archetype_mutex;
-		std::pmr::vector<Archetype::Ptr> new_archetype;
-		std::pmr::unsynchronized_pool_resource archetype_resource;
 
 		std::mutex spawn_mutex;
 		std::pmr::vector<SpawnedElement> spawned_entities;
@@ -464,20 +476,6 @@ export namespace Noodles
 		std::pmr::vector<CompFilterElement> filter_mapping;
 		std::pmr::vector<SingletonFilterInterfaceElement> singleton_filters;
 
-		struct SingletonElement
-		{
-			SingletonInterface::Ptr single;
-			UniqueTypeID id;
-		};
-
-		std::shared_mutex singletons_mutex;
-		std::pmr::vector<SingletonElement> singletons;
-
-		std::mutex pre_init_singletons_mutex;
-		std::pmr::vector<SingletonElement> pre_init_singletons;
-		std::pmr::vector<UniqueTypeID> exist_singleton_id;
-		std::pmr::unsynchronized_pool_resource singleton_resource;
-
 		std::pmr::synchronized_pool_resource temp_resource;
 
 		friend struct EntityConstructor;
@@ -495,127 +493,6 @@ export namespace Noodles
 			std::span<std::size_t> reference_index;
 		};
 
-		/*
-		template<typename Func>
-		bool ReadComponent(ComponentFilterInterface& interface, Func&& func) const requires(std::is_invocable_v<Func&&, ComponentWrapper&>)
-		{
-			std::shared_lock sl(components_mutex);
-			ComponentWrapper wrapper(interface.GetArchetypeIndex().size(), std::span(interface.indexs));
-			func(wrapper);
-		}
-
-		struct EntityWrapper
-		{
-			std::span<std::size_t> reference_index;
-		};
-
-		template<typename Func>
-		bool ReadEntity(Entity const& entity, ComponentFilterInterface& interface, Func&& func, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource()) const requires(std::is_invocable_v<Func&&, ComponentWrapper&>)
-		{
-			std::shared_lock sl(components_mutex);
-			std::shared_lock el(entity.mutex);
-			auto EC = interface.GetArchetypeIndex().size();
-			assert((interface.indexs.size() % EC) == 0);
-			if(entity.archetype && entity.GetResource() == entity_resource->get_resource_interface())
-			{
-				std::pmr::vector<std::size_t> temp_v{ temp_resource };
-				std::span<std::size_t> ref = std::span(interface.indexs);
-				if(entity.archetype_index != std::numeric_limits<std::size_t>::max())
-				{
-					while(!ref.empty())
-					{
-						if(ref[0] == entity.archetype_index)
-						{
-							ref = ref.subspan(0, EC);
-							break;
-						}else
-						{
-							ref = ref.subspan(EC);
-						}
-					}
-					if(ref.empty())
-					{
-						return false;
-					}
-				}else
-				{
-					
-				}
-			}
-			return false;
-
-			if(entity.status == EntityStatus::Normal || entity.status == )
-			{
-				assert();
-			}
-
-			ComponentWrapper wrapper(interface.GetArchetypeIndex().size(), std::span(interface.indexs));
-			func(wrapper);
-		}
-
-		struct ComponentIterator
-		{
-			ArchetypeComponentManager& manager;
-			std::span<std::size_t> output;
-		};
-
-		bool ReadMountPointRange(ComponentFilterInterface& interface, std::size_t ite_index, std::span<void*> output_buffer);
-
-		template<typename Func>
-		bool ReadMountPoint(std::size_t archetype_index, Func&& fun) const
-			requires(std::is_invocable_v<Func, ComponentPage::Ptr, ComponentPage::Ptr>)
-		{
-			std::shared_lock lg(components_mutex);
-			if(components.size() > archetype_index)
-			{
-				auto& ref = components[archetype_index];
-				std::forward<Func>(fun)(ref.top_page, ref.last_page);
-				return true;
-			}
-			return false;
-		}
-
-		template<typename Func>
-		bool ForeachMountPoint(std::size_t element_index, Func&& func) const
-			requires(std::is_invocable_r_v<bool, Func, ArchetypeMountPointRange>)
-		{
-			return ForeachMountPoint(element_index, [](void* data, ArchetypeMountPointRange range)->bool
-			{
-				return (*static_cast<Func*>(data))(range);
-			}, static_cast<void*>(&func));
-		}
-
-		template<typename FilterFunc, typename Func>
-		bool ForeachMountPoint(std::size_t element_index, FilterFunc&& filter_func, Func&& func) const
-			requires(
-				std::is_invocable_r_v<bool, FilterFunc, Archetype const&>
-				&& std::is_invocable_v<Func, ArchetypeMountPointRange>
-				)
-		{
-			return ForeachMountPoint(element_index, 
-				[](void* data, Archetype const& arc)
-				{
-					(*static_cast<FilterFunc*>(data))(arc);
-				}, static_cast<void*>(&filter_func),
-				[](void* data, ArchetypeMountPointRange range)->bool
-				{
-					return (*static_cast<Func*>(data))(range);
-				}, &func
-				);
-		}
-
-		template<typename Func>
-		bool ReadEntityMountPoint(Entity const& entity, Func&& func) const
-			requires(
-				std::is_invocable_v<Func, EntityStatus,  Archetype const&, ArchetypeMountPoint>
-			)
-		{
-			return ReadEntityMountPoint(entity, [](void* data, EntityStatus status, Archetype const& arc, ArchetypeMountPoint mp)
-				{
-					(*static_cast<Func*>(data))(status, arc, mp);
-				}, static_cast<void*>(&func));
-		}
-		*/
 	};
 
 }
