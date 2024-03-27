@@ -24,7 +24,7 @@ namespace Noodles
 	{
 		return Potato::Misc::PriorityCompareStrongOrdering(
 			//index, mp.index,
-			buffer, mp.buffer
+			buffer, mp.buffer, index, mp.index
 		);
 	}
 

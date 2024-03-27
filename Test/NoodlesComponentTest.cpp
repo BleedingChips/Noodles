@@ -60,37 +60,59 @@ struct TestSingletonFilter : public SingletonFilterInterface
 
 int main()
 {
+	{
+		TestComponentFilter<Report, A, EntityProperty> TF;
+		TestSingletonFilter<A> ATF;
 
-	TestComponentFilter<Report, A, EntityProperty> TF;
-	TestSingletonFilter<A> ATF;
-
-	ArchetypeComponentManager manager;
+		ArchetypeComponentManager manager;
 
 
-	auto entity = manager.CreateEntityDefer(
-		Report{}, A{10086}
-	);
+		auto entity = manager.CreateEntityDefer(
+			Report{}, A{ 10086 }
+		);
 
-	manager.RegisterComponentFilter(&TF, 0);
+		manager.RegisterComponentFilter(&TF, 0);
 
-	std::array<std::size_t, decltype(TF)::Count()> TemBuffer;
+		std::array<std::size_t, decltype(TF)::Count()> TemBuffer;
 
-	manager.ReadyEntity(*entity, TF, TemBuffer.size(), std::span(TemBuffer), 
-		[](Archetype const& archetype, ArchetypeMountPoint mp, std::span<std::size_t> indexs)
-		{
-			auto D1 = static_cast<Report*>(archetype.GetData(indexs[0], mp));
-			auto D2 = static_cast<A*>(archetype.GetData(indexs[1], mp));
-			auto D3 = static_cast<EntityProperty*>(archetype.GetData(indexs[2], mp));
-			volatile int i = 0;
-		});
+		manager.ReadyEntity(*entity, TF, TemBuffer.size(), std::span(TemBuffer),
+			[](Archetype const& archetype, ArchetypeMountPoint mp, std::span<std::size_t> indexs)
+			{
+				auto D1 = static_cast<Report*>(archetype.GetData(indexs[0], mp));
+				auto D2 = static_cast<A*>(archetype.GetData(indexs[1], mp));
+				auto D3 = static_cast<EntityProperty*>(archetype.GetData(indexs[2], mp));
+				volatile int i = 0;
+			});
 
-	auto K = manager.CreateSingletonType<A>(100);
 
-	manager.RegisterSingletonFilter(&ATF, 0);
+		auto K = manager.CreateSingletonType<A>(100);
 
+		manager.RegisterSingletonFilter(&ATF, 0);
+
+
+		auto entity2 = manager.CreateEntityDefer(
+			Report{}, A{ 10086 }
+		);
+
+		auto entity3 = manager.CreateEntityDefer(
+			Report{}, A{ 10086 }
+		);
+
+		manager.ReleaseEntity(entity2);
+
+		manager.ForceUpdateState();
+
+		volatile int i = 0;
+	}
+	
+
+	
+	
+	/*
 	Potato::IR::Layout layout{4, 4};
 	Potato::IR::Layout layout2{ 4, 8 };
 	bool io = layout > layout2;
+	*/
 
 	volatile int i = 0;
 

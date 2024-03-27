@@ -80,7 +80,6 @@ export namespace Noodles
 		virtual ~ComponentPage() = default;
 
 		Ptr next_page;
-
 		std::size_t const max_element_count = 0;
 		std::size_t available_count = 0;
 		std::span<std::byte> const buffer;
@@ -105,6 +104,8 @@ export namespace Noodles
 		
 
 	protected:
+
+		void SetFree();
 
 		Entity(Potato::IR::MemoryResourceRecord record);
 		static Ptr Create(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
@@ -334,7 +335,6 @@ export namespace Noodles
 					catch (...)
 					{
 						archetype_ptr->Destruction(output_index[0], archetype_ptr->GetData(output_index[0], mp));
-						std::lock_guard lg(temp_resource_mutex);
 						temp_resource.deallocate(mp.GetBuffer(0), archetype_ptr->GetSingleLayout().Size);
 						throw;
 					}
@@ -396,7 +396,7 @@ export namespace Noodles
 
 		std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::size_t> CreateArchetype(std::span<ArchetypeID const> ids, std::span<std::size_t> output);
 		static bool CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<ArchetypeID const> ids, std::span<std::size_t> output);
-
+		
 
 		static inline void ComponentConstructorHelper(std::span<void*> input)
 		{
@@ -423,6 +423,9 @@ export namespace Noodles
 		std::pmr::vector<Element> components;
 		std::pmr::synchronized_pool_resource components_resource;
 
+		ArchetypeMountPoint AllocateAndConstructMountPoint(Element& tar, ArchetypeMountPoint mp);
+		void CopyMountPointFormLast(Element& tar, ArchetypeMountPoint mp);
+
 		enum class SpawnedStatus
 		{
 			New,
@@ -438,7 +441,7 @@ export namespace Noodles
 
 		std::mutex archetype_mutex;
 		std::pmr::vector<Archetype::Ptr> new_archetype;
-		std::pmr::monotonic_buffer_resource archetype_resource;
+		std::pmr::unsynchronized_pool_resource archetype_resource;
 
 		std::mutex spawn_mutex;
 		std::pmr::vector<SpawnedElement> spawned_entities;
@@ -475,8 +478,7 @@ export namespace Noodles
 		std::pmr::vector<UniqueTypeID> exist_singleton_id;
 		std::pmr::unsynchronized_pool_resource singleton_resource;
 
-		std::mutex temp_resource_mutex;
-		std::pmr::monotonic_buffer_resource temp_resource;
+		std::pmr::synchronized_pool_resource temp_resource;
 
 		friend struct EntityConstructor;
 		friend struct ComponentFilterInterface;
