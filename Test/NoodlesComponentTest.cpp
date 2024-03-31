@@ -61,33 +61,39 @@ struct TestSingletonFilter : public SingletonFilterInterface
 int main()
 {
 	{
-		TestComponentFilter<Report, A, EntityProperty> TF;
+		TestComponentFilter<Report, A, EntityProperty, std::u8string> TF;
 		TestSingletonFilter<A> ATF;
 
 		ArchetypeComponentManager manager;
 
 
 		auto entity = manager.CreateEntityDefer(
-			Report{}, A{ 10086 }
+			Report{}, A{ 10086 }, std::u8string{u8"Fuck You"}
 		);
 
-		manager.RegisterComponentFilter(&TF, 0);
+		manager.RegisterFilter(&TF, 0);
 
 		std::array<std::size_t, decltype(TF)::Count()> TemBuffer;
 
-		manager.ReadyEntity(*entity, TF, TemBuffer.size(), std::span(TemBuffer),
-			[](Archetype const& archetype, ArchetypeMountPoint mp, std::span<std::size_t> indexs)
+
+		{
+			auto [ar, mp, in] = manager.ReadEntity(*entity, TF, std::span(TemBuffer));
+
+			if (ar)
 			{
-				auto D1 = static_cast<Report*>(archetype.GetData(indexs[0], mp));
-				auto D2 = static_cast<A*>(archetype.GetData(indexs[1], mp));
-				auto D3 = static_cast<EntityProperty*>(archetype.GetData(indexs[2], mp));
+				auto D1 = static_cast<Report*>(ar->GetData(TemBuffer[0], mp));
+				auto D2 = static_cast<A*>(ar->GetData(TemBuffer[1], mp));
+				auto D3 = static_cast<EntityProperty*>(ar->GetData(TemBuffer[2], mp));
+				auto D4 = static_cast<std::u8string*>(ar->GetData(TemBuffer[3], mp));
+				*D4 = u8"Lalalal";
 				volatile int i = 0;
-			});
+			}
+		}
 
 
 		auto K = manager.CreateSingletonType<A>(100);
 
-		manager.RegisterSingletonFilter(&ATF, 0);
+		manager.RegisterFilter(&ATF, 0);
 
 
 		auto entity2 = manager.CreateEntityDefer(
@@ -102,14 +108,18 @@ int main()
 
 		manager.ForceUpdateState();
 
-		manager.ReadyEntity(*entity, TF, TemBuffer.size(), std::span(TemBuffer),
-			[](Archetype const& archetype, ArchetypeMountPoint mp, std::span<std::size_t> indexs)
+		{
+			auto [ar, mp, in] = manager.ReadEntity(*entity, TF, std::span(TemBuffer));
+
+			if (ar)
 			{
-				auto D1 = static_cast<Report*>(archetype.GetData(indexs[0], mp));
-				auto D2 = static_cast<A*>(archetype.GetData(indexs[1], mp));
-				auto D3 = static_cast<EntityProperty*>(archetype.GetData(indexs[2], mp));
+				auto D1 = static_cast<Report*>(ar->GetData(TemBuffer[0], mp));
+				auto D2 = static_cast<A*>(ar->GetData(TemBuffer[1], mp));
+				auto D3 = static_cast<EntityProperty*>(ar->GetData(TemBuffer[2], mp));
+				auto D4 = static_cast<std::u8string*>(ar->GetData(TemBuffer[3], mp));
 				volatile int i = 0;
-			});
+			}
+		}
 
 		volatile int i = 0;
 	}

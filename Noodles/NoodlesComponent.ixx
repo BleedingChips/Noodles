@@ -175,34 +175,56 @@ export namespace Noodles
 
 	};
 
-	struct ComponentFilterInterface
+	struct FilterInterface
 	{
-
 		struct Wrapper
 		{
 			template<typename T>
 			void AddRef(T* ref) { ref->AddFilterRef(); }
 			template<typename T>
-			void SubRef(T* ref) { ref->SubFilterRef();  }
+			void SubRef(T* ref) { ref->SubFilterRef(); }
 		};
+
+		bool Register(std::size_t owner_id);
+		bool Unregister(std::size_t owner_id);
+
+	protected:
+
+		virtual void AddFilterRef() const = 0;
+		virtual void SubFilterRef() const = 0;
+
+		virtual ~FilterInterface() = default;
+
+		mutable std::mutex filter_mutex;
+		std::size_t owner_id = 0;
+	};
+
+	struct ComponentFilterInterface : public FilterInterface
+	{
 
 		using Ptr = Potato::Pointer::IntrusivePtr<ComponentFilterInterface, Wrapper>;
 
 		virtual ~ComponentFilterInterface() = default;
 
+		std::optional<std::size_t> EnumByArchetypeIndex(std::size_t owner_id, std::size_t archetype_index, std::span<std::size_t> output_index) const;
+		std::optional<std::size_t> EnumByIteratorIndex(std::size_t owner_id, std::size_t ite_index, std::size_t& archetype_index, std::span<std::size_t> output_index) const;
+		virtual void OnCreatedArchetype(std::size_t owner_id, std::size_t archetype_index, Archetype const& archetype);
+
 	protected:
+
+		void Reset()
+		{
+			std::lock_guard lg(filter_mutex);
+			indexs.clear();
+		}
 
 		ComponentFilterInterface(std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 			: indexs(resource) {}
 
-		mutable std::mutex filter_mutex;
 		std::pmr::vector<std::size_t> indexs;
 
 		virtual std::span<UniqueTypeID const> GetArchetypeIndex() const = 0;
-		virtual void OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype);
-
-		virtual void AddFilterRef() const = 0;
-		virtual void SubFilterRef() const = 0;
+		
 
 		friend struct ArchetypeComponentManager;
 	};
@@ -248,25 +270,24 @@ export namespace Noodles
 
 	};
 
-	struct SingletonFilterInterface
+	struct SingletonFilterInterface : FilterInterface
 	{
-		using Ptr = Potato::Pointer::IntrusivePtr<SingletonFilterInterface, ComponentFilterInterface::Wrapper>;
+		using Ptr = Potato::Pointer::IntrusivePtr<SingletonFilterInterface, FilterInterface::Wrapper>;
 
 		virtual UniqueTypeID RequireTypeID() const = 0;
 
 	protected:
 
-		friend struct ComponentFilterInterface::Wrapper;
-		friend struct ArchetypeComponentManager;
+		void Reset() {
+			std::lock_guard lg(filter_mutex);
+			singleton_reference.Reset();
+		}
 
-		virtual void AddFilterRef() const = 0;
-		virtual void SubFilterRef() const = 0;
+		friend struct ArchetypeComponentManager;
 
 	private:
 
-		std::mutex mutex;
-		std::size_t singleton_reference = std::numeric_limits<std::size_t>::max();
-		std::size_t owner_id = 0;
+		SingletonInterface::Ptr singleton_reference;
 	};
 
 	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, ArchetypeMountPoint mp, std::span<std::size_t> index){}
@@ -346,24 +367,12 @@ export namespace Noodles
 		bool ForceUpdateState();
 
 		bool DestroyEntity(Entity& entity);
-		bool RegisterComponentFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id);
-		bool RegisterSingletonFilter(SingletonFilterInterface::Ptr ptr, std::size_t group_id);
+		bool RegisterFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id);
+		bool RegisterFilter(SingletonFilterInterface::Ptr ptr, std::size_t group_id);
 		std::size_t ErasesComponentFilter(std::size_t group_id);
 		std::size_t ArchetypeCount() const;
 
-		template<typename Func>
-		bool ReadyEntity(Entity const& entity, ComponentFilterInterface const& interface, std::size_t count, std::span<std::size_t> output_index, Func&& func)
-			requires(std::is_invocable_v<Func, Archetype const&, ArchetypeMountPoint, std::span<std::size_t>>)
-		{
-			std::shared_lock sl(components_read_mutex);
-			auto [archetype, mp] = ReadEntityImp(entity, interface, count, output_index);
-			if(archetype)
-			{
-				std::forward<Func>(func)(*archetype, mp, output_index.subspan(0, count));
-				return true;
-			}
-			return false;
-		}
+		std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::size_t> ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const;
 
 		template<typename SingType, typename ...OT>
 		SingType* CreateSingletonType(OT&& ...ot)
@@ -372,7 +381,6 @@ export namespace Noodles
 
 			auto ID = UniqueTypeID::Create<std::remove_cvref<SingType>>();
 
-			std::shared_lock sl(singletons_read_mutex);
 			std::lock_guard lg(singletons_mutex);
 			auto f = std::find_if(singletons.begin(), singletons.end(), [=](SingletonElement const& ele)
 			{
@@ -391,11 +399,9 @@ export namespace Noodles
 			return nullptr;
 		}
 
-		bool ReleaseEntity(Entity::Ptr storage);
+		bool ReleaseEntity(Entity::Ptr entity);
 
 	protected:
-
-		std::tuple<Archetype::Ptr, ArchetypeMountPoint> ReadEntityImp(Entity const& entity, ComponentFilterInterface const& interface, std::size_t count, std::span<std::size_t> output_index);
 
 		std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::size_t> CreateArchetype(std::span<ArchetypeID const> ids, std::span<std::size_t> output);
 		static bool CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<ArchetypeID const> ids, std::span<std::size_t> output);
@@ -422,7 +428,6 @@ export namespace Noodles
 			std::size_t total_count;
 		};
 
-		mutable std::shared_mutex components_read_mutex;
 		mutable std::mutex component_mutex;
 		std::pmr::vector<Element> components;
 		std::pmr::unsynchronized_pool_resource components_resource;
@@ -434,9 +439,9 @@ export namespace Noodles
 			UniqueTypeID id;
 		};
 
-		mutable std::shared_mutex singletons_read_mutex;
 		mutable std::mutex singletons_mutex;
 		std::pmr::vector<SingletonElement> singletons;
+		std::optional<std::size_t> update_index;
 		std::pmr::synchronized_pool_resource singleton_resource;
 
 		ArchetypeMountPoint AllocateAndConstructMountPoint(Element& tar, ArchetypeMountPoint mp);
