@@ -95,6 +95,13 @@ int main()
 
 		manager.RegisterFilter(&ATF, 0);
 
+		auto k = manager.ReadSingleton(ATF);
+		if(k)
+		{
+			auto op = reinterpret_cast<A*>(k->Get());
+			volatile int i = 0;
+		}
+
 
 		auto entity2 = manager.CreateEntityDefer(
 			Report{}, A{ 10086 }

@@ -190,6 +190,8 @@ export namespace Noodles
 
 	protected:
 
+		virtual void OnUnregister() {};
+
 		virtual void AddFilterRef() const = 0;
 		virtual void SubFilterRef() const = 0;
 
@@ -212,11 +214,7 @@ export namespace Noodles
 
 	protected:
 
-		void Reset()
-		{
-			std::lock_guard lg(filter_mutex);
-			indexs.clear();
-		}
+		virtual void OnUnregister() override;
 
 		ComponentFilterInterface(std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 			: indexs(resource) {}
@@ -253,9 +251,9 @@ export namespace Noodles
 	};
 
 	template<typename Type>
-	struct SingletonType : public SingletonInterface 
+	struct SingletonType : public SingletonInterface, public Potato::Pointer::DefaultIntrusiveInterface
 	{
-
+		using PureType = Type;
 		template<typename ...OT>
 		SingletonType(Potato::IR::MemoryResourceRecord record, OT&& ...ot)
 			: record(record), Data(std::forward<OT>(ot)...) {}
@@ -265,23 +263,29 @@ export namespace Noodles
 
 		virtual void* Get() { return &Data; }
 		virtual void const* Get() const { return &Data; }
-		virtual void AddSingletonRef() const {}
-		virtual void SubSingletonRef() const { auto re = record; this->~SingletonType(); re.Deallocate(); }
+
+	protected:
+
+		virtual void Release() override
+		{
+			auto re = record; this->~SingletonType(); re.Deallocate();
+		}
+		virtual void AddSingletonRef() const { AddRef(); }
+		virtual void SubSingletonRef() const { SubRef(); }
 
 	};
 
-	struct SingletonFilterInterface : FilterInterface
+	struct SingletonFilterInterface : public FilterInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<SingletonFilterInterface, FilterInterface::Wrapper>;
 
 		virtual UniqueTypeID RequireTypeID() const = 0;
 
+		SingletonInterface::Ptr GetSingleton(std::size_t owner_id) const;
+
 	protected:
 
-		void Reset() {
-			std::lock_guard lg(filter_mutex);
-			singleton_reference.Reset();
-		}
+		virtual void OnUnregister() override;
 
 		friend struct ArchetypeComponentManager;
 
@@ -369,7 +373,7 @@ export namespace Noodles
 		bool DestroyEntity(Entity& entity);
 		bool RegisterFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id);
 		bool RegisterFilter(SingletonFilterInterface::Ptr ptr, std::size_t group_id);
-		std::size_t ErasesComponentFilter(std::size_t group_id);
+		std::size_t ErasesFilter(std::size_t group_id);
 		std::size_t ArchetypeCount() const;
 
 		std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::size_t> ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const;
@@ -379,7 +383,7 @@ export namespace Noodles
 		{
 			using Type = SingletonType<std::remove_cvref_t<SingType>>;
 
-			auto ID = UniqueTypeID::Create<std::remove_cvref<SingType>>();
+			auto ID = UniqueTypeID::Create<typename Type::PureType>();
 
 			std::lock_guard lg(singletons_mutex);
 			auto f = std::find_if(singletons.begin(), singletons.end(), [=](SingletonElement const& ele)
@@ -393,6 +397,14 @@ export namespace Noodles
 				{
 					Type* ptr = new (re.Get()) Type {re, std::forward<OT>(ot)...};
 					singletons.emplace_back(ptr, ID);
+					std::lock_guard lg(filter_mapping_mutex);
+					for(auto& ite : singleton_filters)
+					{
+						if(ite.rquire_id == ID)
+						{
+							ite.ptr->singleton_reference = SingletonInterface::Ptr{ ptr };
+						}
+					}
 					return &ptr->Data;
 				}
 			}
@@ -400,6 +412,8 @@ export namespace Noodles
 		}
 
 		bool ReleaseEntity(Entity::Ptr entity);
+
+		SingletonInterface::Ptr ReadSingleton(SingletonFilterInterface const& filter) const;
 
 	protected:
 
@@ -474,6 +488,7 @@ export namespace Noodles
 		struct SingletonFilterInterfaceElement
 		{
 			SingletonFilterInterface::Ptr ptr;
+			UniqueTypeID rquire_id;
 			std::size_t group_id;
 		};
 

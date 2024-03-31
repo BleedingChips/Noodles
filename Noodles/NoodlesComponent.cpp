@@ -142,9 +142,15 @@ namespace Noodles
 		if (owner_id != 0 && owner_id == in_owner_id)
 		{
 			owner_id = 0;
+			OnUnregister();
 			return true;
 		}
 		return false;
+	}
+
+	void ComponentFilterInterface::OnUnregister()
+	{
+		indexs.clear();
 	}
 
 	void ComponentFilterInterface::OnCreatedArchetype(std::size_t in_owner_id, std::size_t archetype_index, Archetype const& archetype)
@@ -221,6 +227,21 @@ namespace Noodles
 		return std::nullopt;
 	}
 
+	void SingletonFilterInterface::OnUnregister()
+	{
+		singleton_reference.Reset();
+	}
+
+	SingletonInterface::Ptr SingletonFilterInterface::GetSingleton(std::size_t in_owner_id) const
+	{
+		std::lock_guard lg(filter_mutex);
+		if(owner_id != 0 && owner_id == in_owner_id)
+		{
+			return singleton_reference;
+		}
+		return {};
+	}
+
 	std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::size_t> ArchetypeComponentManager::ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const
 	{
 		Archetype::Ptr arc;
@@ -263,17 +284,13 @@ namespace Noodles
 			for(auto& ite : filter_mapping)
 			{
 				auto& ref = *ite.filter;
-				std::lock_guard lg(ref.filter_mutex);
 				ref.Unregister(reinterpret_cast<size_t>(this));
-				ref.Reset();
 			}
 			filter_mapping.clear();
 			for(auto& ite : singleton_filters)
 			{
 				auto& ref = *ite.ptr;
-				std::lock_guard lg(ref.filter_mutex);
 				ref.Unregister(reinterpret_cast<size_t>(this));
-				ref.Reset();
 			}
 			singleton_filters.clear();
 		}
@@ -451,27 +468,27 @@ namespace Noodles
 	{
 		if(ptr && ptr->Register(reinterpret_cast<std::size_t>(this)))
 		{
-			std::lock_guard lg(ptr->filter_mutex);
-			if(ptr->owner_id == 0)
 			{
-				ptr->owner_id = reinterpret_cast<std::size_t>(this);
+				std::lock_guard lg(ptr->filter_mutex);
 				ptr->singleton_reference.Reset();
-				auto RID = ptr->RequireTypeID();
+			}
+			
+			auto RID = ptr->RequireTypeID();
 
+			{
+				std::lock_guard lg(singletons_mutex);
+				for (auto& ite : singletons)
 				{
-					std::lock_guard lg(singletons_mutex);
-					for (auto& ite : singletons)
+					if (ite.id == RID)
 					{
-						if (ite.id == RID)
-						{
-							ptr->singleton_reference = ite.single;
-							break;
-						}
+						ptr->singleton_reference = ite.single;
+						break;
 					}
 				}
-				singleton_filters.emplace_back(std::move(ptr), group_id);
-				return true;
 			}
+			std::lock_guard lg3(filter_mapping_mutex);
+			singleton_filters.emplace_back(std::move(ptr), RID, group_id);
+			return true;
 		}
 		return false;
 	}
@@ -514,6 +531,11 @@ namespace Noodles
 			}
 		}
 		return false;
+	}
+
+	SingletonInterface::Ptr ArchetypeComponentManager::ReadSingleton(SingletonFilterInterface const& filter) const
+	{
+		return filter.GetSingleton(reinterpret_cast<std::size_t>(this));
 	}
 
 	bool ArchetypeComponentManager::ForceUpdateState()
