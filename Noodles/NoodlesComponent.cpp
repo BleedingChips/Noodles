@@ -232,14 +232,14 @@ namespace Noodles
 		singleton_reference.Reset();
 	}
 
-	SingletonInterface::Ptr SingletonFilterInterface::GetSingleton(std::size_t in_owner_id) const
+	void* SingletonFilterInterface::GetSingleton(std::size_t in_owner_id) const
 	{
 		std::lock_guard lg(filter_mutex);
-		if(owner_id != 0 && owner_id == in_owner_id)
+		if(owner_id != 0 && owner_id == in_owner_id && singleton_reference)
 		{
-			return singleton_reference;
+			return singleton_reference->Get();
 		}
-		return {};
+		return nullptr;
 	}
 
 	std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::size_t> ArchetypeComponentManager::ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const
@@ -321,16 +321,12 @@ namespace Noodles
 			std::lock_guard lg2(component_mutex);
 			for(auto& ite : components)
 			{
-				auto ite2 = ite.top_page;
-				while(ite2)
+				auto ite2 = ite.memory_page;
+				for (auto ite3 : *ite2)
 				{
-					for(auto ite3 : *ite2)
-					{
-						ite.archetype->Destruction(ite3);
-					}
-					auto temp = std::move(ite2->GetNextPage());
-					ite2 = std::move(temp);
+					ite.archetype->Destruction(ite3);
 				}
+				ite2.Reset();
 			}
 			components.clear();
 		}
@@ -408,7 +404,6 @@ namespace Noodles
 					components.emplace_back(
 						archetype_ptr,
 						ComponentPage::Ptr{},
-						ComponentPage::Ptr{},
 						0
 					);
 					{
@@ -462,6 +457,26 @@ namespace Noodles
 			return true;
 		}
 		return false;
+	}
+
+	std::tuple<Archetype::Ptr, ArchetypeMountPoint, ArchetypeMountPoint, std::size_t> ArchetypeComponentManager::ReadComponents(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span)
+	{
+		std::lock_guard lg(component_mutex);
+		std::size_t archetype_index = std::numeric_limits<std::size_t>::max();
+		auto re = interface.EnumByIteratorIndex(reinterpret_cast<std::size_t>(this), ite_index, archetype_index, output_span);
+		if(re)
+		{
+			assert(components.size() > archetype_index);
+			auto& ref = components[archetype_index];
+			if(ref.memory_page)
+			{
+				return { ref.archetype, ref.memory_page->begin(), ref.memory_page->end(), *re};
+			}else
+			{
+				return { ref.archetype, ArchetypeMountPoint{}, ArchetypeMountPoint{}, *re };
+			}
+		}
+		return {{}, {}, {}, 0};
 	}
 
 	bool ArchetypeComponentManager::RegisterFilter(SingletonFilterInterface::Ptr ptr, std::size_t group_id)
@@ -533,7 +548,7 @@ namespace Noodles
 		return false;
 	}
 
-	SingletonInterface::Ptr ArchetypeComponentManager::ReadSingleton(SingletonFilterInterface const& filter) const
+	void* ArchetypeComponentManager::ReadSingleton(SingletonFilterInterface const& filter) const
 	{
 		return filter.GetSingleton(reinterpret_cast<std::size_t>(this));
 	}
@@ -633,73 +648,60 @@ namespace Noodles
 
 	ArchetypeMountPoint ArchetypeComponentManager::AllocateAndConstructMountPoint(Element& tar, ArchetypeMountPoint mp)
 	{
-		if(tar.last_page)
+
+		if(!tar.memory_page)
 		{
-			auto last = tar.last_page->GetLastMountPoint();
-			if(last < tar.last_page->GetMaxMountPoint())
+			tar.memory_page = ComponentPage::Create(tar.archetype->GetArchetypeLayout(), component_page_min_element_count, component_page_min_size, &components_resource);
+		}
+
+		if(tar.memory_page)
+		{
+			if(tar.memory_page->available_count >= tar.memory_page->max_element_count)
 			{
-				tar.archetype->MoveConstruct(last, mp);
-				tar.last_page->available_count += 1;
-				return last;
+				auto new_page = ComponentPage::Create(tar.archetype->GetArchetypeLayout(), tar.memory_page->max_element_count, tar.memory_page->allocate_size * 2, &components_resource);
+				if(new_page)
+				{
+					auto t1 = new_page->begin();
+					auto t2 = tar.memory_page->begin();
+					auto last_index = tar.memory_page->available_count;
+
+					for(std::size_t i = 0; i < last_index; ++i)
+					{
+						t1.index = i;
+						t2.index = i;
+						tar.archetype->MoveConstruct(t1, t2);
+						tar.archetype->Destruction(t2);
+					}
+
+					tar.memory_page = std::move(new_page);
+				}else
+				{
+					return {};
+				}
 			}
 		}
 
-		auto page = ComponentPage::Create(tar.archetype->GetArchetypeLayout(), component_page_min_element_count, component_page_min_size, &components_resource);
-
-		if(page)
+		if(tar.memory_page)
 		{
-			auto first = page->begin();
-			tar.archetype->MoveConstruct(first, mp);
-			page->available_count += 1;
-			if(!tar.top_page)
-			{
-				tar.top_page = page;
-			}
-			if(!tar.last_page)
-			{
-				tar.last_page = page;
-			}else
-			{
-				tar.last_page->next_page = page;
-				tar.last_page = page;
-			}
-			return first;
+			auto nmp = tar.memory_page->end();
+			tar.archetype->MoveConstruct(nmp, mp);
+			tar.memory_page->available_count += 1;
+			return mp;
 		}
+
 		return {};
 	}
 
 	void ArchetypeComponentManager::CopyMountPointFormLast(Element& tar, ArchetypeMountPoint mp)
 	{
-		assert(tar.last_page);
-		auto last = tar.last_page->end();
-		assert(last.index != 0);
-		last.index -= 1;
-		if(last != mp)
+		assert(tar.memory_page && tar.memory_page->begin().buffer == mp.buffer);
+		auto last = tar.memory_page->GetLastMountPoint();
+		if(mp + 1 < last)
 		{
+			last.index -= 1;
 			tar.archetype->MoveConstruct(mp, last);
 			tar.archetype->Destruction(last);
-		}
-		tar.last_page->available_count -= 1;
-		if(tar.last_page->available_count == 0)
-		{
-			assert(tar.top_page);
-			if(tar.top_page == tar.last_page)
-			{
-				tar.top_page.Reset();
-				tar.last_page.Reset();
-			}else
-			{
-				auto cur = tar.top_page;
-				while(cur)
-				{
-					if(cur->next_page == tar.last_page)
-					{
-						cur->next_page.Reset();
-						tar.last_page = std::move(cur);
-						break;
-					}
-				}
-			}
+			tar.memory_page->available_count -= 1;
 		}
 	}
 

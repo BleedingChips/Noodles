@@ -96,9 +96,9 @@ int main()
 		manager.RegisterFilter(&ATF, 0);
 
 		auto k = manager.ReadSingleton(ATF);
-		if(k)
+		if(k != nullptr)
 		{
-			auto op = reinterpret_cast<A*>(k->Get());
+			auto op = reinterpret_cast<A*>(k);
 			volatile int i = 0;
 		}
 
@@ -113,6 +113,20 @@ int main()
 
 		manager.ReleaseEntity(entity2);
 
+
+		{
+			auto [ar, mpb, mpe, i] = manager.ReadComponents(TF, 0, std::span(TemBuffer));
+			if (ar && mpb)
+			{
+				auto D1 = static_cast<Report*>(ar->GetData(TemBuffer[0], mpb));
+				auto D2 = static_cast<A*>(ar->GetData(TemBuffer[1], mpb));
+				auto D3 = static_cast<EntityProperty*>(ar->GetData(TemBuffer[2], mpb));
+				auto D4 = static_cast<std::u8string*>(ar->GetData(TemBuffer[3], mpb));
+				volatile int i = 0;
+			}
+		}
+		
+
 		manager.ForceUpdateState();
 
 		{
@@ -124,6 +138,18 @@ int main()
 				auto D2 = static_cast<A*>(ar->GetData(TemBuffer[1], mp));
 				auto D3 = static_cast<EntityProperty*>(ar->GetData(TemBuffer[2], mp));
 				auto D4 = static_cast<std::u8string*>(ar->GetData(TemBuffer[3], mp));
+				volatile int i = 0;
+			}
+		}
+
+		{
+			auto [ar, mpb, mpe, i] = manager.ReadComponents(TF, 0, std::span(TemBuffer));
+			if (ar && mpb)
+			{
+				auto D1 = static_cast<Report*>(ar->GetData(TemBuffer[0], mpb));
+				auto D2 = static_cast<A*>(ar->GetData(TemBuffer[1], mpb));
+				auto D3 = static_cast<EntityProperty*>(ar->GetData(TemBuffer[2], mpb));
+				auto D4 = static_cast<std::u8string*>(ar->GetData(TemBuffer[3], mpb));
 				volatile int i = 0;
 			}
 		}

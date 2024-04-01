@@ -20,8 +20,6 @@ export namespace Noodles
 
 	export struct ArchetypeComponentManager;
 
-
-
 	struct ComponentPage : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<ComponentPage>;
@@ -64,8 +62,6 @@ export namespace Noodles
 			};
 		}
 
-		Ptr GetNextPage() const { return next_page; }
-
 	protected:
 
 		virtual void Release() override;
@@ -79,7 +75,6 @@ export namespace Noodles
 
 		virtual ~ComponentPage() = default;
 
-		Ptr next_page;
 		std::size_t const max_element_count = 0;
 		std::size_t available_count = 0;
 		std::span<std::byte> const buffer;
@@ -146,34 +141,7 @@ export namespace Noodles
 		friend struct ArchetypeComponentManager;
 	};
 
-	struct ArchetypeMountPointRange
-	{
-		Archetype const& archetype;
-
-		ArchetypeMountPoint begin() const { return mp_begin; }
-		ArchetypeMountPoint end() const { return mp_end; }
-
-		ArchetypeMountPoint mp_begin;
-		ArchetypeMountPoint mp_end;
-	};
-
-	struct ArchetypeComponentFilter
-	{
-
-		struct Wrapper
-		{
-			
-		};
-
-		using Ptr = Potato::Pointer::IntrusivePtr<ArchetypeComponentFilter>;
-
-		virtual ~ArchetypeComponentFilter() = default;
-
-	protected:
-
-		virtual void CollectArchetype(Archetype const& archetype);
-
-	};
+	
 
 	struct FilterInterface
 	{
@@ -281,7 +249,7 @@ export namespace Noodles
 
 		virtual UniqueTypeID RequireTypeID() const = 0;
 
-		SingletonInterface::Ptr GetSingleton(std::size_t owner_id) const;
+		void* GetSingleton(std::size_t owner_id) const;
 
 	protected:
 
@@ -412,8 +380,9 @@ export namespace Noodles
 		}
 
 		bool ReleaseEntity(Entity::Ptr entity);
+		std::tuple<Archetype::Ptr, ArchetypeMountPoint, ArchetypeMountPoint, std::size_t> ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite, std::span<std::size_t> output_span);
 
-		SingletonInterface::Ptr ReadSingleton(SingletonFilterInterface const& filter) const;
+		void* ReadSingleton(SingletonFilterInterface const& filter) const;
 
 	protected:
 
@@ -437,8 +406,7 @@ export namespace Noodles
 		struct Element
 		{
 			Archetype::Ptr archetype;
-			ComponentPage::Ptr top_page;
-			ComponentPage::Ptr last_page;
+			ComponentPage::Ptr memory_page;
 			std::size_t total_count;
 		};
 
@@ -497,22 +465,6 @@ export namespace Noodles
 		std::pmr::vector<SingletonFilterInterfaceElement> singleton_filters;
 
 		std::pmr::synchronized_pool_resource temp_resource;
-
-		friend struct EntityConstructor;
-		friend struct ComponentFilterInterface;
-
-		bool ForeachMountPoint(std::size_t element_index, bool(*func)(void*, ArchetypeMountPointRange), void* data) const;
-		bool ForeachMountPoint(std::size_t element_index, bool(*detect)(void*, Archetype const&), void* data, bool(*func)(void*, ArchetypeMountPointRange), void* data2) const;
-		bool ReadEntityMountPoint(Entity const& storage, void(*func)(void*, EntityStatus, Archetype const&, ArchetypeMountPoint), void* data) const;
-
-	public:
-
-		struct ComponentWrapper
-		{
-			std::size_t element_count;
-			std::span<std::size_t> reference_index;
-		};
-
 	};
 
 }
