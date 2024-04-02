@@ -268,13 +268,14 @@ export namespace Noodles
 	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, ArchetypeMountPoint mp, std::span<std::size_t> index, T&& ref, AT&& ...at)
 	{
 		std::remove_cvref_t<T> tem_ref{std::forward<T>(ref)};
-		ac.MoveConstruct(index[0], ac.GetData(index[0], mp), &tem_ref);
+		auto& el = ac.GetInfos(index[0]);
+		ac.MoveConstruct(el, ac.GetData(el, mp), &tem_ref);
 		try
 		{
 			ArchetypeComponentManagerConstructHelper(ac, mp, index.subspan(1), std::forward<AT>(at)...);
 		}catch (...)
 		{
-			ac.Destruction(index[0], ac.GetData(index[0], mp));
+			ac.Destruct(el, mp);
 			throw;
 		}
 	};
@@ -311,7 +312,8 @@ export namespace Noodles
 				if (entity_ptr)
 				{
 					EntityProperty pro{ entity_ptr };
-					archetype_ptr->MoveConstruct(output_index[0], archetype_ptr->GetData(output_index[0], mp), &pro);
+					auto& ref = archetype_ptr->GetInfos(output_index[0]);
+					archetype_ptr->MoveConstruct(ref, archetype_ptr->GetData(ref, mp), &pro);
 					try
 					{
 						ArchetypeComponentManagerConstructHelper(*archetype_ptr, mp, std::span(output_index).subspan(1), std::forward<AT>(at)...);
@@ -327,8 +329,8 @@ export namespace Noodles
 					}
 					catch (...)
 					{
-						archetype_ptr->Destruction(output_index[0], archetype_ptr->GetData(output_index[0], mp));
-						temp_resource.deallocate(mp.GetBuffer(0), archetype_ptr->GetSingleLayout().Size);
+						archetype_ptr->Destruct(ref, mp);
+						temp_resource.deallocate(mp.GetBuffer(), archetype_ptr->GetSingleLayout().Size);
 						throw;
 					}
 				}
@@ -338,13 +340,11 @@ export namespace Noodles
 
 		bool ForceUpdateState();
 
-		bool DestroyEntity(Entity& entity);
 		bool RegisterFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id);
 		bool RegisterFilter(SingletonFilterInterface::Ptr ptr, std::size_t group_id);
-		std::size_t ErasesFilter(std::size_t group_id);
-		std::size_t ArchetypeCount() const;
+		std::size_t ReleaseFilter(std::size_t group_id);
 
-		std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::size_t> ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const;
+		std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::span<std::size_t>> ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const;
 
 		template<typename SingType, typename ...OT>
 		SingType* CreateSingletonType(OT&& ...ot)
@@ -380,7 +380,7 @@ export namespace Noodles
 		}
 
 		bool ReleaseEntity(Entity::Ptr entity);
-		std::tuple<Archetype::Ptr, ArchetypeMountPoint, ArchetypeMountPoint, std::size_t> ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite, std::span<std::size_t> output_span);
+		std::tuple<Archetype::Ptr, ArchetypeMountPoint, ArchetypeMountPoint, std::span<std::size_t>> ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite, std::span<std::size_t> output_span);
 
 		void* ReadSingleton(SingletonFilterInterface const& filter) const;
 
@@ -453,7 +453,7 @@ export namespace Noodles
 			std::size_t group_id;
 		};
 
-		struct SingletonFilterInterfaceElement
+		struct SingletonFilterElement
 		{
 			SingletonFilterInterface::Ptr ptr;
 			UniqueTypeID rquire_id;
@@ -462,7 +462,7 @@ export namespace Noodles
 
 		std::shared_mutex filter_mapping_mutex;
 		std::pmr::vector<CompFilterElement> filter_mapping;
-		std::pmr::vector<SingletonFilterInterfaceElement> singleton_filters;
+		std::pmr::vector<SingletonFilterElement> singleton_filters;
 
 		std::pmr::synchronized_pool_resource temp_resource;
 	};

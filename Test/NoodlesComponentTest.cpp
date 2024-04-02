@@ -111,7 +111,50 @@ int main()
 			Report{}, A{ 10086 }
 		);
 
+		TestComponentFilter<Report, A, EntityProperty, std::u8string, C> TF2;
+
+		manager.RegisterFilter(&TF2, 0);
+
+		for(std::size_t i = 0; i < 1000; ++i)
+		{
+			manager.CreateEntityDefer(
+				Report{}, A{i}, std::u8string{u8"FastTest"}, C{i * 2}
+			);
+		}
+
+		std::array<std::size_t, TF2.Count()> TemBuffer2;
+
 		manager.ReleaseEntity(entity2);
+
+		manager.ForceUpdateState();
+
+		{
+			std::size_t total = 0;
+			std::size_t ite = 0;
+			while(true)
+			{
+				auto [ar, mb, me, san] = manager.ReadComponents(TF2, ite++, std::span(TemBuffer2));
+				
+
+				if(ar)
+				{
+					for (auto i = mb; i != me; ++i)
+					{
+						auto* P1 = static_cast<A*>(ar->GetData(san[1], i));
+						auto* P2 = static_cast<std::u8string*>(ar->GetData(san[3], i));
+						auto* P3 = static_cast<C*>(ar->GetData(san[4], i));
+						total += P1->i;
+						volatile int icc = 0;
+					}
+					
+				}else
+				{
+					break;
+				}
+			}
+
+			volatile int icc = 0;
+		}
 
 
 		{
@@ -127,7 +170,7 @@ int main()
 		}
 		
 
-		manager.ForceUpdateState();
+		
 
 		{
 			auto [ar, mp, in] = manager.ReadEntity(*entity, TF, std::span(TemBuffer));
@@ -155,6 +198,22 @@ int main()
 		}
 
 		volatile int i = 0;
+
+		auto fc = manager.ReleaseFilter(0);
+
+		{
+			auto [ar, mpb, mpe, i] = manager.ReadComponents(TF, 0, std::span(TemBuffer));
+			if (ar && mpb)
+			{
+				auto D1 = static_cast<Report*>(ar->GetData(TemBuffer[0], mpb));
+				auto D2 = static_cast<A*>(ar->GetData(TemBuffer[1], mpb));
+				auto D3 = static_cast<EntityProperty*>(ar->GetData(TemBuffer[2], mpb));
+				auto D4 = static_cast<std::u8string*>(ar->GetData(TemBuffer[3], mpb));
+				volatile int i = 0;
+			}
+		}
+
+		volatile int iss = 0;
 	}
 	
 
@@ -165,6 +224,7 @@ int main()
 	Potato::IR::Layout layout2{ 4, 8 };
 	bool io = layout > layout2;
 	*/
+
 
 	volatile int i = 0;
 

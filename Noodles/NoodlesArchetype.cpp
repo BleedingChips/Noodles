@@ -233,32 +233,16 @@ namespace Noodles
 		return infos[index].id.id;
 	}
 
+	void* Archetype::GetData(Element const& ref, ArchetypeMountPoint mp)
+	{
+		return static_cast<std::byte*>(mp.buffer) + mp.element_count * ref.offset + mp.index * ref.id.layout.Size;
+	}
+
 	void* Archetype::GetData(std::size_t locate_index, ArchetypeMountPoint mount_point) const
 	{
 		assert(GetTypeIDCount() > locate_index);
 		assert(mount_point);
-		return mount_point.GetBuffer(infos[locate_index].offset);
-	}
-
-	void Archetype::Destruction(ArchetypeMountPoint mount_point) const
-	{
-		assert(mount_point);
-		for(auto& ite : infos)
-		{
-			ite.id.wrapper_function(
-				ArchetypeID::Status::Destruction, mount_point.GetBuffer(ite.offset), nullptr
-			);
-		}
-	}
-
-	void Archetype::MoveConstruct(ArchetypeMountPoint target_mp, ArchetypeMountPoint source_mp) const
-	{
-		for (auto& ite : infos)
-		{
-			auto tar1 = target_mp.GetBuffer(ite.offset);
-			auto tar2 = source_mp.GetBuffer(ite.offset);
-			ite.id.wrapper_function(ArchetypeID::Status::MoveConstruction, tar1, tar2);
-		}
+		return GetData(infos[locate_index], mount_point);
 	}
 
 	bool Archetype::CheckUniqueArchetypeID(std::span<ArchetypeID const> ids)
@@ -274,28 +258,20 @@ namespace Noodles
 		return true;
 	}
 
-	void Archetype::MoveConstruct(std::size_t locate_index, void* target, void* source) const
+	void Archetype::MoveConstruct(ArchetypeMountPoint target_mp, ArchetypeMountPoint source_mp) const
 	{
-		assert(GetTypeIDCount() > locate_index);
-		assert(target != nullptr && source != nullptr);
-		auto& ref = infos[locate_index];
-		ref.id.wrapper_function(ArchetypeID::Status::MoveConstruction, target, source);
+		for(auto& ite : infos)
+		{
+			MoveConstruct(ite, target_mp, source_mp);
+		}
 	}
 
-	void Archetype::Destruction(std::size_t locate_index, void* target) const
+	void Archetype::Destruct(ArchetypeMountPoint target) const
 	{
-		assert(GetTypeIDCount() > locate_index);
-		assert(target != nullptr);
-		auto& ref = infos[locate_index];
-		ref.id.wrapper_function(ArchetypeID::Status::Destruction, target, nullptr);
-	}
-
-	void Archetype::DefaultConstruct(std::size_t locate_index, void* target) const
-	{
-		assert(GetTypeIDCount() > locate_index);
-		assert(target != nullptr);
-		auto& ref = infos[locate_index];
-		ref.id.wrapper_function(ArchetypeID::Status::DefaultConstruction, target, nullptr);
+		for(auto& ite : infos)
+		{
+			Destruct(ite, target);
+		}
 	}
 
 	bool Archetype::operator==(Archetype const& i2) const

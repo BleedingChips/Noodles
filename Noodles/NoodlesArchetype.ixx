@@ -129,11 +129,11 @@ export namespace Noodles
 		ArchetypeMountPoint& operator --() { assert(index > 0); index -= 1; return *this; }
 		ArchetypeMountPoint& operator -=(std::size_t i) { index -= i; return *this; }
 		std::strong_ordering operator<=>(ArchetypeMountPoint const& mp) const;
-		bool operator==(ArchetypeMountPoint const& i2) const { return buffer == i2.buffer; }
+		bool operator==(ArchetypeMountPoint const& i2) const { return buffer == i2.buffer && index == i2.index; }
 		operator bool() const;
 		ArchetypeMountPoint& operator*(){ return *this; }
 		ArchetypeMountPoint const& operator*() const { return *this; }
-		void* GetBuffer(std::size_t offset) const { return static_cast<std::byte*>(buffer) + offset * element_count;}
+		void* GetBuffer() const { return buffer; }
 	};
 
 
@@ -150,14 +150,6 @@ export namespace Noodles
 
 		UniqueTypeID const& GetTypeID(std::size_t index) const;
 
-		void* GetData(std::size_t locate_index, ArchetypeMountPoint mount_point) const;
-
-		void MoveConstruct(std::size_t locate_index, void* target, void* source) const;
-		void Destruction(std::size_t locate_index, void* target) const;
-		void DefaultConstruct(std::size_t locate_index, void* target) const;
-		void Destruction(ArchetypeMountPoint mount_point) const;
-		void MoveConstruct(ArchetypeMountPoint target_mp, ArchetypeMountPoint source_mp) const;
-
 		Archetype::Ptr Clone(std::pmr::memory_resource* o_resource) const;
 		std::size_t GetHashCode() const { return type_id_hash_code; }
 
@@ -169,8 +161,6 @@ export namespace Noodles
 		std::size_t GetElementCount() const { return infos.size(); }
 
 		static bool CheckUniqueArchetypeID(std::span<ArchetypeID const>);
-
-	protected:
 
 		struct Element
 		{
@@ -184,6 +174,26 @@ export namespace Noodles
 			Element& operator=(Element&&) = default;
 			bool operator==(Element const& i) const { return offset == i.offset && id == i.id; }
 		};
+
+	
+		void* GetData(std::size_t locate_index, ArchetypeMountPoint mount_point) const;
+		static void* GetData(Element const& ref, ArchetypeMountPoint mp);
+
+		static void MoveConstruct(Element const& el, void* target, void* source) { el.id.wrapper_function(ArchetypeID::Status::MoveConstruction, target, source); }
+		static void MoveConstruct(Element const& el, ArchetypeMountPoint target, ArchetypeMountPoint source) { MoveConstruct(el, GetData(el, target), GetData(el, source)); }
+		void MoveConstruct(std::size_t locate_index, void* target, void* source) const { MoveConstruct(GetInfos(locate_index), target, source); }
+		void MoveConstruct(ArchetypeMountPoint target_mp, ArchetypeMountPoint source_mp) const;
+
+		static void Destruct(Element const& el, void* target) { el.id.wrapper_function(ArchetypeID::Status::Destruction, target, nullptr); }
+		static void Destruct(Element const& el, ArchetypeMountPoint target) { Destruct(el, GetData(el, target)); }
+		void Destruct(std::size_t locate_index, void* target) const { return Destruct(GetInfos(locate_index), target); }
+		void Destruct(ArchetypeMountPoint target) const;
+		Element const* begin() const { return infos.data(); }
+		Element const* end() const { return infos.data() + infos.size(); }
+
+		Element const& GetInfos(std::size_t index) const { assert(index < infos.size()); return infos[index]; }
+
+	protected:
 
 		Archetype(
 			Potato::IR::MemoryResourceRecord record,
