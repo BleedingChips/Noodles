@@ -94,10 +94,10 @@ export namespace Noodles
 		Context& noodles_context;
 	};
 
-	export struct SystemHolder : public Potato::Task::TaskFlowNode, public Potato::Pointer::DefaultIntrusiveInterface
+	export struct SystemHolder : protected Potato::Task::TaskFlowNode, protected Potato::Pointer::DefaultIntrusiveInterface
 	{
 
-		using Ptr = Potato::Pointer::IntrusivePtr<SystemHolder>;
+		using Ptr = Potato::Pointer::IntrusivePtr<SystemHolder, Potato::Task::TaskFlowNode::Wrapper>;
 
 
 		template<typename Func, typename AppendData>
@@ -140,7 +140,8 @@ export namespace Noodles
 		void AddTaskFlowNodeRef() const override { DefaultIntrusiveInterface::AddRef(); }
 		void SubTaskFlowNodeRef() const override { DefaultIntrusiveInterface::SubRef(); }
 
-		friend struct TickSystemsGroup;
+		friend struct Potato::Task::TaskFlowNode::Wrapper;
+		friend struct Context;
 	};
 
 	export struct Context : protected Potato::Task::TaskFlow, protected Potato::Pointer::DefaultIntrusiveInterface
@@ -164,11 +165,9 @@ export namespace Noodles
 		bool CreateTickSystemAuto(std::int32_t layer, Priority priority, Property property,
 			Func&& func, OrderFunction order_func = nullptr, Potato::Task::TaskProperty task_property = {}, std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource());
 
-		
-
 	protected:
 
-		bool RegisterSystem(SystemHolder::Ptr, std::int32_t layer, Priority priority, Property property, OrderFunction func, Potato::Task::TaskProperty task_property) { return false; }
+		bool RegisterSystem(SystemHolder::Ptr, std::int32_t layer, Priority priority, Property property, OrderFunction func, Potato::Task::TaskProperty task_property, ReadWriteMutexGenerator& generator);
 		Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record) noexcept : config(config), name(name), record(record), manager(record.GetResource()){};
 
 		void AddTaskRef() const override;
@@ -191,10 +190,12 @@ export namespace Noodles
 			SystemHolder::Ptr system;
 			Property property;
 			Priority priority;
+			Potato::Misc::IndexSpan<> component_index;
+			Potato::Misc::IndexSpan<> singleton_index;
 			OrderFunction order_function;
-			std::size_t task_flow_index;
 		};
 		std::pmr::vector<SystemTuple> systems;
+		std::pmr::vector<RWUniqueTypeID> rw_unique_id;
 
 
 		std::pmr::synchronized_pool_resource system_resource;
@@ -528,7 +529,7 @@ export namespace Noodles
 		ReadWriteMutexGenerator generator(&temp_resource);
 		auto append = Type::Generate(generator);
 		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), std::move(append), property, name, &system_resource);
-		return RegisterSystem(std::move(ptr), layer, priority, property, order_func, task_property);
+		return RegisterSystem(std::move(ptr), layer, priority, property, order_func, task_property, generator);
 	}
 
 	/*

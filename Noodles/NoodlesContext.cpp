@@ -76,7 +76,7 @@ namespace Noodles
 
 	void SystemHolder::TaskFlowNodeExecute(Potato::Task::TaskFlowStatus& status)
 	{
-		
+		volatile int i = 0;
 	}
 
 	void Context::AddTaskRef() const
@@ -153,6 +153,38 @@ namespace Noodles
 			return;
 		}
 		TaskFlow::CommitDelay(status.context, *start_up_tick_lock + config.min_frame_time, status.task_property);
+	}
+
+	bool Context::RegisterSystem(SystemHolder::Ptr ptr, std::int32_t layer, Priority priority, Property property, OrderFunction func, Potato::Task::TaskProperty task_property, ReadWriteMutexGenerator& generator)
+	{
+		std::lock_guard lg(system_mutex);
+		if(ptr)
+		{
+			auto tptr = Potato::Task::TaskFlowNode::Ptr{ptr.GetPointer()};
+
+			if(AddNode(tptr, task_property))
+			{
+				for (auto& ite : systems)
+				{
+
+				}
+
+				systems.emplace_back(
+					ptr,
+					property,
+					priority,
+					Potato::Misc::IndexSpan<>{},
+					Potato::Misc::IndexSpan<>{},
+					func
+				);
+
+				return true;
+			}
+
+
+			
+		}
+		return false;
 	}
 
 	/*
