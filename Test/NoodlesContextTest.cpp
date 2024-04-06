@@ -63,8 +63,31 @@ void Func3(SystemContext& context, ComponentFilter<A, B> system, ComponentFilter
 }
 */
 
+struct Tuple
+{
+	int i = 0;
+};
+
 int main()
 {
+
+	Context::Config fig;
+	fig.min_frame_time = std::chrono::seconds{ 1 };
+
+	auto context = Context::Create(fig);
+
+	Potato::Task::TaskContext tcontext;
+
+	
+
+	bool re = context->Commit(tcontext, {});
+
+	auto ent = context->CreateEntityDefer(Tuple{1});
+
+
+	tcontext.ProcessTaskUntillNoExitsTask({});
+
+
 	/*
 	//static_assert(IsAcceptableFunctionT<decltype(Func3)>::value, "Func");
 

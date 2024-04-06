@@ -7,6 +7,122 @@ module NoodlesContext;
 namespace Noodles
 {
 
+	bool DetectConflict(std::span<RWUniqueTypeID const> t1, std::span<RWUniqueTypeID const> t2)
+	{
+		auto ite1 = t1.begin();
+		auto ite2 = t2.begin();
+
+		while (ite1 != t1.end() && ite2 != t2.end())
+		{
+			auto re = ite1->type_id <=> ite2->type_id;
+			if (re == std::strong_ordering::equal)
+			{
+				if (
+					ite1->is_write
+					|| ite2->is_write
+					)
+				{
+					return true;
+				}
+				else
+				{
+					++ite2; ++ite1;
+				}
+			}
+			else if (re == std::strong_ordering::less)
+			{
+				++ite1;
+			}
+			else
+			{
+				++ite2;
+			}
+		}
+		return false;
+	}
+
+
+	bool ReadWriteMutex::IsConflict(ReadWriteMutex const& mutex) const
+	{
+		return DetectConflict(components, mutex.components) || DetectConflict(singleton, mutex.singleton);
+	}
+
+	void Context::AddTaskRef() const
+	{
+		DefaultIntrusiveInterface::AddRef();
+	}
+
+	void Context::SubTaskRef() const
+	{
+		DefaultIntrusiveInterface::SubRef();
+	}
+
+	void Context::Release()
+	{
+		auto re = record;
+		this->~Context();
+		re.Deallocate();
+	}
+
+	auto Context::Create(Config config, std::u8string_view name, std::pmr::memory_resource* resource) -> Ptr
+	{
+		auto fix_layout = Potato::IR::Layout::Get<Context>();
+		std::size_t offset = 0;
+		if(!name.empty())
+		{
+			offset = Potato::IR::InsertLayoutCPP(fix_layout, Potato::IR::Layout::GetArray<char8_t>(name.size()));
+			Potato::IR::FixLayoutCPP(fix_layout);
+		}
+
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, fix_layout);
+		if(re)
+		{
+			if(!name.empty())
+			{
+				std::memcpy(re.GetByte() + offset, name.data(), sizeof(char8_t) * name.size());
+				name = std::u8string_view{ reinterpret_cast<char8_t const*>(re.GetByte() + offset), name.size() };
+			}
+			
+			return new (re.Get()) Context{config, name, re};
+		}
+		return {};
+	}
+
+	bool Context::Commit(Potato::Task::TaskContext& context, Potato::Task::TaskProperty property)
+	{
+		TaskFlow::Update(true);
+		return TaskFlow::Commit(context, property);
+	}
+
+	void Context::OnBeginTaskFlow(Potato::Task::ExecuteStatus& status)
+	{
+		std::lock_guard lg(mutex);
+		if(!start_up_tick_lock.has_value())
+		{
+			start_up_tick_lock = std::chrono::steady_clock::now();
+			manager.ForceUpdateState();
+		}else
+		{
+			start_up_tick_lock = std::chrono::steady_clock::now();
+		}
+		std::println("---start");
+	}
+
+	void Context::OnFinishTaskFlow(Potato::Task::ExecuteStatus& status)
+	{
+		TaskFlow::Update(true);
+		manager.ForceUpdateState();
+		
+		std::lock_guard lg(mutex);
+		std::println("---finish");
+		if (require_quit)
+		{
+			require_quit = false;
+			return;
+		}
+		TaskFlow::CommitDelay(status.context, *start_up_tick_lock + config.min_frame_time, status.task_property);
+	}
+
 	/*
 	constexpr std::u8string_view TaskName = u8"Noodles Startup";
 
