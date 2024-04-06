@@ -357,20 +357,7 @@ namespace Noodles
 		return { nullptr, 0 };
 	}
 
-	static Potato::Format::StaticFormatPattern<u8"{}{}{}-[{}]:[{}]"> system_static_format_pattern;
-
-	std::size_t SystemHolder::FormatDisplayNameSize(std::u8string_view prefix, SystemProperty property)
-	{
-		Potato::Format::FormatWritter<char8_t> wri;
-		system_static_format_pattern.Format(wri, property.group_name, property.system_name, prefix, property.group_name, property.system_name);
-		return wri.GetWritedSize();
-	}
-
-	bool SystemHolder::FormatDisplayName(std::span<char8_t> output, std::u8string_view prefix, SystemProperty property)
-	{
-		Potato::Format::FormatWritter<char8_t> wri(output);
-		return system_static_format_pattern.Format(wri, property.group_name, property.system_name, prefix, property.group_name, property.system_name);
-	}
+	
 
 	SystemHolder::SystemHolder(std::span<std::byte> output, std::u8string_view prefix, SystemProperty in_property)
 	{

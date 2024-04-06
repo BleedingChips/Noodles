@@ -3,6 +3,7 @@ module;
 #include <cassert>
 
 module NoodlesContext;
+import PotatoFormat;
 
 namespace Noodles
 {
@@ -45,6 +46,37 @@ namespace Noodles
 	bool ReadWriteMutex::IsConflict(ReadWriteMutex const& mutex) const
 	{
 		return DetectConflict(components, mutex.components) || DetectConflict(singleton, mutex.singleton);
+	}
+
+	static Potato::Format::StaticFormatPattern<u8"{}{}{}-[{}]:[{}]"> system_static_format_pattern;
+
+	std::size_t SystemHolder::FormatDisplayNameSize(std::u8string_view prefix, Property property)
+	{
+		Potato::Format::FormatWritter<char8_t> wri;
+		system_static_format_pattern.Format(wri, property.group, property.name, prefix, property.group, property.name);
+		return wri.GetWritedSize();
+	}
+
+	std::optional<std::tuple<std::u8string_view, Property>> SystemHolder::FormatDisplayName(std::span<char8_t> output, std::u8string_view prefix, Property property)
+	{
+		Potato::Format::FormatWritter<char8_t> wri(output);
+		auto re = system_static_format_pattern.Format(wri, property.group, property.name, prefix, property.group, property.name);
+		if(re)
+		{
+			return std::tuple<std::u8string_view, Property>{
+				std::u8string_view{output.data(), wri.GetWritedSize()}.substr(property.group.size() + property.name.size()),
+				Property{
+					std::u8string_view{output.data() + property.group.size(), property.name.size()},
+					std::u8string_view{output.data(), property.group.size()},
+				}
+			};
+		}
+		return std::nullopt;
+	}
+
+	void SystemHolder::TaskFlowNodeExecute(Potato::Task::TaskFlowStatus& status)
+	{
+		
 	}
 
 	void Context::AddTaskRef() const
