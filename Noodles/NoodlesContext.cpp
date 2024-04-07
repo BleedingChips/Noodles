@@ -42,10 +42,63 @@ namespace Noodles
 		return false;
 	}
 
-
 	bool ReadWriteMutex::IsConflict(ReadWriteMutex const& mutex) const
 	{
 		return DetectConflict(components, mutex.components) || DetectConflict(singleton, mutex.singleton);
+	}
+
+	void ReadWriteMutexGenerator::RegisterComponentMutex(std::span<RWUniqueTypeID const> ifs)
+	{
+		for(auto& ite : ifs)
+		{
+			auto spn = std::span(unique_ids).subspan(0, component_count);
+			bool Find = false;
+			for(auto& ite2 : spn)
+			{
+				if(ite.type_id == ite2.type_id)
+				{
+					ite2.is_write = ite2.is_write || ite.is_write;
+					Find = true;
+					break;
+				}
+			}
+			if(!Find)
+			{
+				unique_ids.insert(unique_ids.begin() + component_count, ite);
+				++component_count;
+			}
+		}
+	}
+
+	void ReadWriteMutexGenerator::RegisterSingletonMutex(std::span<RWUniqueTypeID const> ifs)
+	{
+		for (auto& ite : ifs)
+		{
+			auto spn = std::span(unique_ids).subspan(component_count);
+			bool Find = false;
+			for (auto& ite2 : spn)
+			{
+				if (ite.type_id == ite2.type_id)
+				{
+					ite2.is_write = ite2.is_write || ite.is_write;
+					Find = true;
+					break;
+				}
+			}
+			if (!Find)
+			{
+				unique_ids.emplace_back(ite);
+			}
+		}
+	}
+
+	ReadWriteMutex ReadWriteMutexGenerator::GetMutex() const
+	{
+		return ReadWriteMutex{
+			std::span(unique_ids).subspan(0, component_count),
+			std::span(unique_ids).subspan(component_count),
+			system_id
+		};
 	}
 
 	static Potato::Format::StaticFormatPattern<u8"{}{}{}-[{}]:[{}]"> system_static_format_pattern;
@@ -76,7 +129,12 @@ namespace Noodles
 
 	void SystemHolder::TaskFlowNodeExecute(Potato::Task::TaskFlowStatus& status)
 	{
-		volatile int i = 0;
+		ExecuteContext context
+		{
+			status.context,
+			static_cast<Context&>(status.owner)
+		};
+		SystemExecute(context);
 	}
 
 	void Context::AddTaskRef() const
@@ -123,7 +181,7 @@ namespace Noodles
 	bool Context::Commit(Potato::Task::TaskContext& context, Potato::Task::TaskProperty property)
 	{
 		TaskFlow::Update(true);
-		return TaskFlow::Commit(context, property);
+		return TaskFlow::Commit(context, property, name);
 	}
 
 	void Context::OnBeginTaskFlow(Potato::Task::ExecuteStatus& status)
@@ -152,29 +210,87 @@ namespace Noodles
 			require_quit = false;
 			return;
 		}
-		TaskFlow::CommitDelay(status.context, *start_up_tick_lock + config.min_frame_time, status.task_property);
+		TaskFlow::CommitDelay(status.context, *start_up_tick_lock + config.min_frame_time, status.task_property, name);
 	}
 
-	bool Context::RegisterSystem(SystemHolder::Ptr ptr, std::int32_t layer, Priority priority, Property property, OrderFunction func, Potato::Task::TaskProperty task_property, ReadWriteMutexGenerator& generator)
+	bool Context::RegisterSystem(SystemHolder::Ptr ptr, Priority priority, Property property, OrderFunction func, Potato::Task::TaskProperty task_property, ReadWriteMutexGenerator& generator)
 	{
 		std::lock_guard lg(system_mutex);
 		if(ptr)
 		{
+
 			auto tptr = Potato::Task::TaskFlowNode::Ptr{ptr.GetPointer()};
 
-			if(AddNode(tptr, task_property))
+			if(AddNode(tptr, task_property, ptr->GetDisplayName()))
 			{
+				auto mutex = generator.GetMutex();
+
+				for(auto& ite : systems)
+				{
+					if(ite.priority.layout == priority.layout)
+					{
+						ReadWriteMutex ite_mutex{
+						ite.component_index.Slice(std::span(rw_unique_id)),
+						ite.singleton_index.Slice(std::span(rw_unique_id)),
+							generator.system_id
+						};
+						if(mutex.IsConflict(ite_mutex))
+						{
+							auto re3 = (ite.order_function == nullptr) ?
+								std::partial_ordering::unordered
+								: (*ite.order_function)(ite.property, property);
+							auto re4 = (func == nullptr) ?
+								std::partial_ordering::unordered
+								: (*func)(ite.property, property);
+							std::partial_ordering fre = std::partial_ordering::unordered;
+							if (re3 == re4)
+								fre = re3;
+							else if (re3 == std::partial_ordering::unordered || re3 == std::partial_ordering::equivalent)
+								fre = re4;
+							else if (re4 == std::partial_ordering::unordered || re4 == std::partial_ordering::equivalent)
+								fre = re3;
+							else
+							{
+								Remove(tptr);
+								return false;
+							}
+						}
+					}
+				}
+
 				for (auto& ite : systems)
 				{
-
+					auto re = ite.priority.layout <=> priority.layout;
+					switch(re)
+					{
+					case std::strong_ordering::less:
+						AddDirectEdges(ite.system, tptr);
+						break;
+					case std::strong_ordering::greater:
+						AddDirectEdges(tptr, ite.system);
+						break;
+					default:
+						{
+							ReadWriteMutex new_mutex{
+						comp_index.Slice(std::span(rw_unique_id)),
+						singleton_index.Slice(std::span(rw_unique_id)),
+								generator.system_id
+							};
+							if(new_mutex.IsConflict(mutex))
+							{
+								
+							}
+							break;
+						}
+					}
 				}
 
 				systems.emplace_back(
 					ptr,
 					property,
 					priority,
-					Potato::Misc::IndexSpan<>{},
-					Potato::Misc::IndexSpan<>{},
+					comp_index,
+					singleton_index,
 					func
 				);
 

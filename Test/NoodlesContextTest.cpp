@@ -84,7 +84,11 @@ int main()
 
 	auto ent = context->CreateEntityDefer(Tuple{1});
 
-	context->CreateTickSystemAuto(0, {}, {}, [](std::size_t i) {});
+	context->CreateTickSystemAuto(0, {}, {}, [](ExecuteContext& context, std::size_t i)
+	{
+
+			volatile int i22 = 0;
+	});
 
 
 	tcontext.ProcessTaskUntillNoExitsTask({});

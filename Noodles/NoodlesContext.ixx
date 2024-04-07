@@ -37,9 +37,10 @@ export namespace Noodles
 
 	struct Priority
 	{
+		std::int32_t layout = 0;
 		std::int32_t primary = 0;
 		std::int32_t second = 0;
-		std::strong_ordering operator<=>(const Priority&) const = default;
+		std::strong_ordering operator<=>(Priority const&) const = default;
 		bool operator==(const Priority&) const = default;
 	};
 
@@ -52,8 +53,8 @@ export namespace Noodles
 
 	struct ReadWriteMutex
 	{
-		std::span<RWUniqueTypeID> components;
-		std::span<RWUniqueTypeID> singleton;
+		std::span<RWUniqueTypeID const> components;
+		std::span<RWUniqueTypeID const> singleton;
 		std::optional<UniqueTypeID> system;
 
 		bool IsConflict(ReadWriteMutex const& mutex) const;
@@ -68,19 +69,14 @@ export namespace Noodles
 		void RegisterSingletonMutex(std::span<RWUniqueTypeID const> ifs);
 		void SetSystemRWUniqueID();
 		std::tuple<std::size_t, std::size_t> CalculateUniqueIDCount() const;
+		ReadWriteMutex GetMutex() const;
 
 	protected:
 
-		ReadWriteMutexGenerator(std::pmr::memory_resource* template_resource) { }
+		ReadWriteMutexGenerator(std::pmr::memory_resource* template_resource) : unique_ids(template_resource){ }
 
-
-		struct Tuple
-		{
-			RWUniqueTypeID unique_id;
-			bool is_component = false;
-		};
-
-		std::pmr::vector<Tuple> unique_ids;
+		std::pmr::vector<RWUniqueTypeID> unique_ids;
+		std::size_t component_count = 0;
 		std::optional<UniqueTypeID> system_id;
 
 		friend struct Context;
@@ -162,12 +158,12 @@ export namespace Noodles
 		bool Commit(Potato::Task::TaskContext& context, Potato::Task::TaskProperty property);
 
 		template<typename Func>
-		bool CreateTickSystemAuto(std::int32_t layer, Priority priority, Property property,
+		bool CreateTickSystemAuto(Priority priority, Property property,
 			Func&& func, OrderFunction order_func = nullptr, Potato::Task::TaskProperty task_property = {}, std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource());
 
 	protected:
 
-		bool RegisterSystem(SystemHolder::Ptr, std::int32_t layer, Priority priority, Property property, OrderFunction func, Potato::Task::TaskProperty task_property, ReadWriteMutexGenerator& generator);
+		bool RegisterSystem(SystemHolder::Ptr, Priority priority, Property property, OrderFunction func, Potato::Task::TaskProperty task_property, ReadWriteMutexGenerator& generator);
 		Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record) noexcept : config(config), name(name), record(record), manager(record.GetResource()){};
 
 		void AddTaskRef() const override;
@@ -201,6 +197,7 @@ export namespace Noodles
 		std::pmr::synchronized_pool_resource system_resource;
 
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
+		friend struct SystemHolder;
 	};
 
 	template<typename ...ComponentT>
@@ -338,7 +335,7 @@ export namespace Noodles
 		template<typename ParT>
 		struct ExtractAppendDataForParameter
 		{
-			using Type = std::conditional_t<std::is_same_v<ParT, ExecuteContext&>, Holder, ParT>;
+			using Type = std::conditional_t<std::is_same_v<std::remove_cvref_t<ParT>, ExecuteContext>, Holder, ParT>;
 			static Type Generate(ReadWriteMutexGenerator& Generator) { return {}; }
 			template<typename ParT2>
 				requires(std::is_same_v<Type, Holder>)
@@ -521,7 +518,7 @@ export namespace Noodles
 	}
 
 	export template<typename Func>
-	bool Context::CreateTickSystemAuto(std::int32_t layer, Priority priority, Property property,
+	bool Context::CreateTickSystemAuto(Priority priority, Property property,
 		Func&& func, OrderFunction order_func, Potato::Task::TaskProperty task_property, std::pmr::memory_resource* temporary_resource)
 	{
 		using Type = SystemAutomatic::ExtractTickSystem<Func>;
@@ -529,7 +526,7 @@ export namespace Noodles
 		ReadWriteMutexGenerator generator(&temp_resource);
 		auto append = Type::Generate(generator);
 		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), std::move(append), property, name, &system_resource);
-		return RegisterSystem(std::move(ptr), layer, priority, property, order_func, task_property, generator);
+		return RegisterSystem(std::move(ptr), priority, property, order_func, task_property, generator);
 	}
 
 	/*
