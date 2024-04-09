@@ -219,7 +219,7 @@ namespace Noodles
 		if(ptr)
 		{
 
-			auto tptr = Potato::Task::TaskFlowNode::Ptr{ptr.GetPointer()};
+			Potato::Task::TaskFlowNode::Ptr tptr = ptr.GetPointer();
 
 			if(AddNode(tptr, task_property, ptr->GetDisplayName()))
 			{
@@ -227,70 +227,72 @@ namespace Noodles
 
 				for(auto& ite : systems)
 				{
-					if(ite.priority.layout == priority.layout)
+					auto re = ite.priority <=> priority;
+					bool is_conflict = false;
+
+					if (ite.priority.layout != priority.layout)
+					{
+						is_conflict = true;
+					}
+					else 
 					{
 						ReadWriteMutex ite_mutex{
 						ite.component_index.Slice(std::span(rw_unique_id)),
 						ite.singleton_index.Slice(std::span(rw_unique_id)),
 							generator.system_id
 						};
-						if(mutex.IsConflict(ite_mutex))
+						is_conflict = ite_mutex.IsConflict(mutex);
+						if(is_conflict && re == std::strong_ordering::equal)
 						{
-							auto re3 = (ite.order_function == nullptr) ?
-								std::partial_ordering::unordered
-								: (*ite.order_function)(ite.property, property);
-							auto re4 = (func == nullptr) ?
-								std::partial_ordering::unordered
-								: (*func)(ite.property, property);
-							std::partial_ordering fre = std::partial_ordering::unordered;
-							if (re3 == re4)
-								fre = re3;
-							else if (re3 == std::partial_ordering::unordered || re3 == std::partial_ordering::equivalent)
-								fre = re4;
-							else if (re4 == std::partial_ordering::unordered || re4 == std::partial_ordering::equivalent)
-								fre = re3;
+							auto p1 = (ite.order_function == nullptr) ?
+								std::partial_ordering::unordered : ite.order_function(ite.property, property);
+							auto p2 = (func == nullptr) ?
+								std::partial_ordering::unordered : func(ite.property, property);
+							auto p3 = std::partial_ordering::unordered;
+							if (p1 == p2)
+								p3 = p1;
+							else if (p1 == std::partial_ordering::unordered || p1 == std::partial_ordering::equivalent)
+								p3 = p2;
+							else if (p2 == std::partial_ordering::unordered || p2 == std::partial_ordering::equivalent)
+								p3 = p1;
 							else
 							{
 								Remove(tptr);
 								return false;
 							}
+							if (p3 == std::partial_ordering::less)
+								re = std::strong_ordering::less;
+							else if(p3 == std::partial_ordering::greater)
+								re = std::strong_ordering::greater;
 						}
+					}
+
+					if(is_conflict)
+					{
+						Potato::Task::TaskFlowNode::Ptr tptr2{ite.system.GetPointer()};
+						if (re == std::strong_ordering::less)
+							AddDirectEdges(std::move(tptr2), tptr);
+						else if (re == std::strong_ordering::greater)
+							AddDirectEdges(tptr, std::move(tptr2));
+						else
+							AddMutexEdges(tptr, std::move(tptr2));
 					}
 				}
 
-				for (auto& ite : systems)
-				{
-					auto re = ite.priority.layout <=> priority.layout;
-					switch(re)
-					{
-					case std::strong_ordering::less:
-						AddDirectEdges(ite.system, tptr);
-						break;
-					case std::strong_ordering::greater:
-						AddDirectEdges(tptr, ite.system);
-						break;
-					default:
-						{
-							ReadWriteMutex new_mutex{
-						comp_index.Slice(std::span(rw_unique_id)),
-						singleton_index.Slice(std::span(rw_unique_id)),
-								generator.system_id
-							};
-							if(new_mutex.IsConflict(mutex))
-							{
-								
-							}
-							break;
-						}
-					}
-				}
+				auto osize = rw_unique_id.size();
+				rw_unique_id.insert(rw_unique_id.end(), mutex.components.begin(), mutex.components.end());
+				Potato::Misc::IndexSpan<> comp_ind{osize, rw_unique_id.size()};
+				osize = rw_unique_id.size();
+				rw_unique_id.insert(rw_unique_id.end(), mutex.singleton.begin(), mutex.singleton.end());
+				Potato::Misc::IndexSpan<> single_ind{ osize, rw_unique_id.size() };
 
 				systems.emplace_back(
 					ptr,
 					property,
 					priority,
-					comp_index,
-					singleton_index,
+					comp_ind,
+					single_ind,
+					mutex.system,
 					func
 				);
 

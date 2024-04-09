@@ -29,7 +29,7 @@ export namespace Noodles
 		static RWUniqueTypeID Create()
 		{
 			return RWUniqueTypeID{
-				!std::is_const_v<Type>,
+				std::is_lvalue_reference_v<Type>,
 				UniqueTypeID::Create<std::remove_cvref_t<Type>>()
 			};
 		}
@@ -55,7 +55,7 @@ export namespace Noodles
 	{
 		std::span<RWUniqueTypeID const> components;
 		std::span<RWUniqueTypeID const> singleton;
-		std::optional<UniqueTypeID> system;
+		std::optional<RWUniqueTypeID> system;
 
 		bool IsConflict(ReadWriteMutex const& mutex) const;
 	};
@@ -77,7 +77,7 @@ export namespace Noodles
 
 		std::pmr::vector<RWUniqueTypeID> unique_ids;
 		std::size_t component_count = 0;
-		std::optional<UniqueTypeID> system_id;
+		std::optional<RWUniqueTypeID> system_id;
 
 		friend struct Context;
 	};
@@ -106,10 +106,10 @@ export namespace Noodles
 		)
 			-> Ptr;
 
-		template<typename Func, typename AppendData>
+		template<typename Func>
 		static auto CreateAuto(
 			Func&& func,
-			AppendData&& append_data,
+			ReadWriteMutexGenerator& generator,
 			Property property,
 			std::u8string_view display_prefix,
 			std::pmr::memory_resource* resource
@@ -129,6 +129,8 @@ export namespace Noodles
 			: property(property), display_name(display_name) {}
 
 	protected:
+
+		operator Potato::Task::TaskFlowNode::Ptr() { return this; }
 
 		Property property;
 		std::u8string_view display_name;
@@ -188,6 +190,7 @@ export namespace Noodles
 			Priority priority;
 			Potato::Misc::IndexSpan<> component_index;
 			Potato::Misc::IndexSpan<> singleton_index;
+			std::optional<RWUniqueTypeID> system_infos;
 			OrderFunction order_function;
 		};
 		std::pmr::vector<SystemTuple> systems;
@@ -201,13 +204,53 @@ export namespace Noodles
 	};
 
 	template<typename ...ComponentT>
-	struct ComponentFilter : protected ComponentFilterInterface, protected Potato::Pointer::DefaultIntrusiveInterface
+	struct ComponentFilter
 	{
 
 		static_assert(!Potato::TMP::IsRepeat<ComponentT...>::Value);
 
+		/*
+		struct Wrapper : public ComponentFilterInterface, public Potato::Pointer::DefaultIntrusiveInterface
+		{
+			using Ptr = Potato::Pointer::IntrusivePtr<Wrapper, FilterInterface::Wrapper>;
 
-		static void RegisterComponentMutex(ReadWriteMutexGenerator& Generator)
+
+			Potato::IR::MemoryResourceRecord record;
+
+			Wrapper(Potato::IR::MemoryResourceRecord record) : record(record) {};
+
+			virtual void AddFilterRef() const override { return DefaultIntrusiveInterface::AddRef(); }
+			virtual void SubFilterRef() const override { return DefaultIntrusiveInterface::SubRef(); }
+			virtual void Release() override
+			{
+				auto re = record;
+				this->~Wrapper();
+				re.Deallocate();
+			}
+
+			virtual std::span<UniqueTypeID const> GetArchetypeIndex() const override
+			{
+				static std::array<UniqueTypeID, sizeof...(ComponentT)> temp_buffer = {
+					UniqueTypeID::Create<ComponentT>()...
+				};
+				return std::span(temp_buffer);
+			}
+		};
+		
+
+		static Wrapper::Ptr Generate(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* system_resource)
+		{
+			auto re = Potato::IR::MemoryResourceRecord::Allocate<Wrapper>(system_resource);
+			if(re)
+			{
+				auto ptr = new (re.Get()) Wrapper{re};
+				return ptr;
+			}
+			return {};
+		}
+		*/
+		
+		ComponentFilter(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* resource)
 		{
 			static std::array<RWUniqueTypeID, sizeof...(ComponentT)> temp_buffer = {
 				RWUniqueTypeID::Create<ComponentT>()...
@@ -215,33 +258,10 @@ export namespace Noodles
 
 			Generator.RegisterComponentMutex(std::span(temp_buffer));
 		}
-
-		virtual std::span<UniqueTypeID const> GetArchetypeIndex() const override
-		{
-			static std::array<UniqueTypeID, sizeof...(ComponentT)> temp_buffer = {
-				UniqueTypeID::Create<ComponentT>()...
-			};
-			return std::span(temp_buffer);
-		}
-
-		ComponentFilter(ComponentFilter const&) = default;
-		ComponentFilter(ComponentFilter&&) = default;
-		ComponentFilter() = default;
-
 	protected:
 
-		ComponentFilter(Potato::IR::MemoryResourceRecord record) : ComponentFilterInterface(record.GetResource()), record(record) {}
-
-		Potato::IR::MemoryResourceRecord record;
-
-		virtual void AddFilterRef() const { return DefaultIntrusiveInterface::AddRef(); }
-		virtual void SubFilterRef() const { return DefaultIntrusiveInterface::SubRef(); }
-		virtual void Release() override
-		{
-			auto re = record;
-			this->~ComponentFilter();
-			re.Deallocate();
-		}
+		//virtual void AddFilterRef() const override { }
+		//virtual void SubFilterRef() const override { }
 
 		friend struct Context;
 	};
@@ -320,23 +340,78 @@ export namespace Noodles
 	}
 	*/
 
-	template<typename ParT>
-	concept DetectSystemHasGenerateFilter = requires(ParT)
+
+	template<typename Type>
+	concept IsExecuteContext = std::is_same_v<std::remove_cvref_t<Type>, ExecuteContext>;
+
+	template<typename Type>
+	concept EnableParameterInit = requires(Type type)
 	{
-		{ ParT::GenerateFilter(std::declval<ReadWriteMutexGenerator&>()) };
-		!std::is_same_v<decltype(ParT::GenerateFilter(std::declval<ReadWriteMutexGenerator&>())), void>;
+		{ type.ParameterInit(std::declval<SystemHolder&>(), std::declval<Context&>()) };
 	};
 
+	template<typename Type>
+	concept EnableParameterRelease = requires(Type type)
+	{
+		{ type.ParameterRelease(std::declval<SystemHolder&>(), std::declval<Context&>()) };
+	};
+
+	
+
+	
 	struct SystemAutomatic
 	{
 
-		struct Holder {};
+		template<typename Type>
+		struct ParameterHolder
+		{
+			using RealType = std::conditional_t<
+				std::is_same_v<std::remove_cvref_t<Type>, ExecuteContext>,
+				Potato::TMP::ItSelf<void>,
+				std::remove_cvref_t<Type>
+			>;
 
+			RealType data;
+
+			ParameterHolder(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* system_resource)
+				requires(std::is_constructible_v<RealType, ReadWriteMutexGenerator&, std::pmr::memory_resource*>)
+			: data(Generator, system_resource) {}
+
+			ParameterHolder(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* system_resource)
+				requires(!std::is_constructible_v<RealType, ReadWriteMutexGenerator&, std::pmr::memory_resource*>)
+			{}
+
+			void ParameterInit(SystemHolder& owner, Context& context)
+			{
+				if constexpr (EnableParameterInit<RealType>)
+				{
+					data.ParameterInit(owner, context);
+				}
+			}
+
+			void ParameterRelease(SystemHolder& owner, Context& context)
+			{
+				if constexpr (EnableParameterRelease<RealType>)
+				{
+					data.ParameterRelease(owner, context);
+				}
+			}
+
+			decltype(auto) Translate(ExecuteContext& context)
+			{
+				if constexpr (IsExecuteContext<Type>)
+					return context;
+				else
+					return std::ref(data);
+			}
+		};
+
+		/*
 		template<typename ParT>
 		struct ExtractAppendDataForParameter
 		{
 			using Type = std::conditional_t<std::is_same_v<std::remove_cvref_t<ParT>, ExecuteContext>, Holder, ParT>;
-			static Type Generate(ReadWriteMutexGenerator& Generator) { return {}; }
+			static Type Generate(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* resource) { return {}; }
 			template<typename ParT2>
 				requires(std::is_same_v<Type, Holder>)
 			static decltype(auto) Translate(ExecuteContext& context, ParT2&& par2) { return context; }
@@ -350,26 +425,41 @@ export namespace Noodles
 		struct ExtractAppendDataForParameter<ParT>
 		{
 			using Type = decltype(ParT::GenerateFilter(std::declval<ExecuteContext&>()));
-			static Type Generate(ExecuteContext& Generator) { return ParT::GenerateFilter(Generator); }
+			static Type Generate(ExecuteContext& Generator, std::pmr::memory_resource* resource) { return ParT::GenerateFilter(Generator, resource); }
 			template<typename ParT2>
 			static decltype(auto) Translate(ExecuteContext& context, ParT2&& par2) { return par2; }
+		};
+		*/
+
+		template<typename ...AT>
+		struct ParameterHolders;
+
+		template<typename Cur, typename ...AT>
+		struct ParameterHolders<Cur, AT...>
+		{
+			ParameterHolder<Cur> cur_holder;
+			ParameterHolders<AT...> other_holders;
+
+			ParameterHolders(ReadWriteMutexGenerator& generator, std::pmr::memory_resource* resource)
+				: cur_holder(generator, resource), other_holders(generator, resource)
+			{
+			}
+
+			decltype(auto) Get(std::integral_constant<std::size_t, 0>, ExecuteContext& context) { return cur_holder.Translate(context);  }
+			template<std::size_t i>
+			decltype(auto) Get(std::integral_constant<std::size_t, i>, ExecuteContext& context) { return other_holders.Get(std::integral_constant<std::size_t, i - 1>{}, context); }
+		};
+
+		template<>
+		struct ParameterHolders<>
+		{
+			ParameterHolders(ReadWriteMutexGenerator& generator, std::pmr::memory_resource* resource){}
 		};
 
 		template<typename ...ParT>
 		struct ExtractAppendDataForParameters
 		{
-
-			using Type = std::tuple<
-				typename ExtractAppendDataForParameter<std::remove_cvref_t<ParT>>::Type...
-			>;
-
-			static Type Construct(ReadWriteMutexGenerator& generator)
-			{
-				return Type{
-					ExtractAppendDataForParameter<std::remove_cvref_t<ParT>>::Generate(generator)...
-				};
-			}
-
+			using Type = ParameterHolders<ParT...>;
 			using Index = std::make_index_sequence<sizeof...(ParT)>;
 		};
 
@@ -380,17 +470,19 @@ export namespace Noodles
 
 			using AppendDataT = typename Extract::Type;
 
-			static AppendDataT Generate(ReadWriteMutexGenerator& generator) { return Extract::Construct(generator); }
+			//static AppendDataT Generate(ReadWriteMutexGenerator& generator) { return Extract::Construct(generator); }
 			static auto Execute(ExecuteContext& context, AppendDataT& append_data, Func& func)
 			{
-				return std::apply([&](auto&& ...par)
-					{
-						func(
-							ExtractAppendDataForParameter<std::remove_cvref_t<decltype(par)>>::Translate(context, par)...
-						);
-					}, append_data);
+				return Execute(context, append_data, func, typename Extract::Index{});
+			}
+
+			template<std::size_t ...i>
+			static auto Execute(ExecuteContext& context, AppendDataT& append_data, Func& func, std::index_sequence<i...>)
+			{
+				return func(append_data.Get(std::integral_constant<std::size_t, i>{}, context)...);
 			}
 		};
+		
 
 		/*
 		template<std::size_t i>
@@ -446,8 +538,8 @@ export namespace Noodles
 
 		Potato::IR::MemoryResourceRecord record;
 
-		DynamicAutoSystemHolder(Automatic::AppendDataT&& append_data, Func&& fun, std::u8string_view display_name, Property in_property, Potato::IR::MemoryResourceRecord record)
-			: SystemHolder(in_property, display_name), append_data(std::move(append_data)), fun(std::move(fun)), record(record)
+		DynamicAutoSystemHolder(ReadWriteMutexGenerator& generator, Func&& fun, std::u8string_view display_name, Property in_property, Potato::IR::MemoryResourceRecord record)
+			: SystemHolder(in_property, display_name), append_data(generator, record.GetResource()), fun(std::move(fun)), record(record)
 		{}
 
 		virtual void SystemExecute(ExecuteContext& context) override
@@ -466,10 +558,10 @@ export namespace Noodles
 		//virtual void SubTaskFlowNodeRef() const override { DefaultIntrusiveInterface::SubRef(); }
 	};
 
-	template<typename Func, typename AppendData>
+	template<typename Func>
 	auto SystemHolder::CreateAuto(
 		Func&& func,
-		AppendData&& append_data,
+		ReadWriteMutexGenerator& generator,
 		Property property,
 		std::u8string_view display_prefix,
 		std::pmr::memory_resource* resource
@@ -506,7 +598,7 @@ export namespace Noodles
 				}
 			}
 			Type* ptr = new (re.Get()) Type(
-				std::forward<AppendData>(append_data),
+				generator,
 				std::forward<Func>(func),
 				dis,
 				property,
@@ -521,11 +613,10 @@ export namespace Noodles
 	bool Context::CreateTickSystemAuto(Priority priority, Property property,
 		Func&& func, OrderFunction order_func, Potato::Task::TaskProperty task_property, std::pmr::memory_resource* temporary_resource)
 	{
-		using Type = SystemAutomatic::ExtractTickSystem<Func>;
+		//using Type = SystemAutomatic::ExtractTickSystem<Func>;
 		std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
 		ReadWriteMutexGenerator generator(&temp_resource);
-		auto append = Type::Generate(generator);
-		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), std::move(append), property, name, &system_resource);
+		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), generator, property, name, &system_resource);
 		return RegisterSystem(std::move(ptr), priority, property, order_func, task_property, generator);
 	}
 
