@@ -347,7 +347,7 @@ export namespace Noodles
 		std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::span<std::size_t>> ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const;
 
 		template<typename SingType, typename ...OT>
-		SingType* CreateSingletonType(OT&& ...ot)
+		SingType* CreateSingletonTypeWithMemoryResource(std::pmr::memory_resource* singleton_resource, OT&& ...ot)
 		{
 			using Type = SingletonType<std::remove_cvref_t<SingType>>;
 
@@ -377,6 +377,12 @@ export namespace Noodles
 				}
 			}
 			return nullptr;
+		}
+
+		template<typename SingType, typename ...OT>
+		SingType* CreateSingletonType(OT&& ...ot)
+		{
+			return CreateSingletonTypeWithMemoryResource<SingType>(std::pmr::get_default_resource(), std::forward<OT>(ot)...);
 		}
 
 		bool ReleaseEntity(Entity::Ptr entity);
@@ -424,7 +430,6 @@ export namespace Noodles
 		mutable std::mutex singletons_mutex;
 		std::pmr::vector<SingletonElement> singletons;
 		std::optional<std::size_t> update_index;
-		std::pmr::synchronized_pool_resource singleton_resource;
 
 		ArchetypeMountPoint AllocateAndConstructMountPoint(Element& tar, ArchetypeMountPoint mp);
 		void CopyMountPointFormLast(Element& tar, ArchetypeMountPoint mp);

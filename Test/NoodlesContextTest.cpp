@@ -78,18 +78,27 @@ int main()
 
 	Potato::Task::TaskContext tcontext;
 
-	
-
-	bool re = context->Commit(tcontext, {});
-
 	auto ent = context->CreateEntityDefer(Tuple{1});
 
-	context->CreateTickSystemAuto( {}, {}, [](ExecuteContext& context,  ComponentFilter<Tuple>& p,    std::size_t i)
+	context->CreateTickSystemAuto( {0, 0, 1}, {
+		u8"wtf1"
+	}, [](ExecuteContext& context,  ComponentFilter<Tuple&>& p,    std::size_t i)
 	{
+			std::println("wtf1");
 			volatile int i22 = 0;
 	});
 
+	context->CreateTickSystemAuto({0, 0, 3}, {
+		u8"wtf2"
+		}, [](ExecuteContext& context, ComponentFilter<Tuple&>& p, std::size_t i)
+		{
+			std::println("wtf2");
+			volatile int i22 = 0;
+		});
 
+	context->FlushStats();
+
+	bool re = context->Commit(tcontext, {});
 	tcontext.ProcessTaskUntillNoExitsTask({});
 
 

@@ -95,29 +95,18 @@ export namespace Noodles
 
 		using Ptr = Potato::Pointer::IntrusivePtr<SystemHolder, Potato::Task::TaskFlowNode::Wrapper>;
 
-
-		template<typename Func, typename AppendData>
-		static auto Create(
-			Func&& func,
-			AppendData&& append_data,
-			Property property,
-			std::u8string_view display_prefix,
-			std::pmr::memory_resource* resource
-		)
-			-> Ptr;
-
 		template<typename Func>
 		static auto CreateAuto(
 			Func&& func,
 			ReadWriteMutexGenerator& generator,
 			Property property,
 			std::u8string_view display_prefix,
-			std::pmr::memory_resource* resource
+			std::pmr::memory_resource* resource,
+			std::pmr::memory_resource* parameter_resource
 		)
 			-> Ptr;
 
-		virtual void TaskFlowNodeExecute(Potato::Task::TaskFlowStatus& status) override final;
-		virtual void SystemExecute(ExecuteContext& context) = 0;
+		
 
 		std::u8string_view GetDisplayName() const { return display_name; }
 		Property GetProperty() const { return property; };
@@ -125,10 +114,16 @@ export namespace Noodles
 		static std::size_t FormatDisplayNameSize(std::u8string_view prefix, Property property);
 		static std::optional<std::tuple<std::u8string_view, Property>> FormatDisplayName(std::span<char8_t> output, std::u8string_view prefix, Property property);
 
+	protected:
+
 		SystemHolder(Property property, std::u8string_view display_name)
 			: property(property), display_name(display_name) {}
 
-	protected:
+		virtual void TaskFlowNodeExecute(Potato::Task::TaskFlowStatus& status) override final;
+		virtual void SystemExecute(ExecuteContext& context) = 0;
+
+		virtual void SystemInit(Context& context) {}
+		virtual void SystemRelease(Context& context) {}
 
 		operator Potato::Task::TaskFlowNode::Ptr() { return this; }
 
@@ -161,7 +156,23 @@ export namespace Noodles
 
 		template<typename Func>
 		bool CreateTickSystemAuto(Priority priority, Property property,
-			Func&& func, OrderFunction order_func = nullptr, Potato::Task::TaskProperty task_property = {}, std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource());
+			Func&& func, OrderFunction order_func = nullptr, Potato::Task::TaskProperty task_property = {}, 
+				std::pmr::memory_resource* system_resource = std::pmr::get_default_resource(),
+				std::pmr::memory_resource* parameter_resource = std::pmr::get_default_resource(),
+				std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource()
+		);
+
+		bool RegisterFilter(ComponentFilterInterface::Ptr interface, SystemHolder& owner)
+		{
+			return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner));
+		}
+
+		bool UnRegisterFilter(SystemHolder& owner)
+		{
+			return manager.ReleaseFilter(reinterpret_cast<std::size_t>(&owner));
+		}
+
+		void FlushStats();
 
 	protected:
 
@@ -179,7 +190,7 @@ export namespace Noodles
 		std::mutex mutex;
 		Config config;
 		bool require_quit = false;
-		std::optional<std::chrono::steady_clock::time_point> start_up_tick_lock;
+		std::chrono::steady_clock::time_point start_up_tick_lock;
 		ArchetypeComponentManager manager;
 
 		std::mutex system_mutex;
@@ -193,62 +204,32 @@ export namespace Noodles
 			std::optional<RWUniqueTypeID> system_infos;
 			OrderFunction order_function;
 		};
+
 		std::pmr::vector<SystemTuple> systems;
 		std::pmr::vector<RWUniqueTypeID> rw_unique_id;
-
-
-		std::pmr::synchronized_pool_resource system_resource;
 
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 		friend struct SystemHolder;
 	};
 
 	template<typename ...ComponentT>
-	struct ComponentFilter
+	struct ComponentFilter : protected ComponentFilterInterface
 	{
 
 		static_assert(!Potato::TMP::IsRepeat<ComponentT...>::Value);
 
-		/*
-		struct Wrapper : public ComponentFilterInterface, public Potato::Pointer::DefaultIntrusiveInterface
+		virtual std::span<UniqueTypeID const> GetArchetypeIndex() const override
 		{
-			using Ptr = Potato::Pointer::IntrusivePtr<Wrapper, FilterInterface::Wrapper>;
-
-
-			Potato::IR::MemoryResourceRecord record;
-
-			Wrapper(Potato::IR::MemoryResourceRecord record) : record(record) {};
-
-			virtual void AddFilterRef() const override { return DefaultIntrusiveInterface::AddRef(); }
-			virtual void SubFilterRef() const override { return DefaultIntrusiveInterface::SubRef(); }
-			virtual void Release() override
-			{
-				auto re = record;
-				this->~Wrapper();
-				re.Deallocate();
-			}
-
-			virtual std::span<UniqueTypeID const> GetArchetypeIndex() const override
-			{
-				static std::array<UniqueTypeID, sizeof...(ComponentT)> temp_buffer = {
-					UniqueTypeID::Create<ComponentT>()...
-				};
-				return std::span(temp_buffer);
-			}
-		};
-		
-
-		static Wrapper::Ptr Generate(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* system_resource)
-		{
-			auto re = Potato::IR::MemoryResourceRecord::Allocate<Wrapper>(system_resource);
-			if(re)
-			{
-				auto ptr = new (re.Get()) Wrapper{re};
-				return ptr;
-			}
-			return {};
+			static std::array<UniqueTypeID, sizeof...(ComponentT)> temp_buffer = {
+				UniqueTypeID::Create<ComponentT>()...
+			};
+			return std::span(temp_buffer);
 		}
-		*/
+
+		void ParameterInit(SystemHolder& owner, Context& context)
+		{
+			context.RegisterFilter(this, owner);
+		}
 		
 		ComponentFilter(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* resource)
 		{
@@ -260,86 +241,11 @@ export namespace Noodles
 		}
 	protected:
 
-		//virtual void AddFilterRef() const override { }
-		//virtual void SubFilterRef() const override { }
+		virtual void AddFilterRef() const override { }
+		virtual void SubFilterRef() const override { }
 
 		friend struct Context;
 	};
-
-	/*
-	template<typename AppendData, typename Func>
-	struct DynamicSystemHolder : public SystemHolder
-	{
-		AppendData append_data;
-		std::conditional_t<
-			std::is_function_v<Func>,
-			Func*,
-			Func
-		> fun;
-
-		Potato::IR::MemoryResourceRecord record;
-
-		DynamicSystemHolder(AppendData&& append_data, Func&& fun, std::u8string_view display_name, Property in_property, Potato::IR::MemoryResourceRecord record)
-			: SystemHolder(display_name, in_property), append_data(std::move(append_data)), fun(std::move(fun)), record(record)
-		{}
-
-		virtual void SystemExecute(ExecuteContext& context) override { fun(context, append_data); }
-
-		virtual void Release() override
-		{
-			auto o_res = resource;
-			this->~DynamicSystemHolder();
-			o_res->deallocate(
-				this,
-				sizeof(DynamicSystemHolder),
-				alignof(DynamicSystemHolder)
-			);
-		}
-	};
-
-	template<typename Func, typename AppendData>
-	auto SystemHolder::Create(
-		Func&& func,
-		AppendData&& append_data,
-		Property property,
-		std::u8string_view display_prefix,
-		std::pmr::memory_resource* resource
-	)
-		-> Ptr
-	{
-		using Type = DynamicSystemHolder<std::remove_cvref_t<AppendData>, std::remove_cvref_t<Func>>;
-
-		if (resource != nullptr)
-		{
-			auto layout = Potato::IR::Layout::Get<Type>();
-			std::size_t dis_size = SystemHolder::FormatDisplayNameSize(display_prefix, property);
-			std::size_t offset = 0;
-			if(dis_size != 0)
-			{
-				offset = Potato::IR::InsertLayoutCPP(layout, Potato::IR::Layout::GetArray<char8_t>(dis_size));
-				Potato::IR::FixLayoutCPP(layout);
-			}
-
-			auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout);
-
-			if (re)
-			{
-				auto str_offset = std::span(re.GetByte(), layout.Size).subspan(offset);
-				Type* ptr = new (re.Get()) Type(
-					std::forward<AppendData>(append_data),
-					std::forward<Func>(func),
-					str_offset,
-					display_prefix,
-					property,
-					resource
-				);
-				return Ptr{ ptr };
-			}
-		}
-		return {};
-	}
-	*/
-
 
 	template<typename Type>
 	concept IsExecuteContext = std::is_same_v<std::remove_cvref_t<Type>, ExecuteContext>;
@@ -406,31 +312,6 @@ export namespace Noodles
 			}
 		};
 
-		/*
-		template<typename ParT>
-		struct ExtractAppendDataForParameter
-		{
-			using Type = std::conditional_t<std::is_same_v<std::remove_cvref_t<ParT>, ExecuteContext>, Holder, ParT>;
-			static Type Generate(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* resource) { return {}; }
-			template<typename ParT2>
-				requires(std::is_same_v<Type, Holder>)
-			static decltype(auto) Translate(ExecuteContext& context, ParT2&& par2) { return context; }
-			template<typename ParT2>
-				requires(!std::is_same_v<Type, Holder>)
-			static decltype(auto) Translate(ExecuteContext& context, ParT2&& par2) { return par2; }
-		};
-
-
-		template<DetectSystemHasGenerateFilter ParT>
-		struct ExtractAppendDataForParameter<ParT>
-		{
-			using Type = decltype(ParT::GenerateFilter(std::declval<ExecuteContext&>()));
-			static Type Generate(ExecuteContext& Generator, std::pmr::memory_resource* resource) { return ParT::GenerateFilter(Generator, resource); }
-			template<typename ParT2>
-			static decltype(auto) Translate(ExecuteContext& context, ParT2&& par2) { return par2; }
-		};
-		*/
-
 		template<typename ...AT>
 		struct ParameterHolders;
 
@@ -448,12 +329,27 @@ export namespace Noodles
 			decltype(auto) Get(std::integral_constant<std::size_t, 0>, ExecuteContext& context) { return cur_holder.Translate(context);  }
 			template<std::size_t i>
 			decltype(auto) Get(std::integral_constant<std::size_t, i>, ExecuteContext& context) { return other_holders.Get(std::integral_constant<std::size_t, i - 1>{}, context); }
+
+			void ParameterInit(SystemHolder& owner, Context& context)
+			{
+				cur_holder.ParameterInit(owner, context);
+				other_holders.ParameterInit(owner, context);
+			}
+
+			void ParameterRelease(SystemHolder& owner, Context& context)
+			{
+				other_holders.ParameterRelease(owner, context);
+				cur_holder.ParameterInit(owner, context);
+			}
 		};
 
 		template<>
 		struct ParameterHolders<>
 		{
 			ParameterHolders(ReadWriteMutexGenerator& generator, std::pmr::memory_resource* resource){}
+
+			void ParameterInit(SystemHolder& owner, Context& context) {}
+			void ParameterRelease(SystemHolder& owner, Context& context){}
 		};
 
 		template<typename ...ParT>
@@ -482,45 +378,6 @@ export namespace Noodles
 				return func(append_data.Get(std::integral_constant<std::size_t, i>{}, context)...);
 			}
 		};
-		
-
-		/*
-		template<std::size_t i>
-		struct ApplySingleFilter
-		{
-			template<typename ...OutputTuple>
-			static void Apply(SystemComponentFilter::Wrapper const& filter, std::tuple<std::span<OutputTuple>...>& output)
-			{
-				using Type = typename std::tuple_element_t<i - 1, std::tuple<std::span<OutputTuple>...>>::element_type;
-				std::get<i - 1>(output) = filter.GetSpan<Type>(i - 1);
-				ApplySingleFilter<i - 1>::Apply(filter, output);
-			}
-
-			template<typename ...OutputTuple>
-			static void Apply(Archetype const& arc, ArchetypeMountPoint mp, std::tuple<std::span<OutputTuple>...>& output)
-			{
-				using Type = typename std::tuple_element_t<i - 1, std::tuple<std::span<OutputTuple>...>>::element_type;
-				auto loc = arc.LocateTypeID(UniqueTypeID::Create<std::remove_cvref_t<Type>>());
-				assert(loc);
-				auto data = arc.GetData(loc->index, 0, mp);
-				std::get<i - 1>(output) = {
-					static_cast<Type*>(data),
-					loc->count
-				};
-				ApplySingleFilter<i - 1>::Apply(arc, mp, output);
-			}
-		};
-
-
-		template<>
-		struct ApplySingleFilter<0>
-		{
-			template<typename ...OutputTuple>
-			static void Apply(SystemComponentFilter::Wrapper const& filter, std::tuple<std::span<OutputTuple>...>& output) {}
-			template<typename ...OutputTuple>
-			static void Apply(Archetype const& arc, ArchetypeMountPoint mp, std::tuple<std::span<OutputTuple>...>& output) {}
-		};
-		*/
 	};
 
 	template<typename Func>
@@ -538,8 +395,8 @@ export namespace Noodles
 
 		Potato::IR::MemoryResourceRecord record;
 
-		DynamicAutoSystemHolder(ReadWriteMutexGenerator& generator, Func&& fun, std::u8string_view display_name, Property in_property, Potato::IR::MemoryResourceRecord record)
-			: SystemHolder(in_property, display_name), append_data(generator, record.GetResource()), fun(std::move(fun)), record(record)
+		DynamicAutoSystemHolder(ReadWriteMutexGenerator& generator, Func&& fun, std::u8string_view display_name, Property in_property, Potato::IR::MemoryResourceRecord record, std::pmr::memory_resource* parameter_resource)
+			: SystemHolder(in_property, display_name), append_data(generator, parameter_resource), fun(std::move(fun)), record(record)
 		{}
 
 		virtual void SystemExecute(ExecuteContext& context) override
@@ -554,8 +411,16 @@ export namespace Noodles
 			record.Deallocate();
 		}
 
-		//virtual void AddTaskFlowNodeRef() const override { DefaultIntrusiveInterface::AddRef(); }
-		//virtual void SubTaskFlowNodeRef() const override { DefaultIntrusiveInterface::SubRef(); }
+		virtual void SystemInit(Context& context) override
+		{
+			append_data.ParameterInit(*this, context);
+		}
+
+		virtual void SystemRelease(Context& context) override
+		{
+			append_data.ParameterRelease(*this, context);
+			context.UnRegisterFilter(*this);
+		}
 	};
 
 	template<typename Func>
@@ -564,7 +429,8 @@ export namespace Noodles
 		ReadWriteMutexGenerator& generator,
 		Property property,
 		std::u8string_view display_prefix,
-		std::pmr::memory_resource* resource
+		std::pmr::memory_resource* resource,
+		std::pmr::memory_resource* parameter_resource
 	)
 		-> Ptr
 	{
@@ -602,7 +468,8 @@ export namespace Noodles
 				std::forward<Func>(func),
 				dis,
 				property,
-				re
+				re,
+				parameter_resource
 			);
 			return Ptr{ ptr };
 		}
@@ -611,215 +478,17 @@ export namespace Noodles
 
 	export template<typename Func>
 	bool Context::CreateTickSystemAuto(Priority priority, Property property,
-		Func&& func, OrderFunction order_func, Potato::Task::TaskProperty task_property, std::pmr::memory_resource* temporary_resource)
+		Func&& func, OrderFunction order_func, Potato::Task::TaskProperty task_property, 
+		std::pmr::memory_resource* system_resource,
+		std::pmr::memory_resource* parameter_resource,
+		std::pmr::memory_resource* temporary_resource
+	)
 	{
 		//using Type = SystemAutomatic::ExtractTickSystem<Func>;
 		std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
 		ReadWriteMutexGenerator generator(&temp_resource);
-		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), generator, property, name, &system_resource);
+		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), generator, property, name, system_resource, parameter_resource);
 		return RegisterSystem(std::move(ptr), priority, property, order_func, task_property, generator);
 	}
-
-	/*
-	template<typename Func>
-	SystemRegisterResult TickSystemsGroup::RegisterAutoDefer(ArchetypeComponentManager& manager, std::int32_t layer, SystemPriority priority, SystemProperty property,
-		Func&& func, std::u8string_view display_prefix, std::pmr::memory_resource* temporary_resource)
-	{
-		using Type = SystemAutomatic::ExtractTickSystem<Func>;
-		std::lock_guard lg(graphic_mutex);
-		std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
-		FilterGenerator generator(&temp_resource, &system_holder_resource);
-		auto append = Type::Generate(generator);
-		std::pmr::vector<SystemTemporaryDependenceLine> temp_line{ &temp_resource };
-		auto re = PreRegisterCheck(layer, priority, property, generator.GetMutex(), temp_line);
-		if (re)
-		{
-			auto ptr = SystemHolder::CreateAuto(
-				std::move(func), std::move(append), property, display_prefix, &system_holder_resource
-			);
-			Register(layer, property, priority, manager, generator, re, temp_line, std::move(ptr), display_prefix, &system_holder_resource);
-		}
-		return re;
-	}
-	*/
-
-
-
-
-	/*
-	template<typename ...ComponentT>
-	struct ComponentFilter
-	{
-		static ComponentFilter GenerateFilter(FilterGenerator& Generator)
-		{
-			static std::array<SystemRWInfo, sizeof...(ComponentT)> temp_buffer = {
-				SystemRWInfo::Create<ComponentT>()...
-			};
-
-			return { Generator.CreateComponentFilter(std::span(temp_buffer)) };
-		}
-		ComponentFilter(ComponentFilter const&) = default;
-		ComponentFilter(ComponentFilter&&) = default;
-		ComponentFilter() = default;
-	protected:
-		ComponentFilter(SystemComponentFilter::Ptr filter) : filter(std::move(filter)) {}
-		SystemComponentFilter::Ptr filter;
-
-		friend struct Context;
-	};
-
-
-	template<typename ...ComponentT>
-	struct EntityFilter
-	{
-		static EntityFilter GenerateFilter(FilterGenerator& Generator)
-		{
-			static std::array<SystemRWInfo, sizeof...(ComponentT)> temp_buffer = {
-				SystemRWInfo::Create<ComponentT>()...
-			};
-
-			return { Generator.CreateEntityFilter(std::span(temp_buffer)) };
-		}
-		EntityFilter(EntityFilter const&) = default;
-		EntityFilter(EntityFilter&&) = default;
-		EntityFilter() = default;
-	protected:
-		EntityFilter(SystemEntityFilter::Ptr filter) : filter(std::move(filter)) {}
-		SystemEntityFilter::Ptr filter;
-
-		friend struct Context;
-	};
-
-	using Priority = Potato::Task::Priority;
-	using Category = Potato::Task::Category;
-
-	struct ContextProperty
-	{
-		Priority priority = Priority::Normal;
-		Category category = Category::GLOBAL_TASK;
-		std::size_t group_id = 0;
-		std::thread::id thread_id;
-	};
-
-	struct Context : protected Potato::Task::Task, public Potato::Pointer::DefaultIntrusiveInterface
-	{
-
-		using Ptr = Potato::Pointer::IntrusivePtr<Context>;
-
-		static Ptr Create(ContextConfig config, std::u8string_view context_name = u8"Noodles", std::pmr::memory_resource* UpstreamResource = std::pmr::get_default_resource());
-
-		bool StartLoop(Potato::Task::TaskContext& context, ContextProperty property);
-
-		template<typename GeneratorFunc, typename Func>
-		SystemRegisterResult RegisterTickSystemDefer(
-			std::int32_t layer, SystemPriority priority, SystemProperty property,
-			GeneratorFunc&& g_func, Func&& func
-		)
-			requires(
-		std::is_invocable_v<GeneratorFunc, FilterGenerator&>
-			&& !std::is_same_v<decltype(g_func(std::declval<FilterGenerator&>())), void>&&
-			std::is_invocable_v<Func, SystemContext&, std::remove_cvref_t<decltype(g_func(std::declval<FilterGenerator&>()))>&>
-			)
-		{
-			std::pmr::monotonic_buffer_resource temp;
-			return tick_system_group.RegisterDefer(
-			component_manager, layer, priority, property, std::forward<GeneratorFunc>(g_func), std::forward<Func>(func), context_name, &temp
-			);
-		}
-
-		template<typename Func>
-		SystemRegisterResult RegisterTickSystemAutoDefer(
-			std::int32_t layer, SystemPriority priority, SystemProperty property,
-			Func&& func
-		)
-		{
-			std::pmr::monotonic_buffer_resource temp;
-			return tick_system_group.RegisterAutoDefer(
-				component_manager, layer, priority, property, std::forward<Func>(func), context_name, &temp
-			);
-		}
-
-		bool RequireExist();
-
-		bool StartSelfParallel(SystemContext& context,  std::size_t count);
-
-		EntityPtr CreateEntityDefer(EntityConstructor const& constructor) { return component_manager.CreateEntityDefer(constructor); }
-
-
-		template<typename Func>
-		bool Foreach(SystemComponentFilter const& filter, Func&& func) requires(std::is_invocable_r_v<bool, Func, SystemComponentFilter::Wrapper>)
-		{
-			return filter.Foreach(component_manager, std::forward<Func>(func));
-		}
-
-		template<typename ...ParT, typename Func>
-		bool Foreach(ComponentFilter<ParT...> const& filter, Func&& func) requires(std::is_invocable_r_v<bool, Func, std::span<ParT>...>)
-		{
-			if(filter.filter)
-			{
-				return filter.filter->Foreach(component_manager, [&](SystemComponentFilter::Wrapper wra) -> bool
-					{
-						std::tuple<std::span<ParT>...> temp_pars;
-						SystemAutomatic::ApplySingleFilter<sizeof...(ParT)>::Apply(wra, temp_pars);
-						return std::apply(func, temp_pars);
-					});
-			}
-			return false;
-		}
-
-
-		template<typename Func>
-		bool ForeachEntity(SystemEntityFilter const& filter, Entity const& entity, Func&& func) requires(std::is_invocable_r_v<bool, Func, SystemEntityFilter::Wrapper>)
-		{
-			return filter.ForeachEntity(component_manager, entity, std::forward<Func>(func));
-		}
-
-		template<typename ...ParT, typename Func>
-		bool ForeachEntity(EntityFilter<ParT...> const& filter, Entity const& entity, Func&& func) requires(std::is_invocable_r_v<bool, Func, EntityStatus, std::span<ParT>...>)
-		{
-			if (filter.filter)
-			{
-				return component_manager.ReadEntityMountPoint(entity, [&](EntityStatus status, Archetype const& ar, ArchetypeMountPoint mp) -> bool
-				{
-					std::tuple<std::span<ParT>...> temp_pars;
-					SystemAutomatic::ApplySingleFilter<sizeof...(ParT)>::Apply(ar, mp, temp_pars);
-					return std::apply([&](auto& ...ar)
-					{
-						return func(status, std::forward<decltype(ar)&&>(ar)...);
-					}, temp_pars);
-				});
-			}
-			return false;
-		}
-
-	protected:
-
-		virtual void operator()(Potato::Task::ExecuteStatus& Status) override;
-
-		Context(ContextConfig config, std::u8string_view context_name, std::pmr::memory_resource* up_stream);
-
-		//virtual void ControlRelease() override;
-		virtual void AddRef() const override { return DefaultIntrusiveInterface::AddRef(); }
-		virtual void SubRef() const override { return DefaultIntrusiveInterface::SubRef(); }
-		virtual void Release() override;
-		virtual ~Context() override = default;
-
-		std::atomic_bool request_exit = false;
-
-		std::atomic_size_t running_task;
-		std::pmr::u8string context_name;
-
-		std::mutex property_mutex;
-		ContextConfig config;
-		std::chrono::steady_clock::time_point last_execute_time;
-
-		ArchetypeComponentManager component_manager;
-		TickSystemsGroup tick_system_group;
-		std::pmr::memory_resource* resource;
-
-		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
-		
-	};
-	*/
 	
 }
