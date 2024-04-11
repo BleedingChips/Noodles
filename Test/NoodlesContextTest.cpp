@@ -1,5 +1,6 @@
 import std;
 import PotatoTaskSystem;
+import NoodlesComponent;
 import NoodlesContext;
 
 using namespace Noodles;
@@ -82,8 +83,12 @@ int main()
 
 	context->CreateTickSystemAuto( {0, 0, 1}, {
 		u8"wtf1"
-	}, [](ExecuteContext& context,  ComponentFilter<Tuple&>& p,    std::size_t i)
+	}, [](ExecuteContext& context,  ComponentFilter<Tuple&, EntityProperty&>& p,    std::size_t i)
 	{
+			ComponentFilter<Tuple&, EntityProperty&>::OutputIndexT output;
+			auto k = p.IterateComponent(context.noodles_context,0, output);
+			auto L = p.ReadByIndex<0>(k->begin, *k);
+			auto O = p.ReadByIndex<1>(k->begin, *k);
 			std::println("wtf1");
 			volatile int i22 = 0;
 	});

@@ -272,9 +272,10 @@ namespace Noodles
 	}
 
 
-	ArchetypeComponentManager::ArchetypeComponentManager(std::pmr::memory_resource* upstream)
-		:components(upstream), spawned_entities(upstream), temp_resource(upstream),
-		archetype_resource(upstream),components_resource(upstream)
+	ArchetypeComponentManager::ArchetypeComponentManager(Resource resource)
+		:components(resource.manager_resource), spawned_entities(resource.manager_resource), temp_resource(resource.manager_resource),
+		archetype_resource(resource.archetype_resource),components_resource(resource.component_resource), singletons(resource.manager_resource),
+		filter_mapping(resource.manager_resource), singleton_filters(resource.manager_resource), singleton_resource(resource.singleton_resource)
 	{
 		
 	}
@@ -465,7 +466,7 @@ namespace Noodles
 		return false;
 	}
 
-	std::tuple<Archetype::Ptr, ArchetypeMountPoint, ArchetypeMountPoint, std::span<std::size_t>> ArchetypeComponentManager::ReadComponents(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span)
+	std::tuple<Archetype::Ptr, ArchetypeMountPoint, ArchetypeMountPoint, std::span<std::size_t>> ArchetypeComponentManager::ReadComponents(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const
 	{
 		std::lock_guard lg(component_mutex);
 		std::size_t archetype_index = std::numeric_limits<std::size_t>::max();

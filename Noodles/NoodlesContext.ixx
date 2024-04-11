@@ -1,5 +1,7 @@
 module;
 
+#include <cassert>
+
 export module NoodlesContext;
 
 import std;
@@ -137,18 +139,38 @@ export namespace Noodles
 		friend struct Context;
 	};
 
+	
+
 	export struct Context : protected Potato::Task::TaskFlow, protected Potato::Pointer::DefaultIntrusiveInterface
 	{
+
+		enum class Order
+		{
+			MUTEX,
+			SMALLER,
+			BIGGER,
+			UNDEFINE
+		};
+
 		struct Config
 		{
 			std::chrono::milliseconds min_frame_time = std::chrono::milliseconds{ 13 };
 		};
 
-		using OrderFunction = std::partial_ordering(*)(Property p1, Property p2);
+		struct Resource
+		{
+			std::pmr::memory_resource* context_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* archetype_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* component_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* singleton_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* system_resource = std::pmr::get_default_resource();
+		};
+
+		using OrderFunction = Order(*)(Property p1, Property p2);
 
 		using Ptr = Potato::Pointer::IntrusivePtr<Context, Potato::Pointer::DefaultIntrusiveWrapper>;
 
-		static Ptr Create(Config config = {}, std::u8string_view name = u8"Noodles Default Context", std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		static Ptr Create(Config config = {}, std::u8string_view name = u8"Noodles Default Context", Resource resource = {});
 		template<typename ...AT>
 		EntityPtr CreateEntityDefer(AT&& ...at) { return manager.CreateEntityDefer(std::forward<AT>(at)...); }
 
@@ -156,10 +178,9 @@ export namespace Noodles
 
 		template<typename Func>
 		bool CreateTickSystemAuto(Priority priority, Property property,
-			Func&& func, OrderFunction order_func = nullptr, Potato::Task::TaskProperty task_property = {}, 
-				std::pmr::memory_resource* system_resource = std::pmr::get_default_resource(),
+			Func&& func, OrderFunction order_func = nullptr, Potato::Task::TaskProperty task_property = {},
 				std::pmr::memory_resource* parameter_resource = std::pmr::get_default_resource(),
-				std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource()
+			std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource()
 		);
 
 		bool RegisterFilter(ComponentFilterInterface::Ptr interface, SystemHolder& owner)
@@ -174,10 +195,22 @@ export namespace Noodles
 
 		void FlushStats();
 
+		struct ComponentArchetypeMountPointRange
+		{
+			Archetype::Ptr archetype;
+			ArchetypeMountPoint begin;
+			ArchetypeMountPoint end;
+			std::span<std::size_t const> output;
+		};
+
+		std::optional<ComponentArchetypeMountPointRange> IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const;
+		std::optional<ComponentArchetypeMountPointRange> ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const;
+
+
 	protected:
 
 		bool RegisterSystem(SystemHolder::Ptr, Priority priority, Property property, OrderFunction func, Potato::Task::TaskProperty task_property, ReadWriteMutexGenerator& generator);
-		Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record) noexcept : config(config), name(name), record(record), manager(record.GetResource()){};
+		Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record, Resource resource) noexcept;
 
 		void AddTaskRef() const override;
 		void SubTaskRef() const override;
@@ -207,6 +240,8 @@ export namespace Noodles
 
 		std::pmr::vector<SystemTuple> systems;
 		std::pmr::vector<RWUniqueTypeID> rw_unique_id;
+
+		std::pmr::synchronized_pool_resource system_resource;
 
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 		friend struct SystemHolder;
@@ -239,6 +274,23 @@ export namespace Noodles
 
 			Generator.RegisterComponentMutex(std::span(temp_buffer));
 		}
+
+		using OutputIndexT = std::array<std::size_t, sizeof...(ComponentT)>;
+
+		template<std::size_t i>
+		decltype(auto) ReadByIndex(ArchetypeMountPoint mp, Context::ComponentArchetypeMountPointRange range) const
+		{
+			static_assert(i < sizeof...(ComponentT));
+			using Type = Potato::TMP::FindByIndex<i, ComponentT...>::Type;
+			assert(i < range.output.size());
+			return static_cast<std::add_pointer_t<Type>>(range.archetype->GetData(range.output[i], mp));
+		}
+
+		decltype(auto) IterateComponent(Context& context, std::size_t ite_index, std::span<std::size_t> output) const
+		{
+			return context.IterateComponent(*this, ite_index, output);
+		}
+
 	protected:
 
 		virtual void AddFilterRef() const override { }
@@ -479,7 +531,6 @@ export namespace Noodles
 	export template<typename Func>
 	bool Context::CreateTickSystemAuto(Priority priority, Property property,
 		Func&& func, OrderFunction order_func, Potato::Task::TaskProperty task_property, 
-		std::pmr::memory_resource* system_resource,
 		std::pmr::memory_resource* parameter_resource,
 		std::pmr::memory_resource* temporary_resource
 	)
@@ -487,7 +538,7 @@ export namespace Noodles
 		//using Type = SystemAutomatic::ExtractTickSystem<Func>;
 		std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
 		ReadWriteMutexGenerator generator(&temp_resource);
-		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), generator, property, name, system_resource, parameter_resource);
+		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), generator, property, name, &system_resource, parameter_resource);
 		return RegisterSystem(std::move(ptr), priority, property, order_func, task_property, generator);
 	}
 	

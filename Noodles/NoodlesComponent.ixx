@@ -280,10 +280,19 @@ export namespace Noodles
 		}
 	};
 
+	
+
 	export struct ArchetypeComponentManager
 	{
+		struct Resource
+		{
+			std::pmr::memory_resource* manager_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* archetype_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* component_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* singleton_resource = std::pmr::get_default_resource();
+		};
 
-		ArchetypeComponentManager(std::pmr::memory_resource* upstream = std::pmr::get_default_resource());
+		ArchetypeComponentManager(Resource resource = {});
 		~ArchetypeComponentManager();
 
 		template<typename ...AT>
@@ -347,7 +356,7 @@ export namespace Noodles
 		std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::span<std::size_t>> ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const;
 
 		template<typename SingType, typename ...OT>
-		SingType* CreateSingletonTypeWithMemoryResource(std::pmr::memory_resource* singleton_resource, OT&& ...ot)
+		SingType* CreateSingletonType(OT&& ...ot)
 		{
 			using Type = SingletonType<std::remove_cvref_t<SingType>>;
 
@@ -379,14 +388,8 @@ export namespace Noodles
 			return nullptr;
 		}
 
-		template<typename SingType, typename ...OT>
-		SingType* CreateSingletonType(OT&& ...ot)
-		{
-			return CreateSingletonTypeWithMemoryResource<SingType>(std::pmr::get_default_resource(), std::forward<OT>(ot)...);
-		}
-
 		bool ReleaseEntity(Entity::Ptr entity);
-		std::tuple<Archetype::Ptr, ArchetypeMountPoint, ArchetypeMountPoint, std::span<std::size_t>> ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite, std::span<std::size_t> output_span);
+		std::tuple<Archetype::Ptr, ArchetypeMountPoint, ArchetypeMountPoint, std::span<std::size_t>> ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite, std::span<std::size_t> output_span) const;
 
 		void* ReadSingleton(SingletonFilterInterface const& filter) const;
 
@@ -468,6 +471,8 @@ export namespace Noodles
 		std::shared_mutex filter_mapping_mutex;
 		std::pmr::vector<CompFilterElement> filter_mapping;
 		std::pmr::vector<SingletonFilterElement> singleton_filters;
+
+		std::pmr::synchronized_pool_resource singleton_resource;
 
 		std::pmr::synchronized_pool_resource temp_resource;
 	};

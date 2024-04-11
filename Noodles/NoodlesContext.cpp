@@ -154,7 +154,13 @@ namespace Noodles
 		re.Deallocate();
 	}
 
-	auto Context::Create(Config config, std::u8string_view name, std::pmr::memory_resource* resource) -> Ptr
+	Context::Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record, Resource resource) noexcept
+		: config(config), name(name), record(record), manager({resource.context_resource, resource.archetype_resource, resource.component_resource, resource.singleton_resource}),
+		systems(resource.context_resource), rw_unique_id(resource.context_resource), system_resource(resource.system_resource)
+	{
+	}
+
+	auto Context::Create(Config config, std::u8string_view name, Resource resource) -> Ptr
 	{
 		auto fix_layout = Potato::IR::Layout::Get<Context>();
 		std::size_t offset = 0;
@@ -164,7 +170,7 @@ namespace Noodles
 			Potato::IR::FixLayoutCPP(fix_layout);
 		}
 
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, fix_layout);
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource.context_resource, fix_layout);
 		if(re)
 		{
 			if(!name.empty())
@@ -173,7 +179,7 @@ namespace Noodles
 				name = std::u8string_view{ reinterpret_cast<char8_t const*>(re.GetByte() + offset), name.size() };
 			}
 			
-			return new (re.Get()) Context{config, name, re};
+			return new (re.Get()) Context{config, name, re, resource };
 		}
 		return {};
 	}
@@ -194,6 +200,28 @@ namespace Noodles
 		std::lock_guard lg(mutex);
 		start_up_tick_lock = std::chrono::steady_clock::now();
 		std::println("---start");
+	}
+
+	std::optional<Context::ComponentArchetypeMountPointRange> Context::IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const
+	{
+		auto [ar, mb, me, sp] = manager.ReadComponents(interface, ite_index, output_span);
+		if(ar)
+		{
+			return ComponentArchetypeMountPointRange{std::move(ar), mb, me, sp};
+		}
+		return std::nullopt;
+	}
+
+	std::optional<Context::ComponentArchetypeMountPointRange> Context::ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const
+	{
+		auto [ar, mp, sp] = manager.ReadEntity(entity, interface, output_span);
+		if (ar)
+		{
+			auto end = mp;
+			end += 1;
+			return ComponentArchetypeMountPointRange{ std::move(ar), mp, end, sp };
+		}
+		return std::nullopt;
 	}
 
 	void Context::OnFinishTaskFlow(Potato::Task::ExecuteStatus& status)
@@ -244,24 +272,24 @@ namespace Noodles
 						if(is_conflict && re == std::strong_ordering::equal)
 						{
 							auto p1 = (ite.order_function == nullptr) ?
-								std::partial_ordering::unordered : ite.order_function(ite.property, property);
+								Order::UNDEFINE : ite.order_function(ite.property, property);
 							auto p2 = (func == nullptr) ?
-								std::partial_ordering::unordered : func(ite.property, property);
-							auto p3 = std::partial_ordering::unordered;
+								Order::UNDEFINE : func(ite.property, property);
+							auto p3 = Order::UNDEFINE;
 							if (p1 == p2)
 								p3 = p1;
-							else if (p1 == std::partial_ordering::unordered || p1 == std::partial_ordering::equivalent)
+							else if (p1 == Order::UNDEFINE || p1 == Order::MUTEX)
 								p3 = p2;
-							else if (p2 == std::partial_ordering::unordered || p2 == std::partial_ordering::equivalent)
+							else if (p2 == Order::UNDEFINE || p2 == Order::MUTEX)
 								p3 = p1;
 							else
 							{
 								Remove(tptr);
 								return false;
 							}
-							if (p3 == std::partial_ordering::less)
+							if (p3 == Order::SMALLER)
 								re = std::strong_ordering::less;
-							else if(p3 == std::partial_ordering::greater)
+							else if(p3 == Order::BIGGER)
 								re = std::strong_ordering::greater;
 						}
 					}
