@@ -18,6 +18,15 @@ export import NoodlesEntity;
 export namespace Noodles
 {
 
+	template<bool mutex>
+	struct NoodlesTypeProperty
+	{
+		static constexpr bool ignore_mutex = !mutex;
+	};
+
+	using IgnoreMutexProperty = NoodlesTypeProperty<false>;
+
+
 	export struct ArchetypeComponentManager;
 
 	struct ComponentPage : public Potato::Pointer::DefaultIntrusiveInterface
@@ -111,7 +120,7 @@ export namespace Noodles
 		Potato::IR::MemoryResourceRecord record;
 		mutable std::shared_mutex mutex;
 		EntityStatus status = EntityStatus::Free;
-		Archetype::Ptr archetype;
+		Archetype::OPtr archetype;
 		ArchetypeMountPoint mount_point = {};
 		std::size_t owner_id = 0;
 		std::size_t archetype_index = std::numeric_limits<std::size_t>::max();
@@ -132,7 +141,7 @@ export namespace Noodles
 		EntityProperty(Entity::Ptr entity) : entity(std::move(entity)) {}
 		EntityProperty() = default;
 
-		using NoodlesThreadSafeMarker = void;
+		using NoodlesProperty = IgnoreMutexProperty;
 
 	protected:
 
@@ -284,7 +293,7 @@ export namespace Noodles
 
 	export struct ArchetypeComponentManager
 	{
-		struct Resource
+		struct SyncResource
 		{
 			std::pmr::memory_resource* manager_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* archetype_resource = std::pmr::get_default_resource();
@@ -292,7 +301,7 @@ export namespace Noodles
 			std::pmr::memory_resource* singleton_resource = std::pmr::get_default_resource();
 		};
 
-		ArchetypeComponentManager(Resource resource = {});
+		ArchetypeComponentManager(SyncResource resource = {});
 		~ArchetypeComponentManager();
 
 		template<typename ...AT>
@@ -353,10 +362,10 @@ export namespace Noodles
 		bool RegisterFilter(SingletonFilterInterface::Ptr ptr, std::size_t group_id);
 		std::size_t ReleaseFilter(std::size_t group_id);
 
-		std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::span<std::size_t>> ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const;
+		std::tuple<Archetype::OPtr, ArchetypeMountPoint, std::span<std::size_t>> ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const;
 
 		template<typename SingType, typename ...OT>
-		SingType* CreateSingletonType(OT&& ...ot)
+		Potato::Pointer::ObserverPtr<SingType> CreateSingletonType(OT&& ...ot)
 		{
 			using Type = SingletonType<std::remove_cvref_t<SingType>>;
 
@@ -389,9 +398,9 @@ export namespace Noodles
 		}
 
 		bool ReleaseEntity(Entity::Ptr entity);
-		std::tuple<Archetype::Ptr, ArchetypeMountPoint, ArchetypeMountPoint, std::span<std::size_t>> ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite, std::span<std::size_t> output_span) const;
+		std::tuple<Archetype::OPtr, ArchetypeMountPoint, ArchetypeMountPoint, std::span<std::size_t>> ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite, std::span<std::size_t> output_span) const;
 
-		void* ReadSingleton(SingletonFilterInterface const& filter) const;
+		Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& filter) const;
 
 	protected:
 

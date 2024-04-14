@@ -245,9 +245,9 @@ namespace Noodles
 		return nullptr;
 	}
 
-	std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::span<std::size_t>> ArchetypeComponentManager::ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const
+	std::tuple<Archetype::OPtr, ArchetypeMountPoint, std::span<std::size_t>> ArchetypeComponentManager::ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const
 	{
-		Archetype::Ptr arc;
+		Archetype::OPtr arc;
 		std::size_t archetype_index;
 		ArchetypeMountPoint mp;
 		{
@@ -272,7 +272,7 @@ namespace Noodles
 	}
 
 
-	ArchetypeComponentManager::ArchetypeComponentManager(Resource resource)
+	ArchetypeComponentManager::ArchetypeComponentManager(SyncResource resource)
 		:components(resource.manager_resource), spawned_entities(resource.manager_resource), temp_resource(resource.manager_resource),
 		archetype_resource(resource.archetype_resource),components_resource(resource.component_resource), singletons(resource.manager_resource),
 		filter_mapping(resource.manager_resource), singleton_filters(resource.manager_resource), singleton_resource(resource.singleton_resource)
@@ -466,7 +466,7 @@ namespace Noodles
 		return false;
 	}
 
-	std::tuple<Archetype::Ptr, ArchetypeMountPoint, ArchetypeMountPoint, std::span<std::size_t>> ArchetypeComponentManager::ReadComponents(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const
+	std::tuple<Archetype::OPtr, ArchetypeMountPoint, ArchetypeMountPoint, std::span<std::size_t>> ArchetypeComponentManager::ReadComponents(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const
 	{
 		std::lock_guard lg(component_mutex);
 		std::size_t archetype_index = std::numeric_limits<std::size_t>::max();
@@ -555,7 +555,7 @@ namespace Noodles
 		return false;
 	}
 
-	void* ArchetypeComponentManager::ReadSingleton(SingletonFilterInterface const& filter) const
+	Potato::Pointer::ObserverPtr<void> ArchetypeComponentManager::ReadSingleton(SingletonFilterInterface const& filter) const
 	{
 		return filter.GetSingleton(reinterpret_cast<std::size_t>(this));
 	}

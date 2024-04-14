@@ -37,26 +37,6 @@ export namespace Noodles
 		Potato::IR::TypeID id;
 	};
 
-	/*
-	template<typename Type>
-	struct ThreadSafeMarker
-	{
-		static constexpr bool value = false;
-	};
-
-	template<typename Type>
-	concept HasThreadSafeMarker = requires(Type t)
-	{
-		typename Type::NoodlesThreadSafeMarker;
-	};
-
-	template<HasThreadSafeMarker Type>
-	struct ThreadSafeMarker<Type>
-	{
-		static constexpr bool value = true;
-	};
-	*/
-
 	struct ArchetypeID
 	{
 		enum class Status
@@ -140,6 +120,7 @@ export namespace Noodles
 	struct Archetype : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<Archetype>;
+		using OPtr = Potato::Pointer::ObserverPtr<Archetype>;
 
 		static Ptr Create(std::span<ArchetypeID const> id, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 

@@ -66,7 +66,12 @@ void Func3(SystemContext& context, ComponentFilter<A, B> system, ComponentFilter
 
 struct Tuple
 {
-	int i = 0;
+	std::size_t i = 0;
+};
+
+struct Tuple2
+{
+	std::u8string str;
 };
 
 int main()
@@ -79,23 +84,43 @@ int main()
 
 	Potato::Task::TaskContext tcontext;
 
-	auto ent = context->CreateEntityDefer(Tuple{1});
+	auto ent = context->CreateEntityDefer(Tuple{ 10086 });
+
+	for(std::size_t o = 0; o < 100; ++o)
+	{
+		context->CreateEntityDefer(Tuple{ o });
+	}
+
+	auto Ker = context->CreateSingleton<Tuple2>(std::u8string{u8"Fff"});
 
 	context->CreateTickSystemAuto( {0, 0, 1}, {
 		u8"wtf1"
-	}, [](ExecuteContext& context,  ComponentFilter<Tuple&, EntityProperty&>& p,    std::size_t i)
+	}, [=](ExecuteContext& context,  ComponentFilter<Tuple const, EntityProperty>& p, SingletonFilter<Tuple2>& s, std::size_t i)
 	{
-			ComponentFilter<Tuple&, EntityProperty&>::OutputIndexT output;
-			auto k = p.IterateComponent(context.noodles_context,0, output);
-			auto L = p.ReadByIndex<0>(k->begin, *k);
-			auto O = p.ReadByIndex<1>(k->begin, *k);
-			std::println("wtf1");
+		ComponentFilter<Tuple const, EntityProperty>::OutputIndexT output;
+		auto k = p.IterateComponent(context,0, output);
+
+		for(auto ite : k)
+		{
+			auto L = p.GetByIndex<0>(ite, k);
+			auto O = p.GetByIndex<1>(ite, k);
+			auto K = p.GetByType<Tuple const>(ite, k);
 			volatile int i22 = 0;
+		}
+
+		auto k2 = p.ReadEntity(context, *ent, output);
+
+		auto ik = s.Get(context);
+
+		auto I = p.GetByIndex<0>(k2.begin(), k2);
+
+			std::println("wtf1");
+			
 	});
 
 	context->CreateTickSystemAuto({0, 0, 3}, {
 		u8"wtf2"
-		}, [](ExecuteContext& context, ComponentFilter<Tuple&>& p, std::size_t i)
+		}, [](ExecuteContext& context, ComponentFilter<Tuple const, EntityProperty>& p, std::size_t i)
 		{
 			std::println("wtf2");
 			volatile int i22 = 0;

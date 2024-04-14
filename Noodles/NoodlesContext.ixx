@@ -19,19 +19,39 @@ import NoodlesArchetype;
 import NoodlesComponent;
 
 
-
 export namespace Noodles
 {
+
+	template<typename Type>
+	concept IsFilterWriteType = std::is_same_v<Type, std::remove_cvref_t<Type>>;
+
+	template<typename Type>
+	concept IsFilterReadType = std::is_same_v<Type, std::add_const_t<std::remove_cvref_t<Type>>>;
+
+	template<typename Type>
+	concept AcceptableFilterType = IsFilterWriteType<Type> || IsFilterReadType<Type>;
+
+	template<typename Type>
+	concept IgnoreMutexComponentType = requires(Type)
+	{
+		requires(Type::NoodlesProperty::ignore_mutex);
+	};
+
+
 
 	struct RWUniqueTypeID
 	{
 		bool is_write = false;
+		bool ignore_mutex = false;
 		UniqueTypeID type_id;
-		template<typename Type>
+
+
+		template<AcceptableFilterType Type>
 		static RWUniqueTypeID Create()
 		{
 			return RWUniqueTypeID{
-				std::is_lvalue_reference_v<Type>,
+				IsFilterWriteType<Type>,
+				IgnoreMutexComponentType<Type>,
 				UniqueTypeID::Create<std::remove_cvref_t<Type>>()
 			};
 		}
@@ -157,7 +177,7 @@ export namespace Noodles
 			std::chrono::milliseconds min_frame_time = std::chrono::milliseconds{ 13 };
 		};
 
-		struct Resource
+		struct SyncResource
 		{
 			std::pmr::memory_resource* context_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* archetype_resource = std::pmr::get_default_resource();
@@ -170,7 +190,7 @@ export namespace Noodles
 
 		using Ptr = Potato::Pointer::IntrusivePtr<Context, Potato::Pointer::DefaultIntrusiveWrapper>;
 
-		static Ptr Create(Config config = {}, std::u8string_view name = u8"Noodles Default Context", Resource resource = {});
+		static Ptr Create(Config config = {}, std::u8string_view name = u8"Noodles Default Context", SyncResource resource = {});
 		template<typename ...AT>
 		EntityPtr CreateEntityDefer(AT&& ...at) { return manager.CreateEntityDefer(std::forward<AT>(at)...); }
 
@@ -183,34 +203,36 @@ export namespace Noodles
 			std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource()
 		);
 
-		bool RegisterFilter(ComponentFilterInterface::Ptr interface, SystemHolder& owner)
-		{
-			return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner));
-		}
+		template<typename SingletonT, typename ...OT>
+		Potato::Pointer::ObserverPtr<SingletonT> CreateSingleton(OT&& ...ot) { return manager.CreateSingletonType<SingletonT>(std::forward<OT>(ot)...); }
 
-		bool UnRegisterFilter(SystemHolder& owner)
-		{
-			return manager.ReleaseFilter(reinterpret_cast<std::size_t>(&owner));
-		}
+		bool RegisterFilter(ComponentFilterInterface::Ptr interface, SystemHolder& owner) { return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner)); }
+
+		bool RegisterFilter(SingletonFilterInterface::Ptr interface, SystemHolder& owner) { return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner)); }
+
+		bool UnRegisterFilter(SystemHolder& owner) { return manager.ReleaseFilter(reinterpret_cast<std::size_t>(&owner)); }
 
 		void FlushStats();
 
 		struct ComponentArchetypeMountPointRange
 		{
-			Archetype::Ptr archetype;
-			ArchetypeMountPoint begin;
-			ArchetypeMountPoint end;
+			Archetype::OPtr archetype;
+			ArchetypeMountPoint ite_begin;
+			ArchetypeMountPoint ite_end;
 			std::span<std::size_t const> output;
+			decltype(auto) begin() const { return ite_begin; }
+			decltype(auto) end() const { return ite_end; }
+			operator bool() const { return begin() != end(); }
 		};
 
-		std::optional<ComponentArchetypeMountPointRange> IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const;
-		std::optional<ComponentArchetypeMountPointRange> ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const;
-
+		ComponentArchetypeMountPointRange IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const;
+		ComponentArchetypeMountPointRange ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const;
+		Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& interface) { return manager.ReadSingleton(interface);  }
 
 	protected:
 
 		bool RegisterSystem(SystemHolder::Ptr, Priority priority, Property property, OrderFunction func, Potato::Task::TaskProperty task_property, ReadWriteMutexGenerator& generator);
-		Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record, Resource resource) noexcept;
+		Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record, SyncResource resource) noexcept;
 
 		void AddTaskRef() const override;
 		void SubTaskRef() const override;
@@ -247,7 +269,7 @@ export namespace Noodles
 		friend struct SystemHolder;
 	};
 
-	template<typename ...ComponentT>
+	template<AcceptableFilterType ...ComponentT>
 	struct ComponentFilter : protected ComponentFilterInterface
 	{
 
@@ -267,6 +289,7 @@ export namespace Noodles
 		}
 		
 		ComponentFilter(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* resource)
+			: ComponentFilterInterface(resource)
 		{
 			static std::array<RWUniqueTypeID, sizeof...(ComponentT)> temp_buffer = {
 				RWUniqueTypeID::Create<ComponentT>()...
@@ -278,7 +301,7 @@ export namespace Noodles
 		using OutputIndexT = std::array<std::size_t, sizeof...(ComponentT)>;
 
 		template<std::size_t i>
-		decltype(auto) ReadByIndex(ArchetypeMountPoint mp, Context::ComponentArchetypeMountPointRange range) const
+		decltype(auto) GetByIndex(ArchetypeMountPoint mp, Context::ComponentArchetypeMountPointRange range) const
 		{
 			static_assert(i < sizeof...(ComponentT));
 			using Type = Potato::TMP::FindByIndex<i, ComponentT...>::Type;
@@ -286,10 +309,50 @@ export namespace Noodles
 			return static_cast<std::add_pointer_t<Type>>(range.archetype->GetData(range.output[i], mp));
 		}
 
-		decltype(auto) IterateComponent(Context& context, std::size_t ite_index, std::span<std::size_t> output) const
+		template<typename Type>
+		decltype(auto) GetByType(ArchetypeMountPoint mp, Context::ComponentArchetypeMountPointRange range) const
 		{
-			return context.IterateComponent(*this, ite_index, output);
+			static_assert(Potato::TMP::IsOneOfV<Type, ComponentT...>);
+			constexpr std::size_t index = Potato::TMP::LocateByType<Type, ComponentT...>::Value;
+			assert(index < range.output.size());
+			return static_cast<std::add_pointer_t<Type>>(range.archetype->GetData(range.output[index], mp));
 		}
+
+		decltype(auto) IterateComponent(Context& context, std::size_t ite_index, std::span<std::size_t> output) const { return context.IterateComponent(*this, ite_index, output); }
+		decltype(auto) IterateComponent(ExecuteContext& context, std::size_t ite_index, std::span<std::size_t> output) const { return IterateComponent(context.noodles_context, ite_index, output); }
+		decltype(auto) ReadEntity(Context& context, Entity const& entity, std::span<std::size_t> output) const { return context.ReadEntity(entity, *this, output); }
+		decltype(auto) ReadEntity(ExecuteContext& context, Entity const& entity, std::span<std::size_t> output) const { return ReadEntity(context.noodles_context, entity, output); }
+
+	protected:
+
+		virtual void AddFilterRef() const override { }
+		virtual void SubFilterRef() const override { }
+
+		friend struct Context;
+	};
+
+
+	template<AcceptableFilterType ComponentT>
+	struct SingletonFilter : protected SingletonFilterInterface
+	{
+		virtual UniqueTypeID RequireTypeID() const override
+		{
+			return UniqueTypeID::Create<ComponentT>();
+		}
+
+		void ParameterInit(SystemHolder& owner, Context& context)
+		{
+			context.RegisterFilter(this, owner);
+		}
+
+		SingletonFilter(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* resource)
+		{
+			RWUniqueTypeID tem_id = RWUniqueTypeID::Create<ComponentT>();
+			Generator.RegisterSingletonMutex(std::span(&tem_id, 1));
+		}
+
+		decltype(auto) Get(Context& context) const { return Potato::Pointer::ObserverPtr<ComponentT>{ static_cast<ComponentT*>(context.ReadSingleton(*this).GetPointer()) }; }
+		decltype(auto) Get(ExecuteContext& context) const { return Get(context.noodles_context); }
 
 	protected:
 
@@ -313,9 +376,6 @@ export namespace Noodles
 	{
 		{ type.ParameterRelease(std::declval<SystemHolder&>(), std::declval<Context&>()) };
 	};
-
-	
-
 	
 	struct SystemAutomatic
 	{
@@ -433,7 +493,7 @@ export namespace Noodles
 	};
 
 	template<typename Func>
-	struct DynamicAutoSystemHolder : public SystemHolder//, public Potato::Pointer::DefaultIntrusiveInterface
+	struct DynamicAutoSystemHolder : public SystemHolder
 	{
 		using Automatic = SystemAutomatic::ExtractTickSystem<Func>;
 
@@ -535,7 +595,6 @@ export namespace Noodles
 		std::pmr::memory_resource* temporary_resource
 	)
 	{
-		//using Type = SystemAutomatic::ExtractTickSystem<Func>;
 		std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
 		ReadWriteMutexGenerator generator(&temp_resource);
 		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), generator, property, name, &system_resource, parameter_resource);

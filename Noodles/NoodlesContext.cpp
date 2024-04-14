@@ -51,6 +51,8 @@ namespace Noodles
 	{
 		for(auto& ite : ifs)
 		{
+			if (ite.ignore_mutex)
+				continue;
 			auto spn = std::span(unique_ids).subspan(0, component_count);
 			bool Find = false;
 			for(auto& ite2 : spn)
@@ -74,6 +76,8 @@ namespace Noodles
 	{
 		for (auto& ite : ifs)
 		{
+			if (ite.ignore_mutex)
+				continue;
 			auto spn = std::span(unique_ids).subspan(component_count);
 			bool Find = false;
 			for (auto& ite2 : spn)
@@ -154,13 +158,14 @@ namespace Noodles
 		re.Deallocate();
 	}
 
-	Context::Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record, Resource resource) noexcept
+	Context::Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record, SyncResource resource) noexcept
 		: config(config), name(name), record(record), manager({resource.context_resource, resource.archetype_resource, resource.component_resource, resource.singleton_resource}),
 		systems(resource.context_resource), rw_unique_id(resource.context_resource), system_resource(resource.system_resource)
 	{
+
 	}
 
-	auto Context::Create(Config config, std::u8string_view name, Resource resource) -> Ptr
+	auto Context::Create(Config config, std::u8string_view name, SyncResource resource) -> Ptr
 	{
 		auto fix_layout = Potato::IR::Layout::Get<Context>();
 		std::size_t offset = 0;
@@ -202,17 +207,17 @@ namespace Noodles
 		std::println("---start");
 	}
 
-	std::optional<Context::ComponentArchetypeMountPointRange> Context::IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const
+	Context::ComponentArchetypeMountPointRange Context::IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const
 	{
 		auto [ar, mb, me, sp] = manager.ReadComponents(interface, ite_index, output_span);
 		if(ar)
 		{
 			return ComponentArchetypeMountPointRange{std::move(ar), mb, me, sp};
 		}
-		return std::nullopt;
+		return ComponentArchetypeMountPointRange{ {}, {}, {} };
 	}
 
-	std::optional<Context::ComponentArchetypeMountPointRange> Context::ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const
+	Context::ComponentArchetypeMountPointRange Context::ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const
 	{
 		auto [ar, mp, sp] = manager.ReadEntity(entity, interface, output_span);
 		if (ar)
@@ -221,7 +226,7 @@ namespace Noodles
 			end += 1;
 			return ComponentArchetypeMountPointRange{ std::move(ar), mp, end, sp };
 		}
-		return std::nullopt;
+		return ComponentArchetypeMountPointRange{ {}, {}, {} };
 	}
 
 	void Context::OnFinishTaskFlow(Potato::Task::ExecuteStatus& status)
