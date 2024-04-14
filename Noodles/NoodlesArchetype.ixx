@@ -99,28 +99,12 @@ export namespace Noodles
 		bool operator==(const ArchetypeID& i1) const;
 	};
 
-	struct ArchetypeMountPoint
-	{
-		void* buffer = nullptr;
-		std::size_t element_count = 1;
-		std::size_t index = 0;
-		ArchetypeMountPoint& operator ++() { index += 1; return *this; }
-		ArchetypeMountPoint& operator +=(std::size_t i) { index += i; return *this; }
-		ArchetypeMountPoint& operator --() { assert(index > 0); index -= 1; return *this; }
-		ArchetypeMountPoint& operator -=(std::size_t i) { index -= i; return *this; }
-		std::strong_ordering operator<=>(ArchetypeMountPoint const& mp) const;
-		bool operator==(ArchetypeMountPoint const& i2) const { return buffer == i2.buffer && index == i2.index; }
-		operator bool() const;
-		ArchetypeMountPoint& operator*(){ return *this; }
-		ArchetypeMountPoint const& operator*() const { return *this; }
-		void* GetBuffer() const { return buffer; }
-	};
-
-
 	struct Archetype : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<Archetype>;
 		using OPtr = Potato::Pointer::ObserverPtr<Archetype>;
+
+
 
 		static Ptr Create(std::span<ArchetypeID const> id, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
@@ -143,6 +127,15 @@ export namespace Noodles
 
 		static bool CheckUniqueArchetypeID(std::span<ArchetypeID const>);
 
+		struct ArrayMountPoint
+		{
+			void* archetype_array_buffer = nullptr;
+			std::size_t available_count = 0;
+			std::size_t total_count = 0;
+			operator bool() const { return archetype_array_buffer != nullptr; }
+			void* GetBuffer() const { return archetype_array_buffer; }
+		};
+
 		struct Element
 		{
 			ArchetypeID id;
@@ -156,19 +149,31 @@ export namespace Noodles
 			bool operator==(Element const& i) const { return offset == i.offset && id == i.id; }
 		};
 
-	
-		void* GetData(std::size_t locate_index, ArchetypeMountPoint mount_point) const;
-		static void* GetData(Element const& ref, ArchetypeMountPoint mp);
+		struct RawArray
+		{
+			void* buffer;
+			std::size_t array_count;
+			Potato::IR::Layout element_layout;
+
+			template<typename Type>
+			std::span<Type> Translate() const
+			{
+				assert(element_layout.Align == alignof(Type) && element_layout.Size == sizeof(Type));
+				return std::span(static_cast<Type*>(buffer), array_count);
+			}
+		};
+
+		static void* Get(RawArray raw_data, std::size_t array_index);
+		static RawArray Get(Element const& ref, ArrayMountPoint mount_point);
 
 		static void MoveConstruct(Element const& el, void* target, void* source) { el.id.wrapper_function(ArchetypeID::Status::MoveConstruction, target, source); }
-		static void MoveConstruct(Element const& el, ArchetypeMountPoint target, ArchetypeMountPoint source) { MoveConstruct(el, GetData(el, target), GetData(el, source)); }
-		void MoveConstruct(std::size_t locate_index, void* target, void* source) const { MoveConstruct(GetInfos(locate_index), target, source); }
-		void MoveConstruct(ArchetypeMountPoint target_mp, ArchetypeMountPoint source_mp) const;
+		static void MoveConstruct(Element const& el, RawArray const& target, std::size_t target_index, RawArray const& source, std::size_t source_index) { MoveConstruct(el, Get(target, target_index), Get(source, source_index)); }
+		static void MoveConstruct(Element const& el, ArrayMountPoint const& target, std::size_t target_index, ArrayMountPoint const& source, std::size_t source_index) { assert(target.available_count > target_index && source.available_count > source_index); MoveConstruct(el, Get(el, target), target_index, Get(el, source), source_index); }
 
 		static void Destruct(Element const& el, void* target) { el.id.wrapper_function(ArchetypeID::Status::Destruction, target, nullptr); }
-		static void Destruct(Element const& el, ArchetypeMountPoint target) { Destruct(el, GetData(el, target)); }
-		void Destruct(std::size_t locate_index, void* target) const { return Destruct(GetInfos(locate_index), target); }
-		void Destruct(ArchetypeMountPoint target) const;
+		static void Destruct(Element const& el, RawArray const& target, std::size_t target_index) { Destruct(el, Get(target, target_index)); }
+		static void Destruct(Element const& el, ArrayMountPoint const& target, std::size_t target_index) { Destruct(el, Get(el, target), target_index); }
+
 		Element const* begin() const { return infos.data(); }
 		Element const* end() const { return infos.data() + infos.size(); }
 

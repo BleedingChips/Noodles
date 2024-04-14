@@ -38,35 +38,11 @@ export namespace Noodles
 			std::size_t min_page_size, std::pmr::memory_resource* up_stream
 		) -> Ptr;
 
-		
-
-		ArchetypeMountPoint begin() const
+		Archetype::ArrayMountPoint GetMountPoint() const
 		{
 			return {
 				buffer.data(),
-				max_element_count,
-				0
-			};
-		}
-		ArchetypeMountPoint end() const
-		{
-			return {
-				buffer.data(),
-				max_element_count,
-				available_count
-			};
-		}
-
-		ArchetypeMountPoint GetLastMountPoint() const
-		{
-			return end();
-		}
-
-		ArchetypeMountPoint GetMaxMountPoint() const
-		{
-			return {
-				buffer.data(),
-				max_element_count,
+				available_count,
 				max_element_count
 			};
 		}
@@ -121,7 +97,8 @@ export namespace Noodles
 		mutable std::shared_mutex mutex;
 		EntityStatus status = EntityStatus::Free;
 		Archetype::OPtr archetype;
-		ArchetypeMountPoint mount_point = {};
+		Archetype::ArrayMountPoint mount_point = {};
+		std::size_t array_mount_point_index = 0;
 		std::size_t owner_id = 0;
 		std::size_t archetype_index = std::numeric_limits<std::size_t>::max();
 
@@ -187,10 +164,10 @@ export namespace Noodles
 
 		std::optional<std::size_t> EnumByArchetypeIndex(std::size_t owner_id, std::size_t archetype_index, std::span<std::size_t> output_index) const;
 		std::optional<std::size_t> EnumByIteratorIndex(std::size_t owner_id, std::size_t ite_index, std::size_t& archetype_index, std::span<std::size_t> output_index) const;
-		virtual void OnCreatedArchetype(std::size_t owner_id, std::size_t archetype_index, Archetype const& archetype);
 
 	protected:
 
+		virtual void OnCreatedArchetype(std::size_t owner_id, std::size_t archetype_index, Archetype const& archetype);
 		virtual void OnUnregister() override;
 
 		ComponentFilterInterface(std::pmr::memory_resource* resource = std::pmr::get_default_resource())
@@ -271,20 +248,20 @@ export namespace Noodles
 		SingletonInterface::Ptr singleton_reference;
 	};
 
-	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, ArchetypeMountPoint mp, std::span<std::size_t> index){}
+	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, Archetype::ArrayMountPoint mp, std::size_t mp_index, std::span<std::size_t> index){}
 
 	template<typename T, typename ...AT>
-	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, ArchetypeMountPoint mp, std::span<std::size_t> index, T&& ref, AT&& ...at)
+	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, Archetype::ArrayMountPoint mp, std::size_t mp_index, std::span<std::size_t> index, T&& ref, AT&& ...at)
 	{
 		std::remove_cvref_t<T> tem_ref{std::forward<T>(ref)};
 		auto& el = ac.GetInfos(index[0]);
-		ac.MoveConstruct(el, ac.GetData(el, mp), &tem_ref);
+		ac.MoveConstruct(el, ac.Get(ac.Get(el, mp), mp_index), &tem_ref);
 		try
 		{
 			ArchetypeComponentManagerConstructHelper(ac, mp, index.subspan(1), std::forward<AT>(at)...);
 		}catch (...)
 		{
-			ac.Destruct(el, mp);
+			ac.Destruct(el, ac.Get(ac.Get(el, mp), mp_index));
 			throw;
 		}
 	};
@@ -362,7 +339,21 @@ export namespace Noodles
 		bool RegisterFilter(SingletonFilterInterface::Ptr ptr, std::size_t group_id);
 		std::size_t ReleaseFilter(std::size_t group_id);
 
-		std::tuple<Archetype::OPtr, ArchetypeMountPoint, std::span<std::size_t>> ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const;
+		struct ComponentArray
+		{
+			Archetype::OPtr ac;
+			Archetype::ArrayMountPoint mp;
+			std::span<std::size_t> output_archetype_locate;
+		};
+
+		struct EntityLocate
+		{
+			ComponentArray component_array;
+			std::size_t mp_index;
+		};
+
+		ComponentArray ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite, std::span<std::size_t> output_span) const;
+		EntityLocate ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const;
 
 		template<typename SingType, typename ...OT>
 		Potato::Pointer::ObserverPtr<SingType> CreateSingletonType(OT&& ...ot)
@@ -398,13 +389,12 @@ export namespace Noodles
 		}
 
 		bool ReleaseEntity(Entity::Ptr entity);
-		std::tuple<Archetype::OPtr, ArchetypeMountPoint, ArchetypeMountPoint, std::span<std::size_t>> ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite, std::span<std::size_t> output_span) const;
 
 		Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& filter) const;
 
 	protected:
 
-		std::tuple<Archetype::Ptr, ArchetypeMountPoint, std::size_t> CreateArchetype(std::span<ArchetypeID const> ids, std::span<std::size_t> output);
+		std::tuple<Archetype::Ptr, Archetype::ArrayMountPoint, std::size_t, std::size_t> CreateArchetype(std::span<ArchetypeID const> ids, std::span<std::size_t> output);
 		static bool CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<ArchetypeID const> ids, std::span<std::size_t> output);
 		
 
@@ -443,8 +433,8 @@ export namespace Noodles
 		std::pmr::vector<SingletonElement> singletons;
 		std::optional<std::size_t> update_index;
 
-		ArchetypeMountPoint AllocateAndConstructMountPoint(Element& tar, ArchetypeMountPoint mp);
-		void CopyMountPointFormLast(Element& tar, ArchetypeMountPoint mp);
+		Archetype::ArrayMountPoint AllocateAndConstructMountPoint(Element& tar, Archetype::ArrayMountPoint mp, std::size_t mp_target);
+		void CopyMountPointFormLast(Element& tar, Archetype::ArrayMountPoint mp, std::size_t mp_target);
 
 		enum class SpawnedStatus
 		{
