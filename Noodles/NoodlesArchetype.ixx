@@ -102,7 +102,7 @@ export namespace Noodles
 	struct Archetype : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<Archetype>;
-		using OPtr = Potato::Pointer::ObserverPtr<Archetype>;
+		using OPtr = Potato::Pointer::ObserverPtr<Archetype const>;
 
 
 
@@ -136,6 +136,12 @@ export namespace Noodles
 			void* GetBuffer() const { return archetype_array_buffer; }
 		};
 
+		struct MountPoint
+		{
+			ArrayMountPoint array_mp;
+			std::size_t array_mp_index;
+		};
+
 		struct Element
 		{
 			ArchetypeID id;
@@ -165,6 +171,8 @@ export namespace Noodles
 
 		static void* Get(RawArray raw_data, std::size_t array_index);
 		static RawArray Get(Element const& ref, ArrayMountPoint mount_point);
+		static void* Get(Element const& ref, ArrayMountPoint mount_point, std::size_t array_index) { return  Get(Get(ref,mount_point), array_index); }
+		static void* Get(Element const& ref, MountPoint mount_point) { return  Get(ref, mount_point.array_mp, mount_point.array_mp_index); }
 
 		static void MoveConstruct(Element const& el, void* target, void* source) { el.id.wrapper_function(ArchetypeID::Status::MoveConstruction, target, source); }
 		static void MoveConstruct(Element const& el, RawArray const& target, std::size_t target_index, RawArray const& source, std::size_t source_index) { MoveConstruct(el, Get(target, target_index), Get(source, source_index)); }
@@ -173,6 +181,24 @@ export namespace Noodles
 		static void Destruct(Element const& el, void* target) { el.id.wrapper_function(ArchetypeID::Status::Destruction, target, nullptr); }
 		static void Destruct(Element const& el, RawArray const& target, std::size_t target_index) { Destruct(el, Get(target, target_index)); }
 		static void Destruct(Element const& el, ArrayMountPoint const& target, std::size_t target_index) { Destruct(el, Get(el, target), target_index); }
+
+		void MoveConstruct(ArrayMountPoint const& target, std::size_t target_index, ArrayMountPoint const& source, std::size_t source_index) const
+		{
+			for(auto& ite : *this)
+			{
+				MoveConstruct(ite, target, target_index, source, source_index);
+			}
+		}
+
+		void Destruct(ArrayMountPoint const& target, std::size_t target_index) const
+		{
+			for (auto& ite : *this)
+			{
+				Destruct(ite, target, target_index);
+			}
+		}
+
+		Element const& operator[](std::size_t index) const { assert(index < infos.size()); return infos[index]; }
 
 		Element const* begin() const { return infos.data(); }
 		Element const* end() const { return infos.data() + infos.size(); }

@@ -207,28 +207,6 @@ namespace Noodles
 		std::println("---start");
 	}
 
-	Context::ComponentArchetypeMountPointRange Context::IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const
-	{
-		auto [ar, mb, me, sp] = manager.ReadComponents(interface, ite_index, output_span);
-		if(ar)
-		{
-			return ComponentArchetypeMountPointRange{std::move(ar), mb, me, sp};
-		}
-		return ComponentArchetypeMountPointRange{ {}, {}, {} };
-	}
-
-	Context::ComponentArchetypeMountPointRange Context::ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const
-	{
-		auto [ar, mp, sp] = manager.ReadEntity(entity, interface, output_span);
-		if (ar)
-		{
-			auto end = mp;
-			end += 1;
-			return ComponentArchetypeMountPointRange{ std::move(ar), mp, end, sp };
-		}
-		return ComponentArchetypeMountPointRange{ {}, {}, {} };
-	}
-
 	void Context::OnFinishTaskFlow(Potato::Task::ExecuteStatus& status)
 	{
 		TaskFlow::Update(true);

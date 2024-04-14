@@ -214,19 +214,11 @@ export namespace Noodles
 
 		void FlushStats();
 
-		struct ComponentArchetypeMountPointRange
-		{
-			Archetype::OPtr archetype;
-			ArchetypeMountPoint ite_begin;
-			ArchetypeMountPoint ite_end;
-			std::span<std::size_t const> output;
-			decltype(auto) begin() const { return ite_begin; }
-			decltype(auto) end() const { return ite_end; }
-			operator bool() const { return begin() != end(); }
-		};
+		using ComponentWrapper = ArchetypeComponentManager::ComponentsWrapper;
+		using EntityWrapper = ArchetypeComponentManager::EntityWrapper;
 
-		ComponentArchetypeMountPointRange IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const;
-		ComponentArchetypeMountPointRange ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const;
+		ComponentWrapper IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const { return manager.ReadComponents(interface, ite_index, output_span); }
+		EntityWrapper ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const { { return manager.ReadEntity(entity, interface, output_span); } }
 		Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& interface) { return manager.ReadSingleton(interface);  }
 
 	protected:
@@ -300,22 +292,34 @@ export namespace Noodles
 
 		using OutputIndexT = std::array<std::size_t, sizeof...(ComponentT)>;
 
-		template<std::size_t i>
-		decltype(auto) GetByIndex(ArchetypeMountPoint mp, Context::ComponentArchetypeMountPointRange range) const
+		template<std::size_t index>
+		decltype(auto) GetByIndex(Context::ComponentWrapper range) const
 		{
-			static_assert(i < sizeof...(ComponentT));
-			using Type = Potato::TMP::FindByIndex<i, ComponentT...>::Type;
-			assert(i < range.output.size());
-			return static_cast<std::add_pointer_t<Type>>(range.archetype->GetData(range.output[i], mp));
+			static_assert(index < sizeof...(ComponentT));
+			using Type = Potato::TMP::FindByIndex<index, ComponentT...>::Type;
+			assert(index < range.output_archetype_locate.size());
+			return range.archetype->Get((*range.archetype)[range.output_archetype_locate[index]], range.array_mount_point).Translate<Type>();
 		}
 
 		template<typename Type>
-		decltype(auto) GetByType(ArchetypeMountPoint mp, Context::ComponentArchetypeMountPointRange range) const
+		decltype(auto) GetByType(Context::ComponentWrapper range) const
 		{
 			static_assert(Potato::TMP::IsOneOfV<Type, ComponentT...>);
 			constexpr std::size_t index = Potato::TMP::LocateByType<Type, ComponentT...>::Value;
-			assert(index < range.output.size());
-			return static_cast<std::add_pointer_t<Type>>(range.archetype->GetData(range.output[index], mp));
+			assert(index < range.output_archetype_locate.size());
+			return range.archetype->Get((*range.archetype)[range.output_archetype_locate[index]], range.array_mount_point).Translate<Type>();
+		}
+
+		template<std::size_t index>
+		decltype(auto) GetByIndex(Context::EntityWrapper range) const
+		{
+			return GetByIndex<index>(range.components_wrapper).data() + range.mp_index;
+		}
+
+		template<typename Type>
+		decltype(auto) GetByType(Context::EntityWrapper range) const
+		{
+			return GetByType<Type>(range.components_wrapper).data() + range.mp_index;
 		}
 
 		decltype(auto) IterateComponent(Context& context, std::size_t ite_index, std::span<std::size_t> output) const { return context.IterateComponent(*this, ite_index, output); }

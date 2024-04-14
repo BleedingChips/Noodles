@@ -100,19 +100,15 @@ int main()
 		ComponentFilter<Tuple const, EntityProperty>::OutputIndexT output;
 		auto k = p.IterateComponent(context,0, output);
 
-		for(auto ite : k)
-		{
-			auto L = p.GetByIndex<0>(ite, k);
-			auto O = p.GetByIndex<1>(ite, k);
-			auto K = p.GetByType<Tuple const>(ite, k);
-			volatile int i22 = 0;
-		}
+		auto L = p.GetByIndex<0>(k);
+		auto O = p.GetByIndex<1>(k);
+		auto K = p.GetByType<Tuple const>(k);
 
 		auto k2 = p.ReadEntity(context, *ent, output);
 
 		auto ik = s.Get(context);
 
-		auto I = p.GetByIndex<0>(k2.begin(), k2);
+		auto I = p.GetByIndex<0>( k2);
 
 			std::println("wtf1");
 			

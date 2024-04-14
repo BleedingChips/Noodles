@@ -20,105 +20,6 @@ namespace Noodles
 		return layout == i1.layout && id == i1.id;
 	}
 
-	std::strong_ordering ArchetypeMountPoint::operator<=>(ArchetypeMountPoint const& mp) const
-	{
-		return Potato::Misc::PriorityCompareStrongOrdering(
-			//index, mp.index,
-			buffer, mp.buffer, index, mp.index
-		);
-	}
-
-	ArchetypeMountPoint::operator bool() const
-	{
-		return buffer != nullptr;
-	}
-
-	/*
-	ArchetypeConstructor::ArchetypeConstructor(std::pmr::memory_resource* resource)
-		: elements(resource)
-	{
-		
-	}
-
-	
-	std::optional<std::size_t> ArchetypeConstructor::AddElement(ArchetypeID const& id)
-	{
-		if(*this)
-		{
-			auto find = std::find_if(
-				elements.begin(),
-				elements.end(),
-				[&](Element const& e)
-				{
-					return id <= e.id;
-				}
-			);
-
-			if (find != elements.end() && find->id == id)
-			{
-				if (id.is_singleton)
-				{
-					status = Status::Bad;
-					return std::nullopt;
-				}
-				else
-				{
-					auto old = find->count;
-					find->count += 1;
-					return old;
-				}
-			}
-			else
-			{
-				elements.insert(
-					find,
-					Element{ id, 1 }
-				);
-				return 0;
-			}
-		}
-		return std::nullopt;
-	}
-
-
-	bool ArchetypeConstructor::AddElement(std::span<ArchetypeID const> span, std::size_t& bad_index)
-	{
-		bad_index = 0;
-		for(auto& ite : span)
-		{
-			if(!AddElement(ite))
-				return false;
-			++bad_index;
-		}
-		return true;
-	}
-
-	bool ArchetypeConstructor::AddElement(std::span<ArchetypeID const> span)
-	{
-		for (auto& ite : span)
-		{
-			if (!AddElement(ite))
-				return false;
-		}
-		return true;
-	}
-
-	std::optional<std::size_t> ArchetypeConstructor::Exits(UniqueTypeID const& id) const
-	{
-		auto find = std::find_if(elements.begin(), elements.end(), [&](Element const& e)
-		{
-			return e.id.id == id;
-		});
-
-		if(find != elements.end())
-		{
-			return find->count;
-		}else
-			return std::nullopt;
-	}
-	*/
-
-
 	auto Archetype::Create(std::span<ArchetypeID const> id, std::pmr::memory_resource* resource)
 	->Ptr
 	{
@@ -233,16 +134,19 @@ namespace Noodles
 		return infos[index].id.id;
 	}
 
-	void* Archetype::GetData(Element const& ref, ArchetypeMountPoint mp)
+	void* Archetype::Get(RawArray raw_data, std::size_t array_index)
 	{
-		return static_cast<std::byte*>(mp.buffer) + mp.element_count * ref.offset + mp.index * ref.id.layout.Size;
+		assert(raw_data.array_count > array_index);
+		return static_cast<std::byte*>(raw_data.buffer) + array_index * raw_data.element_layout.Size;
 	}
 
-	void* Archetype::GetData(std::size_t locate_index, ArchetypeMountPoint mount_point) const
+	Archetype::RawArray Archetype::Get(Element const& ref, ArrayMountPoint mount_point)
 	{
-		assert(GetTypeIDCount() > locate_index);
-		assert(mount_point);
-		return GetData(infos[locate_index], mount_point);
+		return RawArray{
+			static_cast<std::byte*>(mount_point.GetBuffer()) + ref.offset * mount_point.total_count,
+			mount_point.available_count,
+			ref.id.layout
+		};
 	}
 
 	bool Archetype::CheckUniqueArchetypeID(std::span<ArchetypeID const> ids)
@@ -256,22 +160,6 @@ namespace Noodles
 			}
 		}
 		return true;
-	}
-
-	void Archetype::MoveConstruct(ArchetypeMountPoint target_mp, ArchetypeMountPoint source_mp) const
-	{
-		for(auto& ite : infos)
-		{
-			MoveConstruct(ite, target_mp, source_mp);
-		}
-	}
-
-	void Archetype::Destruct(ArchetypeMountPoint target) const
-	{
-		for(auto& ite : infos)
-		{
-			Destruct(ite, target);
-		}
 	}
 
 	bool Archetype::operator==(Archetype const& i2) const
