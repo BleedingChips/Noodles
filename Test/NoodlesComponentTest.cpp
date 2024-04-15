@@ -1,7 +1,7 @@
 import std;
 
 import NoodlesComponent;
-import NoodlesSystem;
+
 import PotatoIR;
 
 using namespace Noodles;
@@ -68,7 +68,7 @@ int main()
 
 
 		auto entity = manager.CreateEntityDefer(
-			Report{}, A{ 10086 }, std::u8string{u8"Fuck You"}
+			std::pmr::get_default_resource(), Report{}, A{ 10086 }, std::u8string{u8"Fuck You"}
 		);
 
 		manager.RegisterFilter(&TF, 0);
@@ -77,14 +77,19 @@ int main()
 
 
 		{
-			auto [ar, mp, in] = manager.ReadEntity(*entity, TF, std::span(TemBuffer));
+			auto p = manager.ReadEntity(*entity, TF, std::span(TemBuffer));
 
-			if (ar)
+			if (p)
 			{
-				auto D1 = static_cast<Report*>(ar->GetData(TemBuffer[0], mp));
-				auto D2 = static_cast<A*>(ar->GetData(TemBuffer[1], mp));
-				auto D3 = static_cast<EntityProperty*>(ar->GetData(TemBuffer[2], mp));
-				auto D4 = static_cast<std::u8string*>(ar->GetData(TemBuffer[3], mp));
+				auto D1 = static_cast<Report*>(p.GetRawData(0)) ;
+				auto D2 = static_cast<A*>(p.GetRawData(1));
+				auto D3 = static_cast<EntityProperty*>(p.GetRawData(2));
+				auto D4 = static_cast<std::u8string*>(p.GetRawData(3));
+
+				auto i1 = p.GetRawData(0);
+				auto i2 = p.GetRawData(1);
+				auto i3 = p.GetRawData(2);
+				auto i4 = p.GetRawData(3);
 				*D4 = u8"Lalalal";
 				volatile int i = 0;
 			}
@@ -98,16 +103,18 @@ int main()
 		auto k = manager.ReadSingleton(ATF);
 		if(k != nullptr)
 		{
-			auto op = reinterpret_cast<A*>(k);
+			auto op = reinterpret_cast<A*>(k.GetPointer());
 			volatile int i = 0;
 		}
 
 
 		auto entity2 = manager.CreateEntityDefer(
+			std::pmr::get_default_resource(),
 			Report{}, A{ 10086 }
 		);
 
 		auto entity3 = manager.CreateEntityDefer(
+			std::pmr::get_default_resource(),
 			Report{}, A{ 10086 }
 		);
 
@@ -118,6 +125,7 @@ int main()
 		for(std::size_t i = 0; i < 1000; ++i)
 		{
 			manager.CreateEntityDefer(
+				std::pmr::get_default_resource(),
 				Report{}, A{i}, std::u8string{u8"FastTest"}, C{i * 2}
 			);
 		}
@@ -133,11 +141,17 @@ int main()
 			std::size_t ite = 0;
 			while(true)
 			{
-				auto [ar, mb, me, san] = manager.ReadComponents(TF2, ite++, std::span(TemBuffer2));
+				auto wra = manager.ReadComponents(TF2, ite++, std::span(TemBuffer2));
 				
 
-				if(ar)
+				if(wra)
 				{
+					auto p1 = wra.GetRawArray(1).Translate<A>();
+					auto p2 = wra.GetRawArray(3).Translate<std::u8string>();
+					auto p3 = wra.GetRawArray(4).Translate<std::u8string>();
+
+					/*
+					auto p1 = wra.archetype->Get(wra.output_archetype_locate[], wra.array_mount_point)
 					for (auto i = mb; i != me; ++i)
 					{
 						auto* P1 = static_cast<A*>(ar->GetData(san[1], i));
@@ -146,6 +160,9 @@ int main()
 						total += P1->i;
 						volatile int icc = 0;
 					}
+					*/
+
+					volatile int i = 0;
 					
 				}else
 				{
@@ -156,7 +173,7 @@ int main()
 			volatile int icc = 0;
 		}
 
-
+		/*
 		{
 			auto [ar, mpb, mpe, i] = manager.ReadComponents(TF, 0, std::span(TemBuffer));
 			if (ar && mpb)
@@ -214,6 +231,7 @@ int main()
 		}
 
 		volatile int iss = 0;
+		*/
 	}
 	
 

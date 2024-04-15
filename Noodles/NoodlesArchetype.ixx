@@ -140,6 +140,8 @@ export namespace Noodles
 		{
 			ArrayMountPoint array_mp;
 			std::size_t array_mp_index;
+			operator bool() const { return array_mp && array_mp_index < array_mp.available_count; }
+			void* GetBuffer() const { return array_mp.GetBuffer(); }
 		};
 
 		struct Element
@@ -174,6 +176,9 @@ export namespace Noodles
 		static void* Get(Element const& ref, ArrayMountPoint mount_point, std::size_t array_index) { return  Get(Get(ref,mount_point), array_index); }
 		static void* Get(Element const& ref, MountPoint mount_point) { return  Get(ref, mount_point.array_mp, mount_point.array_mp_index); }
 
+		RawArray Get(std::size_t index, ArrayMountPoint mount_point) const { return Get(infos[index], mount_point); }
+
+
 		static void MoveConstruct(Element const& el, void* target, void* source) { el.id.wrapper_function(ArchetypeID::Status::MoveConstruction, target, source); }
 		static void MoveConstruct(Element const& el, RawArray const& target, std::size_t target_index, RawArray const& source, std::size_t source_index) { MoveConstruct(el, Get(target, target_index), Get(source, source_index)); }
 		static void MoveConstruct(Element const& el, ArrayMountPoint const& target, std::size_t target_index, ArrayMountPoint const& source, std::size_t source_index) { assert(target.available_count > target_index && source.available_count > source_index); MoveConstruct(el, Get(el, target), target_index, Get(el, source), source_index); }
@@ -181,6 +186,7 @@ export namespace Noodles
 		static void Destruct(Element const& el, void* target) { el.id.wrapper_function(ArchetypeID::Status::Destruction, target, nullptr); }
 		static void Destruct(Element const& el, RawArray const& target, std::size_t target_index) { Destruct(el, Get(target, target_index)); }
 		static void Destruct(Element const& el, ArrayMountPoint const& target, std::size_t target_index) { Destruct(el, Get(el, target), target_index); }
+		static void Destruct(Element const& el, MountPoint const& target) { Destruct(el, target.array_mp, target.array_mp_index); }
 
 		void MoveConstruct(ArrayMountPoint const& target, std::size_t target_index, ArrayMountPoint const& source, std::size_t source_index) const
 		{
@@ -198,12 +204,11 @@ export namespace Noodles
 			}
 		}
 
-		Element const& operator[](std::size_t index) const { assert(index < infos.size()); return infos[index]; }
+		Element const& GetInfos(std::size_t index) const { assert(index < infos.size()); return infos[index]; }
+		Element const& operator[](std::size_t index) const { return GetInfos(index); }
 
 		Element const* begin() const { return infos.data(); }
 		Element const* end() const { return infos.data() + infos.size(); }
-
-		Element const& GetInfos(std::size_t index) const { assert(index < infos.size()); return infos[index]; }
 
 	protected:
 

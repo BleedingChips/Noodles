@@ -253,20 +253,20 @@ export namespace Noodles
 		SingletonInterface::Ptr singleton_reference;
 	};
 
-	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, Archetype::ArrayMountPoint mp, std::size_t mp_index, std::span<std::size_t> index){}
+	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, Archetype::MountPoint mp, std::span<std::size_t> index){}
 
 	template<typename T, typename ...AT>
-	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, Archetype::ArrayMountPoint mp, std::size_t mp_index, std::span<std::size_t> index, T&& ref, AT&& ...at)
+	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, Archetype::MountPoint mp, std::span<std::size_t> index, T&& ref, AT&& ...at)
 	{
 		std::remove_cvref_t<T> tem_ref{std::forward<T>(ref)};
 		auto& el = ac.GetInfos(index[0]);
-		ac.MoveConstruct(el, ac.Get(ac.Get(el, mp), mp_index), &tem_ref);
+		ac.MoveConstruct(el, ac.Get(el, mp), &tem_ref);
 		try
 		{
 			ArchetypeComponentManagerConstructHelper(ac, mp, index.subspan(1), std::forward<AT>(at)...);
 		}catch (...)
 		{
-			ac.Destruct(el, ac.Get(ac.Get(el, mp), mp_index));
+			ac.Destruct(el, ac.Get(el, mp));
 			throw;
 		}
 	};
@@ -305,16 +305,16 @@ export namespace Noodles
 				{
 					std::array<std::size_t, sizeof...(at) + 1> output_index;
 					auto [archetype_ptr, archetype_index, mp] = CreateArchetype(archetype_ids, output_index);
-					if (archetype_ptr && mp.Getbuffer() != nullptr)
+					if (archetype_ptr && mp.GetBuffer() != nullptr)
 					{
 						EntityProperty pro{ entity_ptr };
 						auto& ref = archetype_ptr->GetInfos(output_index[0]);
-						archetype_ptr->MoveConstruct(ref, archetype_ptr->GetData(ref, mp), &pro);
+						archetype_ptr->MoveConstruct(ref, archetype_ptr->Get(ref, mp), &pro);
 						try
 						{
 							ArchetypeComponentManagerConstructHelper(*archetype_ptr, mp, std::span(output_index).subspan(1), std::forward<AT>(at)...);
 							entity_ptr->archetype_index = archetype_index;
-							entity_ptr->data_or_mount_point_index = static_cast<std::size_t>(mp.GetBuffer());
+							entity_ptr->data_or_mount_point_index = reinterpret_cast<std::size_t>(mp.GetBuffer());
 							entity_ptr->owner_id = reinterpret_cast<std::size_t>(this);
 							entity_ptr->status = EntityStatus::PreInit;
 							std::lock_guard lg(spawn_mutex);
@@ -325,7 +325,7 @@ export namespace Noodles
 						catch (...)
 						{
 							archetype_ptr->Destruct(ref, mp);
-							temp_resource.deallocate(mp.GetBuffer(), archetype_ptr->GetSingleLayout().Size);
+							temp_resource->deallocate(mp.GetBuffer(), archetype_ptr->GetSingleLayout().Size);
 							throw;
 						}
 					}
@@ -346,6 +346,7 @@ export namespace Noodles
 			Archetype::ArrayMountPoint array_mount_point;
 			std::span<std::size_t> output_archetype_locate;
 			operator bool() const { return archetype; }
+			Archetype::RawArray GetRawArray(std::size_t index) const { return archetype->Get(output_archetype_locate[index], array_mount_point); }
 		};
 
 		struct EntityWrapper
@@ -353,6 +354,8 @@ export namespace Noodles
 			ComponentsWrapper components_wrapper;
 			std::size_t mp_index;
 			operator bool() const { return components_wrapper; }
+
+			void* GetRawData(std::size_t index) const { return  components_wrapper.archetype->Get(components_wrapper.GetRawArray(index), mp_index); }
 		};
 
 		ComponentsWrapper ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite, std::span<std::size_t> output_span) const;
@@ -372,7 +375,7 @@ export namespace Noodles
 			});
 			if(f == singletons.end())
 			{
-				auto re = Potato::IR::MemoryResourceRecord::Allocate<Type>(&singleton_resource);
+				auto re = Potato::IR::MemoryResourceRecord::Allocate<Type>(singleton_resource);
 				if(re)
 				{
 					Type* ptr = new (re.Get()) Type {re, std::forward<OT>(ot)...};
@@ -479,9 +482,9 @@ export namespace Noodles
 		std::pmr::vector<CompFilterElement> filter_mapping;
 		std::pmr::vector<SingletonFilterElement> singleton_filters;
 
-		std::pmr::synchronized_pool_resource singleton_resource;
+		std::pmr::memory_resource* singleton_resource;
 
-		std::pmr::synchronized_pool_resource temp_resource;
+		std::pmr::memory_resource* temp_resource;
 	};
 
 }

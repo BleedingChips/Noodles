@@ -363,7 +363,7 @@ namespace Noodles
 					}
 
 					auto slayout = ref2.archetype->GetSingleLayout();
-					temp_resource.deallocate(buffer, slayout.Size, slayout.Align);
+					temp_resource->deallocate(buffer, slayout.Size, slayout.Align);
 					ref.SetFree();
 				}
 			}
@@ -446,7 +446,7 @@ namespace Noodles
 
 			if(!archetype_ptr)
 			{
-				std::pmr::vector<ArchetypeID> temp_ids(&temp_resource);
+				std::pmr::vector<ArchetypeID> temp_ids(temp_resource);
 				temp_ids.reserve(ids.size());
 				for (auto& ite : ids)
 				{
@@ -490,7 +490,7 @@ namespace Noodles
 
 		if (archetype_ptr)
 		{
-			auto mp = Potato::IR::MemoryResourceRecord::Allocate(&temp_resource, archetype_ptr->GetSingleLayout());
+			auto mp = Potato::IR::MemoryResourceRecord::Allocate(temp_resource, archetype_ptr->GetSingleLayout());
 			return { archetype_ptr, archetype_index, {
 				{mp.GetResource(), 1, 1},
 				0
@@ -680,7 +680,7 @@ namespace Noodles
 									);
 								}
 								auto slayout = ref.archetype->GetSingleLayout();
-								temp_resource.deallocate(buffer, slayout.Size, slayout.Align);
+								temp_resource->deallocate(buffer, slayout.Size, slayout.Align);
 						}break;
 						case SpawnedStatus::NewButNeedRemove:
 						{
@@ -692,7 +692,7 @@ namespace Noodles
 								);
 							}
 							auto slayout = ref.archetype->GetSingleLayout();
-							temp_resource.deallocate(buffer, slayout.Size, slayout.Align);
+							temp_resource->deallocate(buffer, slayout.Size, slayout.Align);
 							ite->entity->SetFree();
 						}break;
 						case SpawnedStatus::RemoveOld:

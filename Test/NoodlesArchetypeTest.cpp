@@ -38,13 +38,13 @@ int main()
 
 	Tot temp;
 
-	auto re_ad1 = ptr->GetData(0, {&temp});
+	auto re_ad1 = ptr->Get((*ptr)[0], {&temp, 1, 1}, 0);
 	static_cast<A*>(re_ad1)->i = 10086;
 
-	auto re_ad2 = ptr->GetData(1, { &temp });
+	auto re_ad2 = ptr->Get((*ptr)[1], { &temp, 1, 1 }, 0);
 	static_cast<B*>(re_ad2)->i = 100;
 
-	auto re_ad3 = ptr->GetData(2, { &temp });
+	auto re_ad3 = ptr->Get((*ptr)[2], { &temp, 1, 1 }, 0);
 	static_cast<C*>(re_ad3)->i = 86;
 
 	auto re_ad4 = ptr->LocateTypeID(UniqueTypeID::Create<D>());

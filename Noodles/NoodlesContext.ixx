@@ -180,6 +180,7 @@ export namespace Noodles
 		struct SyncResource
 		{
 			std::pmr::memory_resource* context_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* entity_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* archetype_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* component_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* singleton_resource = std::pmr::get_default_resource();
@@ -192,7 +193,7 @@ export namespace Noodles
 
 		static Ptr Create(Config config = {}, std::u8string_view name = u8"Noodles Default Context", SyncResource resource = {});
 		template<typename ...AT>
-		EntityPtr CreateEntityDefer(AT&& ...at) { return manager.CreateEntityDefer(std::forward<AT>(at)...); }
+		EntityPtr CreateEntityDefer(AT&& ...at) { return manager.CreateEntityDefer(entity_resource, std::forward<AT>(at)...); }
 
 		bool Commit(Potato::Task::TaskContext& context, Potato::Task::TaskProperty property);
 
@@ -255,7 +256,8 @@ export namespace Noodles
 		std::pmr::vector<SystemTuple> systems;
 		std::pmr::vector<RWUniqueTypeID> rw_unique_id;
 
-		std::pmr::synchronized_pool_resource system_resource;
+		std::pmr::memory_resource* system_resource;
+		std::pmr::memory_resource* entity_resource;
 
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 		friend struct SystemHolder;
@@ -601,7 +603,7 @@ export namespace Noodles
 	{
 		std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
 		ReadWriteMutexGenerator generator(&temp_resource);
-		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), generator, property, name, &system_resource, parameter_resource);
+		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), generator, property, name, system_resource, parameter_resource);
 		return RegisterSystem(std::move(ptr), priority, property, order_func, task_property, generator);
 	}
 	
