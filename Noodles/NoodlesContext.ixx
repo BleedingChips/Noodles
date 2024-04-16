@@ -256,9 +256,9 @@ export namespace Noodles
 		std::pmr::vector<SystemTuple> systems;
 		std::pmr::vector<RWUniqueTypeID> rw_unique_id;
 
-		std::pmr::memory_resource* system_resource;
-		std::pmr::memory_resource* entity_resource;
-
+		std::pmr::memory_resource* system_resource = nullptr;
+		std::pmr::memory_resource* entity_resource = nullptr;
+ 
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 		friend struct SystemHolder;
 	};

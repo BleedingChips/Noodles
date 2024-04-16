@@ -177,6 +177,7 @@ export namespace Noodles
 		static void* Get(Element const& ref, MountPoint mount_point) { return  Get(ref, mount_point.array_mp, mount_point.array_mp_index); }
 
 		RawArray Get(std::size_t index, ArrayMountPoint mount_point) const { return Get(infos[index], mount_point); }
+		void* Get(std::size_t index, ArrayMountPoint mount_point, std::size_t mount_point_index) const { return Get(infos[index], mount_point, mount_point_index); }
 
 
 		static void MoveConstruct(Element const& el, void* target, void* source) { el.id.wrapper_function(ArchetypeID::Status::MoveConstruction, target, source); }

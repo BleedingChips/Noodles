@@ -123,8 +123,6 @@ export namespace Noodles
 
 		using NoodlesProperty = IgnoreMutexProperty;
 
-		~EntityProperty();
-
 	protected:
 
 		Entity::Ptr entity;
@@ -424,6 +422,7 @@ export namespace Noodles
 		{
 			Archetype::Ptr archetype;
 			ComponentPage::Ptr memory_page;
+			std::size_t entity_property_locate;
 			std::size_t total_count;
 		};
 

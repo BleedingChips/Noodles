@@ -160,7 +160,7 @@ namespace Noodles
 
 	Context::Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record, SyncResource resource) noexcept
 		: config(config), name(name), record(record), manager({resource.context_resource, resource.archetype_resource, resource.component_resource, resource.singleton_resource}),
-		systems(resource.context_resource), rw_unique_id(resource.context_resource), system_resource(resource.system_resource)
+		systems(resource.context_resource), rw_unique_id(resource.context_resource), system_resource(resource.system_resource), entity_resource(resource.entity_resource)
 	{
 
 	}

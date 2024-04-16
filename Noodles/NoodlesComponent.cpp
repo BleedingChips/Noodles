@@ -128,15 +128,6 @@ namespace Noodles
 		
 	}
 
-	EntityProperty::~EntityProperty()
-	{
-		if (entity)
-		{
-			std::lock_guard lg(entity->mutex);
-			entity->SetFree();
-		}
-	}
-
 	bool FilterInterface::Register(std::size_t in_owner_id)
 	{
 		std::lock_guard lg(filter_mutex);
@@ -378,10 +369,19 @@ namespace Noodles
 				{
 					auto mp = ite.memory_page->GetMountPoint();
 					auto index = ite.memory_page->available_count;
+					auto entity_property = ite.archetype->Get(ite.entity_property_locate, mp).Translate<EntityProperty>();
+					for(auto& ite : entity_property)
+					{
+						auto entity = ite.GetEntity();
+						assert(entity);
+						std::lock_guard lg(entity->mutex);
+						entity->SetFree();
+					}
 					for (auto& ite3 : *ite.archetype)
 					{
+						auto array_list = ite.archetype->Get(ite3, ite2->GetMountPoint());
 						for(std::size_t i = 0; i < index; ++i)
-							ite.archetype->Destruct(ite3, ite2->GetMountPoint(), i);
+							ite.archetype->Destruct(ite3, array_list, i);
 					}
 				}
 				
@@ -460,9 +460,12 @@ namespace Noodles
 
 				if (archetype_ptr)
 				{
+					auto loc = archetype_ptr->LocateTypeID(UniqueTypeID::Create<EntityProperty>());
+					assert(loc);
 					components.emplace_back(
 						archetype_ptr,
 						ComponentPage::Ptr{},
+						*loc,
 						0
 					);
 					{
@@ -492,7 +495,7 @@ namespace Noodles
 		{
 			auto mp = Potato::IR::MemoryResourceRecord::Allocate(temp_resource, archetype_ptr->GetSingleLayout());
 			return { archetype_ptr, archetype_index, {
-				{mp.GetResource(), 1, 1},
+				{mp.Get(), 1, 1},
 				0
 			}};
 		}
@@ -737,14 +740,17 @@ namespace Noodles
 				if(new_page)
 				{
 					auto t1 = new_page->GetMountPoint();
+					new_page->available_count = tar.memory_page->available_count;
 					auto t2 = tar.memory_page->GetMountPoint();
 					auto last_index = t2.available_count;
 					for(auto& ite : *tar.archetype)
 					{
+						auto ar1 = tar.archetype->Get(ite, t1);
+						auto ar2 = tar.archetype->Get(ite, t2);
 						for (std::size_t i2 = 0; i2 < last_index; ++i2)
 						{
-							tar.archetype->MoveConstruct(ite, t1, i2, t2, i2);
-							tar.archetype->Destruct(ite, t2, i2);
+							tar.archetype->MoveConstruct(ite, ar1, i2, ar1, i2);
+							tar.archetype->Destruct(ite, ar1, i2);
 						}
 					}
 					new_page->available_count = tar.memory_page->available_count;
@@ -758,12 +764,11 @@ namespace Noodles
 
 		if(tar.memory_page)
 		{
-			auto nmp = tar.memory_page->GetMountPoint();
-			auto next_index = nmp.available_count + 1;
-			tar.archetype->MoveConstruct(nmp, next_index, mp, next_index);
-			auto cur = tar.memory_page->available_count;
 			tar.memory_page->available_count += 1;
-			return cur;
+			auto nmp = tar.memory_page->GetMountPoint();
+			auto next_index = nmp.available_count - 1;
+			tar.archetype->MoveConstruct(nmp, next_index, mp, mp_target);
+			return next_index;
 		}
 
 		return std::nullopt;
@@ -776,8 +781,12 @@ namespace Noodles
 		last.available_count -= 1;
 		if(last.available_count != mp_index)
 		{
+			auto pro = static_cast<EntityProperty*>(tar.archetype->Get(tar.entity_property_locate, last, last.available_count));
+			auto tar_entity = pro->GetEntity();
 			tar.archetype->MoveConstruct(mp, mp_index, last, last.available_count);
 			tar.archetype->Destruct(last, last.available_count);
+			std::lock_guard lg(tar_entity->mutex);
+			tar_entity->data_or_mount_point_index = mp_index;
 		}
 	}
 
