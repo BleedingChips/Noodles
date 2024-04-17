@@ -159,8 +159,19 @@ namespace Noodles
 	}
 
 	Context::Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record, SyncResource resource) noexcept
-		: config(config), name(name), record(record), manager({resource.context_resource, resource.archetype_resource, resource.component_resource, resource.singleton_resource}),
-		systems(resource.context_resource), rw_unique_id(resource.context_resource), system_resource(resource.system_resource), entity_resource(resource.entity_resource)
+		: config(config), name(name), record(record),
+		manager({
+			resource.context_resource,
+			resource.archetype_resource,
+			resource.component_resource,
+			resource.singleton_resource,
+			resource.temporary_resource
+		}),
+		systems(resource.context_resource),
+		rw_unique_id(resource.context_resource),
+		system_resource(resource.system_resource),
+		entity_resource(resource.entity_resource),
+		temporary_resource(resource.temporary_resource)
 	{
 
 	}
@@ -191,8 +202,53 @@ namespace Noodles
 
 	void Context::FlushStats()
 	{
+		{
+			std::lock_guard lg(system_mutex);
+			if(need_update)
+			{
+				need_update = false;
+				for(auto & ite : systems)
+				{
+					// todo
+				} 
+			}
+		}
 		TaskFlow::Update(true);
 		manager.ForceUpdateState();
+	}
+
+	bool Context::RemoveSystemDefer(Property require_property)
+	{
+		std::lock_guard lg(system_mutex);
+		std::size_t count = 0;
+		for(auto& ite : systems)
+		{
+			assert(ite.system);
+			if(ite.status == SystemStatus::Normal && ite.system->GetProperty() == require_property)
+			{
+				ite.status = SystemStatus::NeedRemove;
+				count += 1;
+				need_update = true;
+			}
+		}
+		return count;
+	}
+
+	bool Context::RemoveSystemDeferByGroud(std::u8string_view group_name)
+	{
+		std::lock_guard lg(system_mutex);
+		std::size_t count = 0;
+		for(auto& ite : systems)
+		{
+			assert(ite.system);
+			if(ite.status == SystemStatus::Normal && ite.system->GetProperty().group == group_name)
+			{
+				ite.status = SystemStatus::NeedRemove;
+				count += 1;
+				need_update = true;
+			}
+		}
+		return count;
 	}
 
 	bool Context::Commit(Potato::Task::TaskContext& context, Potato::Task::TaskProperty property)
@@ -237,6 +293,8 @@ namespace Noodles
 
 				for(auto& ite : systems)
 				{
+					if(ite.status == SystemStatus::NeedRemove)
+						continue;
 					auto re = ite.priority <=> priority;
 					bool is_conflict = false;
 
@@ -303,7 +361,8 @@ namespace Noodles
 					comp_ind,
 					single_ind,
 					mutex.system,
-					func
+					func,
+					SystemStatus::Normal
 				);
 				need_update = true;
 			}

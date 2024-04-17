@@ -11,9 +11,7 @@ import PotatoPointer;
 import PotatoIR;
 import PotatoTaskSystem;
 
-import NoodlesMemory;
 export import NoodlesArchetype;
-export import NoodlesEntity;
 
 export namespace Noodles
 {
@@ -279,6 +277,7 @@ export namespace Noodles
 			std::pmr::memory_resource* archetype_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* component_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* singleton_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource();
 		};
 
 		ArchetypeComponentManager(SyncResource resource = {});
@@ -482,7 +481,6 @@ export namespace Noodles
 		std::pmr::vector<SingletonFilterElement> singleton_filters;
 
 		std::pmr::memory_resource* singleton_resource;
-
 		std::pmr::memory_resource* temp_resource;
 	};
 

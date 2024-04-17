@@ -302,7 +302,7 @@ namespace Noodles
 
 
 	ArchetypeComponentManager::ArchetypeComponentManager(SyncResource resource)
-		:components(resource.manager_resource), spawned_entities(resource.manager_resource), temp_resource(resource.manager_resource),
+		:components(resource.manager_resource), spawned_entities(resource.manager_resource), temp_resource(resource.temporary_resource),
 		archetype_resource(resource.archetype_resource),components_resource(resource.component_resource), singletons(resource.manager_resource),
 		filter_mapping(resource.manager_resource), singleton_filters(resource.manager_resource), singleton_resource(resource.singleton_resource)
 	{

@@ -14,7 +14,6 @@ import PotatoTaskFlow;
 import PotatoTMP;
 
 
-import NoodlesMemory;
 import NoodlesArchetype;
 import NoodlesComponent;
 
@@ -185,6 +184,7 @@ export namespace Noodles
 			std::pmr::memory_resource* component_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* singleton_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* system_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource();
 		};
 
 		using OrderFunction = Order(*)(Property p1, Property p2);
@@ -200,8 +200,7 @@ export namespace Noodles
 		template<typename Func>
 		bool CreateTickSystemAuto(Priority priority, Property property,
 			Func&& func, OrderFunction order_func = nullptr, Potato::Task::TaskProperty task_property = {},
-				std::pmr::memory_resource* parameter_resource = std::pmr::get_default_resource(),
-			std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource()
+				std::pmr::memory_resource* parameter_resource = std::pmr::get_default_resource()
 		);
 
 		template<typename SingletonT, typename ...OT>
@@ -221,6 +220,9 @@ export namespace Noodles
 		ComponentWrapper IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const { return manager.ReadComponents(interface, ite_index, output_span); }
 		EntityWrapper ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const { { return manager.ReadEntity(entity, interface, output_span); } }
 		Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& interface) { return manager.ReadSingleton(interface);  }
+
+		bool RemoveSystemDefer(Property require_property);
+		bool RemoveSystemDeferByGroud(std::u8string_view);
 
 	protected:
 
@@ -242,6 +244,13 @@ export namespace Noodles
 		ArchetypeComponentManager manager;
 
 		std::mutex system_mutex;
+
+		enum class SystemStatus
+		{
+			Normal,
+			NeedRemove,
+		};
+
 		struct SystemTuple
 		{
 			SystemHolder::Ptr system;
@@ -251,13 +260,16 @@ export namespace Noodles
 			Potato::Misc::IndexSpan<> singleton_index;
 			std::optional<RWUniqueTypeID> system_infos;
 			OrderFunction order_function;
+			SystemStatus status = SystemStatus::Normal;
 		};
 
 		std::pmr::vector<SystemTuple> systems;
 		std::pmr::vector<RWUniqueTypeID> rw_unique_id;
+		bool system_need_remove = false;
 
 		std::pmr::memory_resource* system_resource = nullptr;
 		std::pmr::memory_resource* entity_resource = nullptr;
+		std::pmr::memory_resource* temporary_resource = nullptr;
  
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 		friend struct SystemHolder;
@@ -597,8 +609,7 @@ export namespace Noodles
 	export template<typename Func>
 	bool Context::CreateTickSystemAuto(Priority priority, Property property,
 		Func&& func, OrderFunction order_func, Potato::Task::TaskProperty task_property, 
-		std::pmr::memory_resource* parameter_resource,
-		std::pmr::memory_resource* temporary_resource
+		std::pmr::memory_resource* parameter_resource
 	)
 	{
 		std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
