@@ -141,25 +141,8 @@ namespace Noodles
 		SystemExecute(context);
 	}
 
-	void Context::AddTaskRef() const
-	{
-		DefaultIntrusiveInterface::AddRef();
-	}
-
-	void Context::SubTaskRef() const
-	{
-		DefaultIntrusiveInterface::SubRef();
-	}
-
-	void Context::Release()
-	{
-		auto re = record;
-		this->~Context();
-		re.Deallocate();
-	}
-
-	Context::Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record, SyncResource resource) noexcept
-		: config(config), name(name), record(record),
+	Context::Context(Config config, std::u8string_view name, SyncResource resource) noexcept
+		: config(config), name(name), 
 		manager({
 			resource.context_resource,
 			resource.archetype_resource,
@@ -171,49 +154,87 @@ namespace Noodles
 		rw_unique_id(resource.context_resource),
 		system_resource(resource.system_resource),
 		entity_resource(resource.entity_resource),
-		temporary_resource(resource.temporary_resource)
+		temporary_resource(resource.temporary_resource),
+		context_resource(resource.context_resource)
 	{
 
 	}
 
-	auto Context::Create(Config config, std::u8string_view name, SyncResource resource) -> Ptr
+	bool Context::FlushSystemStatus(std::pmr::vector<Potato::Task::TaskFlow::ErrorNode>* error)
 	{
-		auto fix_layout = Potato::IR::Layout::Get<Context>();
-		std::size_t offset = 0;
-		if(!name.empty())
+		bool taskflow_need_update = false;
+
 		{
-			offset = Potato::IR::InsertLayoutCPP(fix_layout, Potato::IR::Layout::GetArray<char8_t>(name.size()));
-			Potato::IR::FixLayoutCPP(fix_layout);
+			std::lock_guard lg(mutex);
+			if(need_update)
+			{
+				taskflow_need_update = true;
+			}
 		}
 
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource.context_resource, fix_layout);
-		if(re)
 		{
-			if(!name.empty())
+			std::lock_guard lg(system_mutex);
+			if(system_need_remove)
 			{
-				std::memcpy(re.GetByte() + offset, name.data(), sizeof(char8_t) * name.size());
-				name = std::u8string_view{ reinterpret_cast<char8_t const*>(re.GetByte() + offset), name.size() };
+				for(auto & ite : systems)
+				{
+					if(ite.status == SystemStatus::NeedRemove)
+					{
+						TaskFlow::Remove(ite.system.GetPointer());
+						taskflow_need_update = true;
+					}
+				}
 			}
-			
-			return new (re.Get()) Context{config, name, re, resource };
 		}
-		return {};
+
+		if(taskflow_need_update && TaskFlow::TryUpdate(error, context_resource))
+		{
+			{
+				std::lock_guard lg(mutex);
+				if(need_update)
+				{
+					need_update = false;
+				}
+			}
+
+			{
+				std::lock_guard lg(system_mutex);
+				if(system_need_remove)
+				{
+					system_need_remove = false;
+					std::size_t offset = 0;
+					for(auto & ite : systems)
+					{
+						ite.component_index.WholeForward(offset);
+						ite.singleton_index.WholeForward(offset);
+						if(ite.status == SystemStatus::NeedRemove)
+						{
+							auto start = ite.component_index.Begin();
+							auto end = ite.singleton_index.End();
+							rw_unique_id.erase(rw_unique_id.begin() + start, rw_unique_id.begin() + end);
+							offset += end - start;
+							UnRegisterFilter(*ite.system);
+							TaskFlow::Remove(ite.system.GetPointer());
+						}
+					}
+
+					systems.erase(std::remove_if(systems.begin(), systems.end(), [](SystemTuple const& tup)
+					{
+						return tup.status == SystemStatus::NeedRemove;
+					}), systems.end());
+				}
+			}
+			return true;
+		}
+
+
+		
+		return false;
 	}
 
 	void Context::FlushStats()
 	{
-		{
-			std::lock_guard lg(system_mutex);
-			if(need_update)
-			{
-				need_update = false;
-				for(auto & ite : systems)
-				{
-					// todo
-				} 
-			}
-		}
-		TaskFlow::Update(true);
+		FlushSystemStatus();
 		manager.ForceUpdateState();
 	}
 
@@ -228,7 +249,7 @@ namespace Noodles
 			{
 				ite.status = SystemStatus::NeedRemove;
 				count += 1;
-				need_update = true;
+				system_need_remove = true;
 			}
 		}
 		return count;
@@ -251,34 +272,59 @@ namespace Noodles
 		return count;
 	}
 
-	bool Context::Commit(Potato::Task::TaskContext& context, Potato::Task::TaskProperty property)
+	bool Context::Commit(Potato::Task::TaskContext& context, Potato::Task::TaskFilter task_filter, Potato::Task::AppendData user_data)
 	{
-		return TaskFlow::Commit(context, property, name);
+		Potato::Task::TaskProperty pro
+		{
+			name,
+			user_data,
+			task_filter
+		};
+		return TaskFlow::Commit(context, pro, context_resource);
 	}
 
-	void Context::OnBeginTaskFlow(Potato::Task::ExecuteStatus& status)
+	void Context::TaskFlowExecuteBegin(Potato::Task::ExecuteStatus& status, Potato::Task::TaskFlowExecute& execute)
 	{
 		std::lock_guard lg(mutex);
 		start_up_tick_lock = std::chrono::steady_clock::now();
 		std::println("---start");
 	}
 
-	void Context::OnFinishTaskFlow(Potato::Task::ExecuteStatus& status)
+	void Context::TaskFlowExecuteEnd(Potato::Task::ExecuteStatus& status, Potato::Task::TaskFlowExecute& execute)
 	{
-		TaskFlow::Update(true);
-		manager.ForceUpdateState();
-		
-		std::lock_guard lg(mutex);
-		std::println("---finish");
-		if (require_quit)
+		std::chrono::steady_clock::time_point target_time = std::chrono::steady_clock::now();
 		{
-			require_quit = false;
-			return;
+			std::lock_guard lg(mutex);
+			std::println("---finish");
+			if (require_quit)
+			{
+				require_quit = false;
+				return;
+			}
+			target_time = start_up_tick_lock + config.min_frame_time;
 		}
-		TaskFlow::CommitDelay(status.context, start_up_tick_lock + config.min_frame_time, status.task_property, name);
+
+
+		bool need_refresh = FlushSystemStatus();
+		manager.ForceUpdateState();
+		if(need_refresh)
+		{
+			if(execute.ReCloneNode())
+			{
+				execute.Reset();
+				execute.Commit(status.context,target_time);
+			}else
+			{
+				TaskFlow::Commit(status.context, status.task_property, context_resource);
+			}
+		}else
+		{
+			execute.Reset();
+			execute.Commit(status.context,target_time);
+		}
 	}
 
-	bool Context::RegisterSystem(SystemHolder::Ptr ptr, Priority priority, Property property, OrderFunction func, Potato::Task::TaskProperty task_property, ReadWriteMutexGenerator& generator)
+	bool Context::RegisterSystem(SystemHolder::Ptr ptr, Priority priority, Property property, OrderFunction func, std::optional<Potato::Task::TaskFilter> task_filter, ReadWriteMutexGenerator& generator)
 	{
 		bool need_update = false;
 		if(ptr)
@@ -287,7 +333,13 @@ namespace Noodles
 
 			Potato::Task::TaskFlowNode::Ptr tptr = ptr.GetPointer();
 
-			if(AddNode(tptr, task_property, ptr->GetDisplayName()))
+			struct Potato::Task::NodeProperty np
+			{
+				ptr->GetDisplayName(),
+				task_filter
+			};
+
+			if(AddNode(tptr, np))
 			{
 				auto mutex = generator.GetMutex();
 

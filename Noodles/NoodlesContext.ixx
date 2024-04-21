@@ -158,9 +158,7 @@ export namespace Noodles
 		friend struct Context;
 	};
 
-	
-
-	export struct Context : protected Potato::Task::TaskFlow, protected Potato::Pointer::DefaultIntrusiveInterface
+	export struct Context : protected Potato::Task::TaskFlow
 	{
 
 		enum class Order
@@ -189,17 +187,16 @@ export namespace Noodles
 
 		using OrderFunction = Order(*)(Property p1, Property p2);
 
-		using Ptr = Potato::Pointer::IntrusivePtr<Context, Potato::Pointer::DefaultIntrusiveWrapper>;
+		using Ptr = Potato::Pointer::IntrusivePtr<Context, TaskFlow::Wrapper>;
 
-		static Ptr Create(Config config = {}, std::u8string_view name = u8"Noodles Default Context", SyncResource resource = {});
 		template<typename ...AT>
 		EntityPtr CreateEntityDefer(AT&& ...at) { return manager.CreateEntityDefer(entity_resource, std::forward<AT>(at)...); }
 
-		bool Commit(Potato::Task::TaskContext& context, Potato::Task::TaskProperty property);
+		bool Commit(Potato::Task::TaskContext& context, Potato::Task::TaskFilter task_filter = {}, Potato::Task::AppendData user_data = {});
 
 		template<typename Func>
 		bool CreateTickSystemAuto(Priority priority, Property property,
-			Func&& func, OrderFunction order_func = nullptr, Potato::Task::TaskProperty task_property = {},
+			Func&& func, OrderFunction order_func = nullptr, std::optional<Potato::Task::TaskFilter> task_filter = std::nullopt,
 				std::pmr::memory_resource* parameter_resource = std::pmr::get_default_resource()
 		);
 
@@ -224,18 +221,16 @@ export namespace Noodles
 		bool RemoveSystemDefer(Property require_property);
 		bool RemoveSystemDeferByGroud(std::u8string_view);
 
+		Context(Config config = {}, std::u8string_view name = u8"Noodles Default Context", SyncResource resource = {}) noexcept;
+
 	protected:
 
-		bool RegisterSystem(SystemHolder::Ptr, Priority priority, Property property, OrderFunction func, Potato::Task::TaskProperty task_property, ReadWriteMutexGenerator& generator);
-		Context(Config config, std::u8string_view name, Potato::IR::MemoryResourceRecord record, SyncResource resource) noexcept;
+		bool RegisterSystem(SystemHolder::Ptr, Priority priority, Property property, OrderFunction func, std::optional<Potato::Task::TaskFilter> task_filter, ReadWriteMutexGenerator& generator);
+		
+		bool FlushSystemStatus(std::pmr::vector<Potato::Task::TaskFlow::ErrorNode>* error = nullptr);
+		void TaskFlowExecuteBegin(Potato::Task::ExecuteStatus& status, Potato::Task::TaskFlowExecute& execute) override;
+		void TaskFlowExecuteEnd(Potato::Task::ExecuteStatus& status, Potato::Task::TaskFlowExecute& execute) override;
 
-		void AddTaskRef() const override;
-		void SubTaskRef() const override;
-		void Release() override;
-		void OnBeginTaskFlow(Potato::Task::ExecuteStatus& status) override;
-		void OnFinishTaskFlow(Potato::Task::ExecuteStatus& status) override;
-
-		Potato::IR::MemoryResourceRecord record;
 		std::u8string_view name;
 		std::mutex mutex;
 		Config config;
@@ -267,11 +262,12 @@ export namespace Noodles
 		std::pmr::vector<RWUniqueTypeID> rw_unique_id;
 		bool system_need_remove = false;
 
+		std::pmr::memory_resource* context_resource = nullptr;
 		std::pmr::memory_resource* system_resource = nullptr;
 		std::pmr::memory_resource* entity_resource = nullptr;
 		std::pmr::memory_resource* temporary_resource = nullptr;
  
-		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
+		friend struct TaskFlow::Wrapper;
 		friend struct SystemHolder;
 	};
 
@@ -608,14 +604,14 @@ export namespace Noodles
 
 	export template<typename Func>
 	bool Context::CreateTickSystemAuto(Priority priority, Property property,
-		Func&& func, OrderFunction order_func, Potato::Task::TaskProperty task_property, 
+		Func&& func, OrderFunction order_func, std::optional<Potato::Task::TaskFilter> task_filter, 
 		std::pmr::memory_resource* parameter_resource
 	)
 	{
 		std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
 		ReadWriteMutexGenerator generator(&temp_resource);
 		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), generator, property, name, system_resource, parameter_resource);
-		return RegisterSystem(std::move(ptr), priority, property, order_func, task_property, generator);
+		return RegisterSystem(std::move(ptr), priority, property, order_func, task_filter, generator);
 	}
 	
 }

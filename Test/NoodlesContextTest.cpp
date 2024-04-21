@@ -80,20 +80,20 @@ int main()
 	Context::Config fig;
 	fig.min_frame_time = std::chrono::seconds{ 1 };
 
-	auto context = Context::Create(fig);
+	Context context{fig};
 
 	Potato::Task::TaskContext tcontext;
 
-	auto ent = context->CreateEntityDefer(Tuple{ 10086 });
+	auto ent = context.CreateEntityDefer(Tuple{ 10086 });
 
 	for(std::size_t o = 0; o < 100; ++o)
 	{
-		context->CreateEntityDefer(Tuple{ o });
+		context.CreateEntityDefer(Tuple{ o });
 	}
 
-	auto Ker = context->CreateSingleton<Tuple2>(std::u8string{u8"Fff"});
+	auto Ker = context.CreateSingleton<Tuple2>(std::u8string{u8"Fff"});
 
-	context->CreateTickSystemAuto( {0, 0, 1}, {
+	context.CreateTickSystemAuto( {0, 0, 1}, {
 		u8"wtf1"
 	}, [=](ExecuteContext& context,  ComponentFilter<Tuple const, EntityProperty>& p, SingletonFilter<Tuple2>& s, std::size_t i)
 	{
@@ -114,17 +114,36 @@ int main()
 			
 	});
 
-	context->CreateTickSystemAuto({0, 0, 3}, {
+	std::size_t index = 0;
+
+	context.CreateTickSystemAuto({0, 0, 3}, {
 		u8"wtf2"
-		}, [](ExecuteContext& context, ComponentFilter<Tuple const, EntityProperty>& p, std::size_t i)
+		}, [&](ExecuteContext& context, ComponentFilter<Tuple, EntityProperty>& p, std::size_t i)
 		{
 			std::println("wtf2");
+
+			index += 1;
+			if(index == 5)
+			{
+				context.noodles_context.RemoveSystemDefer({u8"wtf1"});
+			}
+
+			if(index == 5)
+			{
+				context.noodles_context.CreateTickSystemAuto(
+					{0, 0, 1}, {u8"wtf3"}, [](ExecuteContext& context, ComponentFilter<Tuple, EntityProperty>& p)
+					{
+						std::println("wtf3");
+					}
+				);
+			}
+
 			volatile int i22 = 0;
 		});
 
-	context->FlushStats();
+	context.FlushStats();
 
-	bool re = context->Commit(tcontext, {});
+	bool re = context.Commit(tcontext, {});
 	tcontext.ProcessTaskUntillNoExitsTask({});
 
 
