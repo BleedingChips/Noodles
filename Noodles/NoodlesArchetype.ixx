@@ -122,7 +122,7 @@ export namespace Noodles
 		Potato::IR::Layout GetArchetypeLayout() const { return archetype_layout; }
 		//std::strong_ordering operator<=>(Archetype const&) const;
 		bool operator==(Archetype const& ar) const;
-		std::pmr::memory_resource* GetResource() const { return record.GetResource(); }
+		std::pmr::memory_resource* GetResource() const { return record.GetMemoryResource(); }
 		std::size_t GetElementCount() const { return infos.size(); }
 
 		static bool CheckUniqueArchetypeID(std::span<ArchetypeID const>);

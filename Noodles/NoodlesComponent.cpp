@@ -93,13 +93,45 @@ namespace Noodles
 		o_resource->deallocate(this, size, alignof(ComponentPage));
 	}
 
+	EntityModifer::Ptr EntityModifer::Create(std::pmr::memory_resource* resource)
+	{
+		auto re = Potato::IR::MemoryResourceRecord::Allocate<EntityModifer>(resource);
+		if(re)
+		{
+			return new (re.Get()) EntityModifer{re};
+		}
+		return {};
+	}
+
+	void EntityModifer::Release()
+	{
+		auto re = record;
+		this->~EntityModifer();
+		re.Deallocate();
+	}
+
+	EntityModifer::~EntityModifer()
+	{
+		for(auto& ite : datas)
+		{
+			if(ite.record.Get() != nullptr)
+			{
+				(*ite.id.wrapper_function)(ArchetypeID::Status::Destruction, ite.record.Get(), nullptr);
+				ite.record.Deallocate();
+			}
+		}
+		datas.clear();
+	}
+
 	void Entity::SetFree()
 	{
 		status = EntityStatus::Free;
-		archetype_index = 0;
-		data_or_mount_point_index = 0;
+		archetype_index = std::numeric_limits<std::size_t>::max();
+		mount_point_index = 0;
 		owner_id = 0;
 		archetype_index = std::numeric_limits<std::size_t>::max();
+		modifer = {};
+		need_modifier = false;
 	}
 
 	auto Entity::Create(std::pmr::memory_resource* resource)
@@ -185,7 +217,7 @@ namespace Noodles
 		}
 	}
 
-	std::optional<std::size_t> ComponentFilterInterface::EnumByArchetypeIndex(std::size_t in_owner_id, std::size_t archetype_index, std::span<std::size_t> output_index) const
+	std::optional<std::span<std::size_t const>> ComponentFilterInterface::EnumByArchetypeIndex(std::size_t in_owner_id, std::size_t archetype_index) const
 	{
 		std::shared_lock lg(filter_mutex);
 		if(owner_id == in_owner_id)
@@ -193,13 +225,11 @@ namespace Noodles
 			auto size = GetArchetypeIndex().size();
 			auto span = std::span(indexs);
 			assert((span.size() % (size + 1)) == 0);
-			assert(output_index.size() >= size);
 			while(!span.empty())
 			{
 				if(span[0] == archetype_index)
 				{
-					std::memcpy(output_index.data(), span.data() + 1, sizeof(std::size_t) * size);
-					return size;
+					return span.subspan(1, size);
 				}else
 				{
 					span = span.subspan(size + 1);
@@ -209,7 +239,7 @@ namespace Noodles
 		return std::nullopt;
 	}
 
-	std::optional<std::size_t> ComponentFilterInterface::EnumByIteratorIndex(std::size_t in_owner_id, std::size_t ite_index, std::size_t& archetype_index, std::span<std::size_t> output_index) const
+	std::optional<std::span<std::size_t const>> ComponentFilterInterface::EnumByIteratorIndex(std::size_t in_owner_id, std::size_t ite_index, std::size_t& archetype_index) const
 	{
 		std::shared_lock lg(filter_mutex);
 		if (owner_id == in_owner_id)
@@ -217,14 +247,13 @@ namespace Noodles
 			auto size = GetArchetypeIndex().size();
 			auto span = std::span(indexs);
 			assert((span.size() % (size + 1)) == 0);
-			assert(output_index.size() >= size);
+
 			auto offset = ite_index * (size + 1);
 			if(offset < span.size())
 			{
 				span = span.subspan(offset);
 				archetype_index = span[0];
-				std::memcpy(output_index.data(), span.data() + 1, sizeof(std::size_t) * size);
-				return size;
+				return span.subspan(1, size);
 			}
 		}
 		return std::nullopt;
@@ -241,6 +270,46 @@ namespace Noodles
 		if(owner_id != 0 && owner_id == in_owner_id && singleton_reference)
 		{
 			return singleton_reference->Get();
+		}
+		return nullptr;
+	}
+
+	void* ArchetypeComponentManager::ReadEntityDirect(Entity const& entity, ComponentFilterInterface const& interface, std::size_t type_index, bool prefer_modify) const
+	{
+		std::lock_guard lg(entity.mutex);
+		if(entity.owner_id == reinterpret_cast<std::size_t>(this))
+		{
+			auto span = interface.GetArchetypeIndex();
+			if(type_index < span.size())
+			{
+				auto tar_id = span[type_index];
+				if(entity.modifer && prefer_modify)
+				{
+					bool Find = false;
+					for(auto& ite : entity.modifer->datas)
+					{
+						if(ite.available && ite.id.id == tar_id)
+						{
+							Find = true;
+							if(ite.record)
+							{
+								return ite.record.Get();
+							}
+						}
+					}
+					if(!Find)
+						return nullptr;
+				}
+				auto [mp, index] = GetComponentPage(entity.archetype_index);
+				if(mp)
+				{
+					auto loc = mp->LocateTypeID(tar_id);
+					if(loc)
+					{
+						return mp->Get(*loc, index, entity.mount_point_index);
+					}
+				}
+			}
 		}
 		return nullptr;
 	}
@@ -262,6 +331,7 @@ namespace Noodles
 		return {{}, {}};
 	}
 
+	/*
 	ArchetypeComponentManager::EntityWrapper ArchetypeComponentManager::ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_index) const
 	{
 		std::size_t archetype_index = 0;
@@ -299,10 +369,11 @@ namespace Noodles
 		}
 		return { {}, 0 };
 	}
+	*/
 
 
 	ArchetypeComponentManager::ArchetypeComponentManager(SyncResource resource)
-		:components(resource.manager_resource), spawned_entities(resource.manager_resource), temp_resource(resource.temporary_resource),
+		:components(resource.manager_resource), modified_entity(resource.manager_resource), temp_resource(resource.temporary_resource),
 		archetype_resource(resource.archetype_resource),components_resource(resource.component_resource), singletons(resource.manager_resource),
 		filter_mapping(resource.manager_resource), singleton_filters(resource.manager_resource), singleton_resource(resource.singleton_resource)
 	{
@@ -334,30 +405,16 @@ namespace Noodles
 		}
 
 		{
-			std::lock_guard lg(spawn_mutex);
-			for(auto& ite : spawned_entities)
+			std::lock_guard lg(entity_modifier_mutex);
+			for(auto& ite : modified_entity)
 			{
-				if(ite.status == SpawnedStatus::New || ite.status == SpawnedStatus::NewButNeedRemove)
+				if(ite)
 				{
-					auto& ref = *ite.entity;
-					std::lock_guard lg3(ref.mutex);
-					void* buffer = reinterpret_cast<void*>(ref.data_or_mount_point_index);
-					assert(ref.archetype_index < components.size());
-					auto& ref2 = components[ref.archetype_index];
-
-					for (auto& it3 : *ref2.archetype)
-					{
-						ref2.archetype->Destruct(Archetype::ArrayMountPoint{
-							buffer, 1, 1
-							}, 0
-						);
-					}
-
-					auto slayout = ref2.archetype->GetSingleLayout();
-					temp_resource->deallocate(buffer, slayout.Size, slayout.Align);
-					ref.SetFree();
+					std::lock_guard lg(ite->mutex);
+					ite->SetFree();
 				}
 			}
+			modified_entity.clear();
 		}
 
 		{
@@ -392,21 +449,14 @@ namespace Noodles
 		
 	}
 
-	bool ArchetypeComponentManager::CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<ArchetypeID const> ids, std::span<std::size_t> output)
+	bool ArchetypeComponentManager::CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<ArchetypeID const> ids)
 	{
 		if(target.GetHashCode() == hash_code && target.GetElementCount() == ids.size())
 		{
-			auto ite_span = output;
-			bool error = false;
 			for (auto& ite2 : ids)
 			{
 				auto loc = target.LocateTypeID(ite2.id);
-				if (loc.has_value())
-				{
-					ite_span[0] = *loc;
-					ite_span = ite_span.subspan(1);
-				}
-				else
+				if (!loc.has_value())
 				{
 					return false;
 				}
@@ -416,6 +466,36 @@ namespace Noodles
 		return false;
 	}
 
+	EntityPtr ArchetypeComponentManager::CreateEntity(std::pmr::memory_resource* entity_resource)
+	{
+		auto ent = Entity::Create(entity_resource);
+		if(ent)
+		{
+			ent->modifer = EntityModifer::Create(temp_resource);
+			if(ent->modifer)
+			{
+				auto re2 = Potato::IR::MemoryResourceRecord::Allocate<EntityProperty>(temp_resource);
+				if(re2)
+				{
+					new (re2.Get()) EntityProperty {ent};
+					ent->modifer->datas.emplace_back(
+						true,
+						ArchetypeID::Create<EntityProperty>(),
+						re2
+					);
+					ent->owner_id = reinterpret_cast<std::size_t>(this);
+					ent->status = EntityStatus::PreInit;
+					ent->need_modifier = true;
+					std::lock_guard lg(entity_modifier_mutex);
+					modified_entity.emplace_back(ent);
+					return ent;
+				}
+			}
+		}
+		return {};
+	}
+
+	/*
 	std::tuple<Archetype::Ptr, std::size_t, Archetype::MountPoint> ArchetypeComponentManager::CreateArchetype(std::span<ArchetypeID const> ids, std::span<std::size_t> output)
 	{
 		assert(ids.size() >= output.size());
@@ -502,6 +582,7 @@ namespace Noodles
 
 		return { {}, 0, {} };
 	}
+	*/
 
 	bool ArchetypeComponentManager::RegisterFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id)
 	{
@@ -524,19 +605,38 @@ namespace Noodles
 		return false;
 	}
 
-	ArchetypeComponentManager::ComponentsWrapper ArchetypeComponentManager::ReadComponents(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const
+	ArchetypeComponentManager::ComponentsWrapper ArchetypeComponentManager::ReadComponents(ComponentFilterInterface const& interface, std::size_t ite_index) const
 	{
 		std::size_t archetype_index = std::numeric_limits<std::size_t>::max();
-		auto re = interface.EnumByIteratorIndex(reinterpret_cast<std::size_t>(this), ite_index, archetype_index, output_span);
+		auto re = interface.EnumByIteratorIndex(reinterpret_cast<std::size_t>(this), ite_index, archetype_index);
 		if(re)
 		{
 			auto [re2, mp] = GetComponentPage(archetype_index);
 			if(re2)
 			{
-				return {re2.GetPointer(), mp, output_span.subspan(0, *re) };
+				return {re2.GetPointer(), mp, *re };
 			}
 		}
 		return {{}, {}, {}};
+	}
+
+	std::tuple<ArchetypeComponentManager::ComponentsWrapper, std::size_t> ArchetypeComponentManager::ReadEntityComponents(Entity const& ent, ComponentFilterInterface const& interface) const
+	{
+		std::lock_guard lg(ent.mutex);
+		if(ent.owner_id == reinterpret_cast<std::size_t>(this))
+		{
+			std::shared_lock lg(interface.filter_mutex);
+			auto re = interface.EnumByArchetypeIndex(reinterpret_cast<std::size_t>(this), ent.archetype_index);
+			if(re.has_value())
+			{
+				auto [re2, mp] = GetComponentPage(ent.archetype_index);
+				if(re2)
+				{
+					return {{re2.GetPointer(), mp, *re }, ent.mount_point_index};
+				}
+			}
+		}
+		return {{}, 0};
 	}
 
 	bool ArchetypeComponentManager::RegisterFilter(SingletonFilterInterface::Ptr ptr, std::size_t group_id)
@@ -568,44 +668,46 @@ namespace Noodles
 		return false;
 	}
 
-	bool ArchetypeComponentManager::ReleaseEntity(Entity::Ptr ptr)
+	bool ArchetypeComponentManager::ReleaseEntity(Entity& ptr)
 	{
-		if(ptr)
+		bool need_insert_modifer = false;
 		{
-			std::lock_guard lg(ptr->mutex);
-			if (ptr->owner_id != reinterpret_cast<std::size_t>(this))
+			std::lock_guard lg(ptr.mutex);
+			if (ptr.owner_id != reinterpret_cast<std::size_t>(this))
 				return false;
-			switch(ptr->status)
+			switch(ptr.status)
 			{
 			case EntityStatus::PreInit:
 				{
-					std::lock_guard lg(spawn_mutex);
-					for(auto& ite : spawned_entities)
-					{
-						if(ite.entity == ptr)
-						{
-							assert(ite.status == SpawnedStatus::New);
-							ite.status = SpawnedStatus::NewButNeedRemove;
-							ptr->status = EntityStatus::PendingDestroyWithoutInit;
-							return true;
-						}
-					}
+					ptr.status = EntityStatus::PendingDestroy;
 				}
 				break;
 			case EntityStatus::Normal:
-			{
-				std::lock_guard lg(spawn_mutex);
-				spawned_entities.emplace_back(
-					ptr, SpawnedStatus::RemoveOld, ptr->archetype_index, true
-				);
-				ptr->status = EntityStatus::PendingDestroy;
-				return true;
-			}
+				{
+					ptr.status = EntityStatus::PendingDestroy;
+					if(!ptr.need_modifier)
+					{
+						ptr.need_modifier = true;
+						need_insert_modifer = true;
+					}
+					return true;
+				}
 			default:
+				return false;
 				break;
 			}
+			if(!ptr.need_modifier)
+			{
+				ptr.need_modifier = true;
+				need_insert_modifer = true;
+			}
 		}
-		return false;
+		if(need_insert_modifer)
+		{
+			std::lock_guard lg(entity_modifier_mutex);
+			modified_entity.emplace_back(&ptr);
+		}
+		return true;
 	}
 
 	Potato::Pointer::ObserverPtr<void> ArchetypeComponentManager::ReadSingleton(SingletonFilterInterface const& filter) const
@@ -613,11 +715,376 @@ namespace Noodles
 		return filter.GetSingleton(reinterpret_cast<std::size_t>(this));
 	}
 
+	bool ArchetypeComponentManager::AddEntityComponent(Entity& target_entity, ArchetypeID archetype_id, void* reference_buffer)
+	{
+		if(archetype_id.id != UniqueTypeID::Create<EntityProperty>())
+		{
+			bool need_modifer = false;
+			{
+				std::lock_guard lg(target_entity.mutex);
+				if(target_entity.owner_id != reinterpret_cast<std::size_t>(this))
+					return false;
+				bool has_modifier = target_entity.modifer;
+				if(!has_modifier)
+				{
+					std::shared_lock sl(component_mutex);
+					auto& ref = components[target_entity.archetype_index];
+					auto lo = ref.archetype->LocateTypeID(archetype_id);
+					if(lo)
+					{
+						return false;
+					}
+					target_entity.modifer = EntityModifer::Create(temp_resource);
+					if(!target_entity.modifer)
+						return false;
+					for(auto& ite : *ref.archetype)
+					{
+						target_entity.modifer->datas.emplace_back(
+							true,
+							ite.id,
+							Potato::IR::MemoryResourceRecord{}
+						);
+					}
+					if(!target_entity.need_modifier)
+					{
+						target_entity.need_modifier = true;
+						need_modifer = true;
+					}
+				}
+
+				assert(target_entity.modifer);
+
+				if(has_modifier)
+				{
+					for(auto& ite : target_entity.modifer->datas)
+					{
+						if(ite.id == archetype_id && ite.available)
+						{
+							return false;
+						}
+					}
+				}
+				
+				auto re = Potato::IR::MemoryResourceRecord::Allocate(temp_resource, archetype_id.layout);
+				if(re)
+				{
+					(*archetype_id.wrapper_function)(ArchetypeID::Status::MoveConstruction, re.Get(), reference_buffer);
+					target_entity.modifer->datas.emplace_back(
+						true,
+							archetype_id,
+					re
+					);
+				}else
+				{
+					if(need_modifer)
+					{
+						std::lock_guard lg(entity_modifier_mutex);
+						modified_entity.emplace_back(&target_entity);
+					}
+					return false;
+				}
+			}
+			if(need_modifer)
+			{
+				std::lock_guard lg(entity_modifier_mutex);
+				modified_entity.emplace_back(&target_entity);
+			}
+			return true;
+		}
+		return false;
+	}
+
+	bool ArchetypeComponentManager::RemoveEntityComponent(Entity& target_entity, UniqueTypeID id)
+	{
+		if(id != UniqueTypeID::Create<EntityProperty>())
+		{
+			bool need_modifer = false;
+
+			{
+				std::lock_guard lg(target_entity.mutex);
+				if(target_entity.owner_id == reinterpret_cast<std::size_t>(this))
+				{
+					if(!target_entity.modifer)
+					{
+						std::shared_lock sl(component_mutex);
+						auto& ref = components[target_entity.archetype_index];
+						auto lo = ref.archetype->LocateTypeID(id);
+						if(!lo)
+						{
+							return false;
+						}
+
+						for(auto& ite : *ref.archetype)
+						{
+							target_entity.modifer->datas.emplace_back(
+								ite.id.id != id,
+								ite.id,
+								Potato::IR::MemoryResourceRecord{}
+							);
+						}
+
+						if(!target_entity.need_modifier)
+						{
+							target_entity.need_modifier = true;
+							need_modifer = true;
+						}
+					}else
+					{
+						for(auto& ite : target_entity.modifer->datas)
+						{
+							if(ite.id.id == id && ite.available)
+							{
+								ite.available = false;
+								return true;
+							}
+						}
+						return false;
+					}
+				}else
+				{
+					return false;
+				}
+			}
+
+			if(need_modifer)
+			{
+				std::lock_guard lg(entity_modifier_mutex);
+				modified_entity.emplace_back(&target_entity);
+			}
+			return true;
+		}
+		return false;
+	}
+
 	bool ArchetypeComponentManager::ForceUpdateState()
 	{
 		bool Updated = false;
 
 		{
+			std::lock_guard lg(component_mutex);
+			auto old_component_size = components.size();
+			struct RemoveEntity
+			{
+				std::size_t archetype_index;
+				std::size_t mount_point_index;
+			};
+			std::pmr::vector<RemoveEntity> remove_list(temp_resource);
+			std::pmr::vector<ArchetypeID> new_archetype_index(temp_resource);
+			while(true)
+			{
+				Entity::Ptr top;
+				{
+					std::lock_guard lg(entity_modifier_mutex);
+					if(!modified_entity.empty())
+					{
+						top = std::move(*modified_entity.rbegin());
+						modified_entity.pop_back();
+					}
+				}
+				if(!top)
+					break;
+				Updated = true;
+				top->need_modifier = false;
+				std::lock_guard lg(top->mutex);
+				switch(top->status)
+				{
+				case EntityStatus::PendingDestroy:
+					{
+						top->modifer.Reset();
+						if(top->archetype_index != std::numeric_limits<std::size_t>::max())
+						{
+							auto& ref = components[top->archetype_index];
+							ref.archetype->Destruct(ref.memory_page->GetMountPoint(), top->mount_point_index);
+							remove_list.emplace_back(top->archetype_index, top->mount_point_index);
+						}
+						top->SetFree();
+						break;
+					}
+				case EntityStatus::Normal:
+				case EntityStatus::PreInit:
+					{
+						assert(top->modifer);
+						new_archetype_index.clear();
+						std::size_t hash_code = 0;
+						for(auto& ite : top->modifer->datas)
+						{
+							if(ite.available)
+							{
+								new_archetype_index.emplace_back(ite.id);
+								hash_code += ite.id.id.HashCode();
+							}
+						}
+						Archetype::OPtr archetype_ptr;
+						std::size_t archetype_index = 0;
+						for(auto& ite : components)
+						{
+							if(CheckIsSameArchetype(*ite.archetype, hash_code, std::span(new_archetype_index)))
+							{
+								archetype_ptr = ite.archetype;
+								break;
+							}
+							++archetype_index;
+						}
+						if(!archetype_ptr)
+						{
+							std::sort(new_archetype_index.begin(), new_archetype_index.end(), [](ArchetypeID const& a1, ArchetypeID const& a2)
+								{
+									return a1 > a2;
+								});
+
+							auto temp_ptr = Archetype::Create(new_archetype_index, &archetype_resource);
+
+							if (temp_ptr)
+							{
+								archetype_ptr = temp_ptr;
+								auto loc = temp_ptr->LocateTypeID(UniqueTypeID::Create<EntityProperty>());
+								assert(loc);
+								components.emplace_back(
+									temp_ptr,
+									ComponentPage::Ptr{},
+									*loc,
+									0
+								);
+							}
+						}
+						if(archetype_ptr)
+						{
+							auto& ref = components[archetype_index];
+
+							auto find = std::find_if(remove_list.begin(), remove_list.end(), [=](RemoveEntity const& ent)
+							{
+								return ent.archetype_index == archetype_index;
+							});
+
+							std::optional<std::size_t> re;
+
+							if(find != remove_list.end())
+							{
+								re = find->mount_point_index;
+								remove_list.erase(find);
+							}else
+							{
+								re = AllocateMountPoint(ref);
+							}
+
+							if(re)
+							{
+								auto mp = ref.memory_page->GetMountPoint();
+								for(auto& ite : top->modifer->datas)
+								{
+									if(ite.available)
+									{
+										auto lo = archetype_ptr->LocateTypeID(ite.id);
+										assert(lo);
+										if(ite.record)
+										{
+											auto& ref2 = (*archetype_ptr)[*lo];
+											archetype_ptr->MoveConstruct(
+												ref2, archetype_ptr->Get(ref2, mp, *re), ite.record.Get()
+											);
+										}else
+										{
+											auto& ref2 = (*archetype_ptr)[*lo];
+											auto& ref3 = components[top->archetype_index];
+											auto lo2 = ref3.archetype->LocateTypeID(ite.id);
+											auto mp2 = ref3.memory_page->GetMountPoint();
+											archetype_ptr->MoveConstruct(
+												ref2, archetype_ptr->Get(ref2, mp, *re),
+												ref3.archetype->Get(*lo2, mp2, top->mount_point_index)
+											);
+										}
+									}
+								}
+								if(top->status == EntityStatus::PreInit)
+								{
+									top->status = EntityStatus::Normal;
+									
+								}else
+								{
+									auto& ref = components[top->archetype_index];
+									ref.archetype->Destruct(ref.memory_page->GetMountPoint(), top->mount_point_index);
+									remove_list.emplace_back(archetype_index, *re);
+								}
+								top->archetype_index = archetype_index;
+								top->mount_point_index = *re;
+								top->modifer.Reset();
+							}
+
+						}
+
+						break;
+					}
+				default:
+					assert(false);
+					break;
+				}
+			}
+
+			for(auto& ite : remove_list)
+			{
+				auto& ref = components[ite.archetype_index];
+				CopyMountPointFormLast(ref, ref.memory_page->GetMountPoint(), ite.mount_point_index);
+				Updated = true;
+			}
+
+			remove_list.clear();
+
+			if(old_component_size != components.size())
+			{
+				std::lock_guard lg2(filter_mapping_mutex);
+				for(auto& ite : filter_mapping)
+				{
+					for(std::size_t i = old_component_size; i < components.size(); ++i)
+					{
+						ite.filter->OnCreatedArchetype(reinterpret_cast<std::size_t>(this), i, *components[i].archetype);
+					}
+				}
+				Updated = true;
+			}
+
+
+			/*
+			std::lock_guard lg(entity_modifier_mutex);
+			if(!modified_entity.empty())
+			{
+				std::lock_guard lg(component_mutex);
+				auto old_archetype_size = components.size();
+				{
+					std::pmr::vector<std::tuple<std::size_t, std::size_t>> modify_component_page(temp_resource);
+					std::pmr::vector<ArchetypeID> tem_archetype_id(temp_resource);
+
+					Ent
+
+
+					for(auto& ite : modified_entity)
+					{
+						assert(ite);
+						std::lock_guard lg(ite->mutex);
+						assert(ite->modifer);
+
+						if(ite->status == EntityStatus::PendingDestroy)
+						{
+							
+						}
+
+
+
+						std::size_t old_aid = ite->archetype_index;
+						std::size_t 
+
+						auto tem_modifer = std::move(ite->modifer);
+
+
+
+
+
+
+					}
+				}
+			}
+
+
+
 			std::lock_guard lg(component_mutex);
 
 			if (need_update)
@@ -709,12 +1176,13 @@ namespace Noodles
 				}
 				spawned_entities.clear();
 			}
+			*/
 		}
 
 		return Updated;
 	}
 
-	std::optional<std::size_t> ArchetypeComponentManager::AllocateAndConstructMountPoint(Element& tar, Archetype::ArrayMountPoint mp, std::size_t mp_target)
+	std::optional<std::size_t> ArchetypeComponentManager::AllocateMountPoint(Element& tar)
 	{
 
 		if(!tar.memory_page)
@@ -764,11 +1232,9 @@ namespace Noodles
 
 		if(tar.memory_page)
 		{
+			auto last_index = tar.memory_page->available_count;
 			tar.memory_page->available_count += 1;
-			auto nmp = tar.memory_page->GetMountPoint();
-			auto next_index = nmp.available_count - 1;
-			tar.archetype->MoveConstruct(nmp, next_index, mp, mp_target);
-			return next_index;
+			return last_index;
 		}
 
 		return std::nullopt;
@@ -786,7 +1252,7 @@ namespace Noodles
 			tar.archetype->MoveConstruct(mp, mp_index, last, last.available_count);
 			tar.archetype->Destruct(last, last.available_count);
 			std::lock_guard lg(tar_entity->mutex);
-			tar_entity->data_or_mount_point_index = mp_index;
+			tar_entity->mount_point_index = mp_index;
 		}
 	}
 

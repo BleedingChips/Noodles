@@ -189,8 +189,10 @@ export namespace Noodles
 
 		using Ptr = Potato::Pointer::IntrusivePtr<Context, TaskFlow::Wrapper>;
 
+		/*
 		template<typename ...AT>
 		EntityPtr CreateEntityDefer(AT&& ...at) { return manager.CreateEntityDefer(entity_resource, std::forward<AT>(at)...); }
+		*/
 
 		bool Commit(Potato::Task::TaskContext& context, Potato::Task::TaskFilter task_filter = {}, Potato::Task::AppendData user_data = {});
 
@@ -214,8 +216,8 @@ export namespace Noodles
 		using ComponentWrapper = ArchetypeComponentManager::ComponentsWrapper;
 		using EntityWrapper = ArchetypeComponentManager::EntityWrapper;
 
-		ComponentWrapper IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const { return manager.ReadComponents(interface, ite_index, output_span); }
-		EntityWrapper ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const { { return manager.ReadEntity(entity, interface, output_span); } }
+		//ComponentWrapper IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index, std::span<std::size_t> output_span) const { return manager.ReadComponents(interface, ite_index, output_span); }
+		//EntityWrapper ReadEntity(Entity const& entity, ComponentFilterInterface const& interface, std::span<std::size_t> output_span) const { { return manager.ReadEntity(entity, interface, output_span); } }
 		Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& interface) { return manager.ReadSingleton(interface);  }
 
 		bool RemoveSystemDefer(Property require_property);
@@ -320,6 +322,7 @@ export namespace Noodles
 			return range.archetype->Get((*range.archetype)[range.output_archetype_locate[index]], range.array_mount_point).Translate<Type>();
 		}
 
+		/*
 		template<std::size_t index>
 		decltype(auto) GetByIndex(Context::EntityWrapper range) const
 		{
@@ -331,11 +334,11 @@ export namespace Noodles
 		{
 			return GetByType<Type>(range.components_wrapper).data() + range.mp_index;
 		}
-
-		decltype(auto) IterateComponent(Context& context, std::size_t ite_index, std::span<std::size_t> output) const { return context.IterateComponent(*this, ite_index, output); }
-		decltype(auto) IterateComponent(ExecuteContext& context, std::size_t ite_index, std::span<std::size_t> output) const { return IterateComponent(context.noodles_context, ite_index, output); }
-		decltype(auto) ReadEntity(Context& context, Entity const& entity, std::span<std::size_t> output) const { return context.ReadEntity(entity, *this, output); }
-		decltype(auto) ReadEntity(ExecuteContext& context, Entity const& entity, std::span<std::size_t> output) const { return ReadEntity(context.noodles_context, entity, output); }
+		*/
+		//decltype(auto) IterateComponent(Context& context, std::size_t ite_index, std::span<std::size_t> output) const { return context.IterateComponent(*this, ite_index, output); }
+		//decltype(auto) IterateComponent(ExecuteContext& context, std::size_t ite_index, std::span<std::size_t> output) const { return IterateComponent(context.noodles_context, ite_index, output); }
+		//decltype(auto) ReadEntity(Context& context, Entity const& entity, std::span<std::size_t> output) const { return context.ReadEntity(entity, *this, output); }
+		//decltype(auto) ReadEntity(ExecuteContext& context, Entity const& entity, std::span<std::size_t> output) const { return ReadEntity(context.noodles_context, entity, output); }
 
 	protected:
 

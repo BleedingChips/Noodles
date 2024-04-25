@@ -66,16 +66,23 @@ int main()
 
 		ArchetypeComponentManager manager;
 
+		auto e1 = manager.CreateEntity();
 
+		manager.AddEntityComponent(*e1, Report{});
+		manager.AddEntityComponent(*e1, A{ 10086 });
+		manager.AddEntityComponent(*e1, std::u8string{u8"Fuck You"});
+
+		/*
 		auto entity = manager.CreateEntityDefer(
 			std::pmr::get_default_resource(), Report{}, A{ 10086 }, std::u8string{u8"Fuck You"}
 		);
+		*/
 
 		manager.RegisterFilter(&TF, 0);
 
 		std::array<std::size_t, decltype(TF)::Count()> TemBuffer;
 
-
+		/*
 		{
 			auto p = manager.ReadEntity(*entity, TF, std::span(TemBuffer));
 
@@ -94,6 +101,7 @@ int main()
 				volatile int i = 0;
 			}
 		}
+		*/
 
 
 		auto K = manager.CreateSingletonType<A>(100);
@@ -107,6 +115,7 @@ int main()
 			volatile int i = 0;
 		}
 
+		/*
 
 		auto entity2 = manager.CreateEntityDefer(
 			std::pmr::get_default_resource(),
@@ -131,11 +140,20 @@ int main()
 		}
 
 		std::array<std::size_t, TF2.Count()> TemBuffer2;
+		*/
+		manager.ForceUpdateState();
 
-		manager.ReleaseEntity(entity2);
+		auto e2 = manager.CreateEntity();
+
+		manager.AddEntityComponent(*e2, Report{});
+		manager.AddEntityComponent(*e2, A{ 10086 });
+		manager.AddEntityComponent(*e2, std::u8string{u8"Fuck You"});
+
+		manager.ReleaseEntity(*e2);
 
 		manager.ForceUpdateState();
 
+		/*
 		{
 			std::size_t total = 0;
 			std::size_t ite = 0;
@@ -150,17 +168,6 @@ int main()
 					auto p2 = wra.GetRawArray(3).Translate<std::u8string>();
 					auto p3 = wra.GetRawArray(4).Translate<std::u8string>();
 
-					/*
-					auto p1 = wra.archetype->Get(wra.output_archetype_locate[], wra.array_mount_point)
-					for (auto i = mb; i != me; ++i)
-					{
-						auto* P1 = static_cast<A*>(ar->GetData(san[1], i));
-						auto* P2 = static_cast<std::u8string*>(ar->GetData(san[3], i));
-						auto* P3 = static_cast<C*>(ar->GetData(san[4], i));
-						total += P1->i;
-						volatile int icc = 0;
-					}
-					*/
 
 					volatile int i = 0;
 					
@@ -172,7 +179,7 @@ int main()
 
 			volatile int icc = 0;
 		}
-
+		*/
 		/*
 		{
 			auto [ar, mpb, mpe, i] = manager.ReadComponents(TF, 0, std::span(TemBuffer));
