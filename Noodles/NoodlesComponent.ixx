@@ -397,8 +397,8 @@ export namespace Noodles
 		};
 
 		ComponentsWrapper ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite) const;
-		std::tuple<ComponentsWrapper, std::size_t> ReadEntityComponents(Entity const& ent, ComponentFilterInterface const& interface) const;
-		void* ReadEntityDirect(Entity const& entity, ComponentFilterInterface const& interface, std::size_t type_index, bool prefer_modify = true) const;
+		EntityWrapper ReadEntityComponents(Entity const& ent, ComponentFilterInterface const& interface) const;
+		std::optional<std::span<void*>> ReadEntityDirect(Entity const& entity, ComponentFilterInterface const& interface, std::span<void*> output_ptr, bool prefer_modify = true) const;
 
 		template<typename SingType, typename ...OT>
 		Potato::Pointer::ObserverPtr<SingType> CreateSingletonType(OT&& ...ot)
@@ -439,13 +439,9 @@ export namespace Noodles
 
 	protected:
 
-		bool ConstructEntityModifier(std::lock_guard<std::mutex>& entity_lock, std::shared_lock<std::shared_mutex>& component_lock, Entity& entity);
-
-		std::optional<std::size_t> FindTypeID(Entity& target_entity);
 		std::tuple<Archetype::OPtr, Archetype::ArrayMountPoint> GetComponentPage(std::size_t archetype_index) const;
 
 
-		//std::tuple<Archetype::Ptr, std::size_t, Archetype::MountPoint> CreateArchetype(std::span<ArchetypeID const> ids);
 		static bool CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<ArchetypeID const> ids);
 		
 
@@ -486,7 +482,7 @@ export namespace Noodles
 		std::optional<std::size_t> update_index;
 
 		std::optional<std::size_t> AllocateMountPoint(Element& tar);
-		void CopyMountPointFormLast(Element& tar, Archetype::ArrayMountPoint mp, std::size_t mp_index);
+		void CopyMountPointFormLast(Element& tar, std::size_t mp_index);
 
 		std::mutex entity_modifier_mutex;
 		std::pmr::vector<Entity::Ptr> modified_entity;

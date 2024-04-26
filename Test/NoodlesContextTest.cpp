@@ -84,11 +84,13 @@ int main()
 
 	Potato::Task::TaskContext tcontext;
 
-	auto ent = context.CreateEntityDefer(Tuple{ 10086 });
+	auto ent = context.CreateEntity();
+	context.AddEntityComponent(*ent, Tuple{10086});
 
 	for(std::size_t o = 0; o < 100; ++o)
 	{
-		context.CreateEntityDefer(Tuple{ o });
+		auto ent2 = context.CreateEntity();
+		context.AddEntityComponent(*ent2, Tuple{o});
 	}
 
 	auto Ker = context.CreateSingleton<Tuple2>(std::u8string{u8"Fff"});
@@ -98,13 +100,13 @@ int main()
 	}, [=](ExecuteContext& context,  ComponentFilter<Tuple const, EntityProperty>& p, SingletonFilter<Tuple2>& s, std::size_t i)
 	{
 		ComponentFilter<Tuple const, EntityProperty>::OutputIndexT output;
-		auto k = p.IterateComponent(context,0, output);
+		auto k = p.IterateComponent(context,0);
 
 		auto L = p.GetByIndex<0>(k);
 		auto O = p.GetByIndex<1>(k);
 		auto K = p.GetByType<Tuple const>(k);
 
-		auto k2 = p.ReadEntity(context, *ent, output);
+		auto k2 = p.ReadEntity(context, *ent);
 
 		auto ik = s.Get(context);
 
