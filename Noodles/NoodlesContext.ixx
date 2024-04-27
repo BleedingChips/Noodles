@@ -499,7 +499,6 @@ export namespace Noodles
 
 			using AppendDataT = typename Extract::Type;
 
-			//static AppendDataT Generate(ReadWriteMutexGenerator& generator) { return Extract::Construct(generator); }
 			static auto Execute(ExecuteContext& context, AppendDataT& append_data, Func& func)
 			{
 				return Execute(context, append_data, func, typename Extract::Index{});
