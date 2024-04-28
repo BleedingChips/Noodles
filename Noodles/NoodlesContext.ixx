@@ -191,8 +191,35 @@ export namespace Noodles
 
 		EntityPtr CreateEntity() { return manager.CreateEntity(entity_resource); }
 
+		template<typename CurType, typename ...Type>
+		EntityPtr CreateEntity(CurType&& ctype, Type&& ...type)
+		{
+			auto ent = CreateEntity();
+			if(ent)
+			{
+				if(AddEntityComponent(*ent, std::forward<Type>(type)...))
+				{
+					return ent;
+				}else
+				{
+					RemoveEntity(*ent);
+				}
+			}
+			return false;
+		}
+
 		template<typename Type>
 		bool AddEntityComponent(Entity& entity, Type&& type) { return manager.AddEntityComponent(entity, std::forward<Type>(type)); }
+
+		template<typename Type, typename ...OtherType>
+		bool AddEntityComponent(Entity& entity, Type&& c_type, OtherType&& ...other)
+		{
+			if(AddEntityComponent(entity, std::forward<Type>(c_type)))
+			{
+				return AddEntityComponent(entity, std::forward<OtherType>(other)...);
+			}
+			return true;
+		}
 
 		bool Commit(Potato::Task::TaskContext& context, Potato::Task::TaskFilter task_filter = {}, Potato::Task::AppendData user_data = {});
 
@@ -201,6 +228,8 @@ export namespace Noodles
 			Func&& func, OrderFunction order_func = nullptr, std::optional<Potato::Task::TaskFilter> task_filter = std::nullopt,
 				std::pmr::memory_resource* parameter_resource = std::pmr::get_default_resource()
 		);
+
+		bool RemoveEntity(Entity& entity) { return manager.ReleaseEntity(entity); }
 
 		template<typename SingletonT, typename ...OT>
 		Potato::Pointer::ObserverPtr<SingletonT> CreateSingleton(OT&& ...ot) { return manager.CreateSingletonType<SingletonT>(std::forward<OT>(ot)...); }
