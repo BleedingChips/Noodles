@@ -255,6 +255,7 @@ export namespace Noodles
 
 		bool RemoveSystemDefer(Property require_property);
 		bool RemoveSystemDeferByGroud(std::u8string_view);
+		void Quit();
 
 		Context(Config config = {}, std::u8string_view name = u8"Noodles Default Context", SyncResource resource = {}) noexcept;
 

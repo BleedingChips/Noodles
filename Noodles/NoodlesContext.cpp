@@ -141,6 +141,12 @@ namespace Noodles
 		SystemExecute(context);
 	}
 
+	void Context::Quit()
+	{
+		std::lock_guard lg(mutex);
+		require_quit = true;
+	}
+
 	Context::Context(Config config, std::u8string_view name, SyncResource resource) noexcept
 		: config(config), name(name), 
 		manager({
