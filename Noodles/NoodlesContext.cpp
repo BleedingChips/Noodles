@@ -105,8 +105,101 @@ namespace Noodles
 		};
 	}
 
+	void SystemNode::TaskFlowNodeExecute(Potato::Task::TaskFlowContext& status)
+	{
+		assert(false);
+	}
+
 	static Potato::Format::StaticFormatPattern<u8"{}{}{}-[{}]:[{}]"> system_static_format_pattern;
 
+	auto SystemNodeUserData::Create(SystemNodeProperty property, ReadWriteMutex mutex, std::pmr::memory_resource* resource)
+		-> Ptr
+	{
+		auto t_layout = Potato::IR::Layout::Get<SystemNodeUserData>();
+
+	}
+
+	void SystemNodeUserData::Release() override
+	{
+		auto re = record;
+		auto mu = mutex;
+		this->~SystemNodeUserData();
+		for(auto& ite : mutex.singleton)
+		{
+			ite.~RWUniqueTypeID();
+		}
+		for(auto& ite : mutex.components)
+		{
+			ite.~RWUniqueTypeID();
+		}
+		re.Deallocate();
+	}
+
+
+	void Context::Quit()
+	{
+		std::lock_guard lg(mutex);
+		require_quit = true;
+	}
+
+	Context::Context(Config config, SyncResource resource)
+		: config(config), 
+		manager({
+			resource.context_resource,
+			resource.archetype_resource,
+			resource.component_resource,
+			resource.singleton_resource,
+			resource.temporary_resource
+		}),
+		systems(resource.context_resource),
+		system_resource(resource.system_resource),
+		entity_resource(resource.entity_resource),
+		temporary_resource(resource.temporary_resource),
+		context_resource(resource.context_resource)
+	{
+
+	}
+
+	void Context::TaskFlowExecuteBegin(Potato::Task::TaskFlowContext& context)
+	{
+		std::lock_guard lg(mutex);
+		start_up_tick_lock = std::chrono::steady_clock::now();
+		std::println("---start");
+	}
+
+	void Context::TaskFlowExecuteEnd(Potato::Task::TaskFlowContext& context)
+	{
+		std::chrono::steady_clock::time_point now_time = std::chrono::steady_clock::now();
+		std::chrono::steady_clock::time_point require_time;
+		{
+			std::lock_guard lg(mutex);
+			std::println("---finish");
+			if (require_quit)
+			{
+				require_quit = false;
+				return;
+			}
+			require_time = start_up_tick_lock + config.min_frame_time;
+		}
+
+		manager.ForceUpdateState();
+		Update();
+
+		TaskFlow::Commited(context.context, require_time, context.node_property);
+	}
+
+	bool Context::Commited(Potato::Task::TaskContext& context, Potato::Task::NodeProperty property)
+	{
+		std::lock_guard lg(TaskFlow::process_mutex);
+		if(current_status == Status::DONE || current_status == Status::READY)
+		{
+			Update_AssumedLock();
+			return TaskFlow::Commited_AssumedLock(context, std::move(property));
+		}
+		return false;
+	}
+
+	/*
 	std::size_t SystemHolder::FormatDisplayNameSize(std::u8string_view prefix, Property property)
 	{
 		Potato::Format::FormatWritter<char8_t> wri;
@@ -141,30 +234,9 @@ namespace Noodles
 		SystemExecute(context);
 	}
 
-	void Context::Quit()
-	{
-		std::lock_guard lg(mutex);
-		require_quit = true;
-	}
+	
 
-	Context::Context(Config config, std::u8string_view name, SyncResource resource) noexcept
-		: config(config), name(name), 
-		manager({
-			resource.context_resource,
-			resource.archetype_resource,
-			resource.component_resource,
-			resource.singleton_resource,
-			resource.temporary_resource
-		}),
-		systems(resource.context_resource),
-		rw_unique_id(resource.context_resource),
-		system_resource(resource.system_resource),
-		entity_resource(resource.entity_resource),
-		temporary_resource(resource.temporary_resource),
-		context_resource(resource.context_resource)
-	{
-
-	}
+	
 
 	bool Context::FlushSystemStatus(std::pmr::vector<Potato::Task::TaskFlow::ErrorNode>* error)
 	{
@@ -432,4 +504,5 @@ namespace Noodles
 		}
 		return false;
 	}
+	*/
 }

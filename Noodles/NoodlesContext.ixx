@@ -148,19 +148,50 @@ export namespace Noodles
 		Potato::Task::TaskFilter filter;
 	};
 
-	struct SystemNodeUserData : protected Potato::Task::TaskFlow::UserData, Potato::Pointer::DefaultControllerViewerInterface
+	struct SystemNodeUserData : protected Potato::Task::TaskFlow::UserData, protected Potato::Pointer::DefaultIntrusiveInterface
 	{
-		OrderFunction order_function = nullptr;
-		Priority system_priority;
-		Property system_property;
-		std::u8string_view display_name;
+
+		using Ptr = Potato::Pointer::IntrusivePtr<SystemNodeUserData, Potato::Task::TaskFlow::UserData::Wrapper>;
+
+		static Ptr Create(SystemNodeProperty property, ReadWriteMutex mutex, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+
+	protected:
+
+		SystemNodeUserData(
+			Potato::IR::MemoryResourceRecord record,
+			SystemNodeProperty property,
+			ReadWriteMutex mutex
+		)
+			: record(record), property(std::move(property)), mutex(mutex)
+		{
+			
+		}
+
+		virtual void AddUserDataRef() const override { DefaultIntrusiveInterface::AddRef(); }
+		virtual void SubUserDataRef() const override { DefaultIntrusiveInterface::SubRef(); }
+		virtual void Release() override;
+		
+		Potato::IR::MemoryResourceRecord record;
+		SystemNodeProperty property;
+		ReadWriteMutex mutex;
+
+		friend struct Context;
 	};
 
-	struct SubContextTaskFlow : protected Potato::Task::TaskFlowNode, protected Potato::Pointer::DefaultIntrusiveInterface
+	struct SubContextTaskFlow : protected Potato::Task::TaskFlow, protected Potato::Pointer::DefaultIntrusiveInterface
 	{
 		
-	};
+	protected:
 
+		SubContextTaskFlow(Potato::IR::MemoryResourceRecord record)
+			: record(record) {}
+
+		Potato::IR::MemoryResourceRecord record;
+		virtual void AddTaskFlowRef() const override { DefaultIntrusiveInterface::AddRef(); }
+		virtual void SubTaskFlowRef() const override { DefaultIntrusiveInterface::SubRef(); }
+		void Release() override{ auto re = record; this->~SubContextTaskFlow(); re.Deallocate(); }
+		friend struct Context;
+	};
 
 	export struct Context : protected Potato::Task::TaskFlow
 	{
@@ -217,10 +248,10 @@ export namespace Noodles
 			return true;
 		}
 
-		TaskFlow::Node::Ptr AddSystem(SystemNode::Ptr system, SystemNodeProperty property);
-		bool RemoveSystem(TaskFlow::Node& node);
+		bool AddSystem(SystemNode::Ptr system, SystemNodeProperty property, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
+		//bool RemoveSystem(TaskFlow::Node& node);
 		bool RemoveSystemDefer(Property require_property);
-		bool RemoveSystemDeferByGroup(std::u8string_view);
+		bool RemoveSystemDeferByGroup(std::u8string_view group_name);
 
 		template<typename Func>
 		bool CreateTickSystemAuto(Priority priority, Property property,
@@ -239,8 +270,6 @@ export namespace Noodles
 
 		bool UnRegisterFilter(TaskFlow::Node& owner) { return manager.ReleaseFilter(reinterpret_cast<std::size_t>(&owner)); }
 
-		void FlushStats();
-
 		using ComponentWrapper = ArchetypeComponentManager::ComponentsWrapper;
 		using EntityWrapper = ArchetypeComponentManager::EntityWrapper;
 
@@ -252,24 +281,40 @@ export namespace Noodles
 
 		Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& interface) { return manager.ReadSingleton(interface);  }
 
-		
 		void Quit();
 
-		Context(Config config = {}, std::u8string_view name = u8"Noodles Default Context", SyncResource resource = {}) noexcept;
+		Context(Config config = {}, SyncResource resource = {});
+		bool Commited(Potato::Task::TaskContext& context, Potato::Task::NodeProperty property) override;
 
 	protected:
+
+		
 
 		//bool RegisterSystem(SystemHolder::Ptr, Priority priority, Property property, OrderFunction func, std::optional<Potato::Task::TaskFilter> task_filter, ReadWriteMutexGenerator& generator);
 		
 		//bool FlushSystemStatus(std::pmr::vector<Potato::Task::TaskFlow::ErrorNode>* error = nullptr);
-		void TaskFlowExecuteBegin(Potato::Task::TaskFlowContext& context) override;
-		void TaskFlowExecuteEnd(Potato::Task::TaskFlowContext& context) override;
+		virtual void TaskFlowExecuteBegin(Potato::Task::TaskFlowContext& context) override;
+		virtual void TaskFlowExecuteEnd(Potato::Task::TaskFlowContext& context) override;
+		virtual void AddContextRef() const = 0;
+		virtual void SubContextRef() const = 0;
+		virtual void AddTaskFlowRef() const override { AddContextRef(); }
+		virtual void SubTaskFlowRef() const override { SubContextRef(); }
 
 		std::mutex mutex;
 		Config config;
 		bool require_quit = false;
 		std::chrono::steady_clock::time_point start_up_tick_lock;
 		ArchetypeComponentManager manager;
+
+		std::mutex system;
+		struct SystemProperty
+		{
+			Property property;
+			Priority priority;
+			TaskFlow::Node::Ptr reference_node;
+			TaskFlow::Ptr task_flow;
+		};
+		std::pmr::vector<SystemProperty> systems;
 
 		std::pmr::memory_resource* context_resource = nullptr;
 		std::pmr::memory_resource* system_resource = nullptr;

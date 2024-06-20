@@ -74,13 +74,21 @@ struct Tuple2
 	std::u8string str;
 };
 
+struct TestContext : public Context
+{
+	using Context::Context;
+	void AddContextRef() const override {}
+	void SubContextRef() const override {}
+};
+
+
 int main()
 {
 
 	Context::Config fig;
 	fig.min_frame_time = std::chrono::seconds{ 1 };
 
-	Context context{fig};
+	TestContext context{fig};
 
 	Potato::Task::TaskContext tcontext;
 
@@ -95,6 +103,7 @@ int main()
 
 	auto Ker = context.CreateSingleton<Tuple2>(std::u8string{u8"Fff"});
 
+	/*
 	context.CreateTickSystemAuto( {0, 0, 1}, {
 		u8"wtf1"
 	}, [=](ExecuteContext& context,  ComponentFilter<Tuple const, EntityProperty>& p, SingletonFilter<Tuple2>& s, std::size_t i)
@@ -115,9 +124,11 @@ int main()
 			std::println("wtf1");
 			
 	});
+	*/
 
 	std::size_t index = 0;
 
+	/*
 	context.CreateTickSystemAuto({0, 0, 3}, {
 		u8"wtf2"
 		}, [&](ExecuteContext& context, ComponentFilter<Tuple, EntityProperty>& p, std::size_t i)
@@ -144,8 +155,9 @@ int main()
 		});
 
 	context.FlushStats();
+	*/
 
-	bool re = context.Commit(tcontext, {});
+	bool re = context.Commited(tcontext, {});
 	tcontext.ProcessTaskUntillNoExitsTask({});
 
 
