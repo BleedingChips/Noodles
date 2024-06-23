@@ -76,7 +76,7 @@ export namespace Noodles
 	{
 		std::span<RWUniqueTypeID const> components;
 		std::span<RWUniqueTypeID const> singleton;
-		std::optional<RWUniqueTypeID> system;
+		//std::span<RWUniqueTypeID const> outside;
 
 		bool IsConflict(ReadWriteMutex const& mutex) const;
 	};
@@ -128,6 +128,8 @@ export namespace Noodles
 
 		virtual void AddSystemNodeRef() const = 0;
 		virtual void SubSystemNodeRef() const = 0;
+
+		friend struct Context;
 	};
 
 	enum class Order
@@ -151,7 +153,7 @@ export namespace Noodles
 	struct SystemNodeUserData : protected Potato::Task::TaskFlow::UserData, protected Potato::Pointer::DefaultIntrusiveInterface
 	{
 
-		using Ptr = Potato::Pointer::IntrusivePtr<SystemNodeUserData, Potato::Task::TaskFlow::UserData::Wrapper>;
+		using Ptr = Potato::Pointer::IntrusivePtr<SystemNodeUserData>;
 
 		static Ptr Create(SystemNodeProperty property, ReadWriteMutex mutex, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
@@ -176,6 +178,9 @@ export namespace Noodles
 		ReadWriteMutex mutex;
 
 		friend struct Context;
+		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
+		friend struct Potato::Task::TaskFlow::UserData::Wrapper;
+		//friend struct Potato::Task::TaskFlow::UserData::Ptr;
 	};
 
 	struct SubContextTaskFlow : protected Potato::Task::TaskFlow, protected Potato::Pointer::DefaultIntrusiveInterface
@@ -190,6 +195,29 @@ export namespace Noodles
 		virtual void AddTaskFlowRef() const override { DefaultIntrusiveInterface::AddRef(); }
 		virtual void SubTaskFlowRef() const override { DefaultIntrusiveInterface::SubRef(); }
 		void Release() override{ auto re = record; this->~SubContextTaskFlow(); re.Deallocate(); }
+		friend struct Context;
+	};
+
+	struct SubContextTaskFlowUserData : protected Potato::Task::TaskFlow::UserData, protected Potato::Pointer::DefaultIntrusiveInterface
+	{
+
+	protected:
+
+		SubContextTaskFlowUserData(Potato::IR::MemoryResourceRecord record)
+			: record(record) {}
+
+
+		struct SystemProperty
+		{
+			Potato::Task::TaskFlow::Node::Ptr node;
+			SystemNodeUserData::Ptr user_data;
+		};
+		std::pmr::vector<SystemProperty> property;
+
+		Potato::IR::MemoryResourceRecord record;
+		virtual void AddTaskFlowRef() const override { DefaultIntrusiveInterface::AddRef(); }
+		virtual void SubTaskFlowRef() const override { DefaultIntrusiveInterface::SubRef(); }
+		void Release() override { auto re = record; this->~SubContextTaskFlow(); re.Deallocate(); }
 		friend struct Context;
 	};
 
@@ -248,7 +276,7 @@ export namespace Noodles
 			return true;
 		}
 
-		bool AddSystem(SystemNode::Ptr system, SystemNodeProperty property, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
+		bool AddSystem(SystemNode::Ptr system, SystemNodeProperty property);
 		//bool RemoveSystem(TaskFlow::Node& node);
 		bool RemoveSystemDefer(Property require_property);
 		bool RemoveSystemDeferByGroup(std::u8string_view group_name);
@@ -306,15 +334,22 @@ export namespace Noodles
 		std::chrono::steady_clock::time_point start_up_tick_lock;
 		ArchetypeComponentManager manager;
 
-		std::mutex system;
-		struct SystemProperty
+		std::mutex system_mutex;
+
+		struct SystemElement
 		{
+			TaskFlow::Node::Ptr reference_node;
 			Property property;
 			Priority priority;
-			TaskFlow::Node::Ptr reference_node;
-			TaskFlow::Ptr task_flow;
 		};
-		std::pmr::vector<SystemProperty> systems;
+
+		struct TaskElement
+		{
+			std::size_t layout;
+			TaskFlow::Ptr reference_task;
+			std::pmr::vector<SystemElement> elements;
+		};
+		std::pmr::vector<TaskElement> tasks;
 
 		std::pmr::memory_resource* context_resource = nullptr;
 		std::pmr::memory_resource* system_resource = nullptr;

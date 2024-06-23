@@ -100,8 +100,8 @@ namespace Noodles
 	{
 		return ReadWriteMutex{
 			std::span(unique_ids).subspan(0, component_count),
-			std::span(unique_ids).subspan(component_count),
-			system_id
+			std::span(unique_ids).subspan(component_count)
+			//system_id
 		};
 	}
 
@@ -110,16 +110,49 @@ namespace Noodles
 		assert(false);
 	}
 
-	static Potato::Format::StaticFormatPattern<u8"{}{}{}-[{}]:[{}]"> system_static_format_pattern;
+	static Potato::Format::StaticFormatPattern<u8"{}:{}"> system_static_format_pattern;
 
 	auto SystemNodeUserData::Create(SystemNodeProperty property, ReadWriteMutex mutex, std::pmr::memory_resource* resource)
 		-> Ptr
 	{
 		auto t_layout = Potato::IR::Layout::Get<SystemNodeUserData>();
+		Potato::Format::FormatWritter<char8_t> temp_writer;
+		system_static_format_pattern.Format(temp_writer, property.property.group, property.property.name);
+		auto layout_offset = Potato::IR::InsertLayoutCPP(t_layout, Potato::IR::Layout::GetArray<RWUniqueTypeID>(mutex.singleton.size() + mutex.singleton.size()));
+		auto str_offset = Potato::IR::InsertLayoutCPP(t_layout, Potato::IR::Layout::GetArray<char8_t>(temp_writer.GetWritedSize()));
+		Potato::IR::FixLayoutCPP(t_layout);
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, t_layout);
+		if(re)
+		{
+			std::byte* ite = re.GetByte() + layout_offset;
+			for(auto& ite2 : mutex.components)
+			{
+				new (ite) RWUniqueTypeID{ ite2 };
+				ite += sizeof(RWUniqueTypeID);
+			}
+			for (auto& ite2 : mutex.singleton)
+			{
+				new (ite) RWUniqueTypeID{ ite2 };
+				ite += sizeof(RWUniqueTypeID);
+			}
+			Potato::Format::FormatWritter<char8_t> temp_writer2{
+				std::span(reinterpret_cast<char8_t*>(re.GetByte() + str_offset), temp_writer.GetWritedSize())
+			};
+			ReadWriteMutex new_mutex{
+				std::span(reinterpret_cast<RWUniqueTypeID*>(re.GetByte() + layout_offset), mutex.components.size()),
+				std::span(reinterpret_cast<RWUniqueTypeID*>(re.GetByte() + layout_offset) + mutex.components.size(), mutex.singleton.size()),
+			};
+			system_static_format_pattern.Format(temp_writer2, property.property.group, property.property.name);
+			property.property.group = { reinterpret_cast<char8_t*>(re.GetByte() + str_offset),  property.property.group.size()};
+			property.property.name = { reinterpret_cast<char8_t*>(re.GetByte() + str_offset) + property.property.group.size() + 1,  property.property.name.size()};
 
+			Ptr ptr = new (re.Get()) SystemNodeUserData{re, property, new_mutex };
+			return ptr;
+		}
+		return {};
 	}
 
-	void SystemNodeUserData::Release() override
+	void SystemNodeUserData::Release()
 	{
 		auto re = record;
 		auto mu = mutex;
@@ -158,6 +191,29 @@ namespace Noodles
 		context_resource(resource.context_resource)
 	{
 
+	}
+
+	bool Context::AddSystem(SystemNode::Ptr system, SystemNodeProperty property)
+	{
+		if(system)
+		{
+			ReadWriteMutexGenerator Generator(temporary_resource);
+			system->FlushMutexGenerator(Generator);
+			auto mutex = Generator.GetMutex();
+			auto user_data = SystemNodeUserData::Create(property, mutex, system_resource);
+			if(user_data)
+			{
+				std::lock_guard lg(system_mutex);
+				for(auto& ite : systems)
+				{
+					if(ite.priority.layout == property.priority.layout)
+					{
+						
+					}
+				}
+			}
+		}
+		
 	}
 
 	void Context::TaskFlowExecuteBegin(Potato::Task::TaskFlowContext& context)
