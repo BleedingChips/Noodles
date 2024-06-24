@@ -162,9 +162,10 @@ export namespace Noodles
 		SystemNodeUserData(
 			Potato::IR::MemoryResourceRecord record,
 			SystemNodeProperty property,
-			ReadWriteMutex mutex
+			ReadWriteMutex mutex,
+			std::u8string_view display_name
 		)
-			: record(record), property(std::move(property)), mutex(mutex)
+			: record(record), property(std::move(property)), mutex(mutex), display_name(display_name)
 		{
 			
 		}
@@ -176,55 +177,37 @@ export namespace Noodles
 		Potato::IR::MemoryResourceRecord record;
 		SystemNodeProperty property;
 		ReadWriteMutex mutex;
-
+		std::u8string_view display_name;
 		friend struct Context;
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 		friend struct Potato::Task::TaskFlow::UserData::Wrapper;
 		//friend struct Potato::Task::TaskFlow::UserData::Ptr;
 	};
 
-	struct SubContextTaskFlow : protected Potato::Task::TaskFlow, protected Potato::Pointer::DefaultIntrusiveInterface
+	struct SubContextTaskFlow : public Potato::Task::TaskFlow, protected Potato::Pointer::DefaultIntrusiveInterface
 	{
-		
+		using Ptr = Potato::Pointer::IntrusivePtr<SubContextTaskFlow, Potato::Task::TaskFlow::Wrapper>;
+
 	protected:
 
-		SubContextTaskFlow(Potato::IR::MemoryResourceRecord record)
-			: record(record) {}
+		SubContextTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
+			: record(record), layout(layout) {}
 
-		Potato::IR::MemoryResourceRecord record;
 		virtual void AddTaskFlowRef() const override { DefaultIntrusiveInterface::AddRef(); }
 		virtual void SubTaskFlowRef() const override { DefaultIntrusiveInterface::SubRef(); }
+
+
 		void Release() override{ auto re = record; this->~SubContextTaskFlow(); re.Deallocate(); }
-		friend struct Context;
-	};
-
-	struct SubContextTaskFlowUserData : protected Potato::Task::TaskFlow::UserData, protected Potato::Pointer::DefaultIntrusiveInterface
-	{
-
-	protected:
-
-		SubContextTaskFlowUserData(Potato::IR::MemoryResourceRecord record)
-			: record(record) {}
-
-
-		struct SystemProperty
-		{
-			Potato::Task::TaskFlow::Node::Ptr node;
-			SystemNodeUserData::Ptr user_data;
-		};
-		std::pmr::vector<SystemProperty> property;
 
 		Potato::IR::MemoryResourceRecord record;
-		virtual void AddTaskFlowRef() const override { DefaultIntrusiveInterface::AddRef(); }
-		virtual void SubTaskFlowRef() const override { DefaultIntrusiveInterface::SubRef(); }
-		void Release() override { auto re = record; this->~SubContextTaskFlow(); re.Deallocate(); }
+		std::int32_t layout;
+
+
 		friend struct Context;
 	};
 
 	export struct Context : protected Potato::Task::TaskFlow
 	{
-
-		
 
 		struct Config
 		{
@@ -292,11 +275,11 @@ export namespace Noodles
 		template<typename SingletonT, typename ...OT>
 		Potato::Pointer::ObserverPtr<SingletonT> CreateSingleton(OT&& ...ot) { return manager.CreateSingletonType<SingletonT>(std::forward<OT>(ot)...); }
 
-		bool RegisterFilter(ComponentFilterInterface::Ptr interface, TaskFlow::Node& owner) { return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner)); }
+		bool RegisterFilter(ComponentFilterInterface::Ptr interface, TaskFlow::Socket& owner) { return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner)); }
 
-		bool RegisterFilter(SingletonFilterInterface::Ptr interface, TaskFlow::Node& owner) { return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner)); }
+		bool RegisterFilter(SingletonFilterInterface::Ptr interface, TaskFlow::Socket& owner) { return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner)); }
 
-		bool UnRegisterFilter(TaskFlow::Node& owner) { return manager.ReleaseFilter(reinterpret_cast<std::size_t>(&owner)); }
+		bool UnRegisterFilter(TaskFlow::Socket& owner) { return manager.ReleaseFilter(reinterpret_cast<std::size_t>(&owner)); }
 
 		using ComponentWrapper = ArchetypeComponentManager::ComponentsWrapper;
 		using EntityWrapper = ArchetypeComponentManager::EntityWrapper;
@@ -333,23 +316,6 @@ export namespace Noodles
 		bool require_quit = false;
 		std::chrono::steady_clock::time_point start_up_tick_lock;
 		ArchetypeComponentManager manager;
-
-		std::mutex system_mutex;
-
-		struct SystemElement
-		{
-			TaskFlow::Node::Ptr reference_node;
-			Property property;
-			Priority priority;
-		};
-
-		struct TaskElement
-		{
-			std::size_t layout;
-			TaskFlow::Ptr reference_task;
-			std::pmr::vector<SystemElement> elements;
-		};
-		std::pmr::vector<TaskElement> tasks;
 
 		std::pmr::memory_resource* context_resource = nullptr;
 		std::pmr::memory_resource* system_resource = nullptr;

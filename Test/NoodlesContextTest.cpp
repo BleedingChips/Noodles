@@ -82,6 +82,15 @@ struct TestContext : public Context
 };
 
 
+struct TestSystem : public SystemNode
+{
+	void AddSystemNodeRef() const override {}
+	void SubSystemNodeRef() const override {}
+	void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const override {}
+	void SystemNodeExecute(ExecuteContext& context) override {}
+};
+
+
 int main()
 {
 
@@ -91,6 +100,7 @@ int main()
 	TestContext context{fig};
 
 	Potato::Task::TaskContext tcontext;
+	TestSystem systm;
 
 	auto ent = context.CreateEntity();
 	context.AddEntityComponent(*ent, Tuple{10086});
@@ -102,6 +112,10 @@ int main()
 	}
 
 	auto Ker = context.CreateSingleton<Tuple2>(std::u8string{u8"Fff"});
+	context.AddSystem(&systm, {
+		{1, 1, 1},
+		{u8"S1", u8"G1"}
+	});
 
 	/*
 	context.CreateTickSystemAuto( {0, 0, 1}, {
