@@ -2,50 +2,25 @@ import std;
 import PotatoTaskSystem;
 import NoodlesComponent;
 import NoodlesContext;
+import PotatoEncode;
 
 using namespace Noodles;
 
 std::mutex PrintMutex;
 
-/*
-void PrintMark(Noodles::SystemContext& context)
+void PrintSystemProperty(ExecuteContext& context)
 {
-	std::lock_guard lg(PrintMutex);
-	std::println("---{0}---", std::string_view{
-		reinterpret_cast<char const*>(context.GetProperty().system_name.data()),
-		context.GetProperty().system_name.size()
-		});
-}
-
-void UniquePrint(std::u8string_view Name, std::chrono::system_clock::duration dua = std::chrono::milliseconds{ 1000 })
-{
+	auto wstr = *Potato::Encode::StrEncoder<char8_t, wchar_t>::EncodeToString(context.display_name);
+	auto sstr = *Potato::Encode::StrEncoder<wchar_t, char>::EncodeToString(std::wstring_view{wstr});
 	{
 		std::lock_guard lg(PrintMutex);
-		std::println("Begin Func : {0}", std::string_view{
-			reinterpret_cast<char const*>(Name.data()),
-			Name.size()
-			});
+		std::println("	StartSystemNode -- <{0}>", sstr);
 	}
-
-	std::this_thread::sleep_for(dua);
-
+	std::this_thread::sleep_for(std::chrono::seconds{1});
 	{
 		std::lock_guard lg(PrintMutex);
-		std::println("End Func : {0}", std::string_view{
-			reinterpret_cast<char const*>(Name.data()),
-			Name.size()
-			});
+		std::println("	EndSystemNode -- <{0}>", sstr);
 	}
-}
-
-void PrintSystem(Noodles::SystemContext& context)
-{
-	UniquePrint(context.GetProperty().system_name);
-}
-
-std::partial_ordering CustomPriority(SystemProperty const& p1, SystemProperty const& p2)
-{
-	return p1.system_name <=> p2.system_name;
 }
 
 
@@ -53,6 +28,7 @@ struct A { std::size_t i = 0; };
 
 struct B {};
 
+/*
 void Func(A a){}
 
 void Func2(SystemContext system) {}
@@ -86,8 +62,14 @@ struct TestSystem : public SystemNode
 {
 	void AddSystemNodeRef() const override {}
 	void SubSystemNodeRef() const override {}
-	void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const override {}
-	void SystemNodeExecute(ExecuteContext& context) override {}
+	void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const override
+	{
+		static std::array<RWUniqueTypeID, 1> test = {
+			RWUniqueTypeID::Create<Tuple2>()
+		};
+		generator.RegisterComponentMutex(std::span(test));
+	}
+	void SystemNodeExecute(ExecuteContext& context) override { PrintSystemProperty(context); }
 };
 
 
@@ -114,7 +96,15 @@ int main()
 	auto Ker = context.CreateSingleton<Tuple2>(std::u8string{u8"Fff"});
 	context.AddSystem(&systm, {
 		{1, 1, 1},
-		{u8"S1", u8"G1"}
+		{u8"S1", u8"G11"}
+	});
+	context.AddSystem(&systm, {
+		{1, 1, 0},
+		{u8"S2", u8"G11"}
+	});
+	context.AddSystem(&systm, {
+		{2, 1, 1},
+		{u8"S3", u8"G21"}
 	});
 
 	/*
@@ -170,7 +160,7 @@ int main()
 
 	context.FlushStats();
 	*/
-
+	tcontext.AddGroupThread({}, 2);
 	bool re = context.Commited(tcontext, {});
 	tcontext.ProcessTaskUntillNoExitsTask({});
 

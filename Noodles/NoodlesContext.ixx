@@ -204,6 +204,7 @@ export namespace Noodles
 
 
 		friend struct Context;
+		friend struct SystemNode;
 	};
 
 	export struct Context : protected Potato::Task::TaskFlow
@@ -323,64 +324,16 @@ export namespace Noodles
 		std::pmr::memory_resource* temporary_resource = nullptr;
  
 		friend struct TaskFlow::Wrapper;
-		friend struct SystemHolder;
+		friend struct SystemNode;
 	};
 
-
-
-
-
-
-
-
-
-
-
-	/*
-	export struct SystemHolder : protected Potato::Task::TaskFlowNode, protected Potato::Pointer::DefaultIntrusiveInterface
+	export struct ExecuteContext
 	{
-
-		using Ptr = Potato::Pointer::IntrusivePtr<SystemHolder, Potato::Task::TaskFlowNode::Wrapper>;
-
-		template<typename Func>
-		static auto CreateAuto(
-			Func&& func,
-			ReadWriteMutexGenerator& generator,
-			std::pmr::memory_resource* resource,
-			std::pmr::memory_resource* parameter_resource
-		)
-			-> Ptr;
-
-		static std::size_t FormatDisplayNameSize(std::u8string_view prefix, Property property);
-		static std::optional<std::tuple<std::u8string_view, Property>> FormatDisplayName(std::span<char8_t> output, std::u8string_view prefix, Property property);
-
-	protected:
-
-		SystemHolder(Property property, std::u8string_view display_name)
-			: property(property), display_name(display_name) {}
-
-		virtual void TaskFlowNodeExecute(Potato::Task::TaskFlowContext& context) override final;
-		virtual void SystemExecute(ExecuteContext& context) = 0;
-
-		virtual void SystemInit(Context& context) {}
-		virtual void SystemRelease(Context& context) {}
-
-		operator Potato::Task::TaskFlowNode::Ptr() { return this; }
-
-		Property property;
+		Context& noodles_context;
 		std::u8string_view display_name;
-
-		void AddTaskFlowNodeRef() const override { DefaultIntrusiveInterface::AddRef(); }
-		void SubTaskFlowNodeRef() const override { DefaultIntrusiveInterface::SubRef(); }
-
-		friend struct Potato::Task::TaskFlowNode::Wrapper;
-		friend struct Context;
 	};
-	*/
 
-	/*
 	
-
 	template<AcceptableFilterType ...ComponentT>
 	struct ComponentFilter : protected ComponentFilterInterface
 	{
@@ -395,7 +348,7 @@ export namespace Noodles
 			return std::span(temp_buffer);
 		}
 
-		void ParameterInit(SystemHolder& owner, Context& context)
+		void ParameterInit(SystemNode& owner, Context& context)
 		{
 			context.RegisterFilter(this, owner);
 		}
@@ -464,7 +417,7 @@ export namespace Noodles
 			return UniqueTypeID::Create<ComponentT>();
 		}
 
-		void ParameterInit(SystemHolder& owner, Context& context)
+		void ParameterInit(SystemNode& owner, Context& context)
 		{
 			context.RegisterFilter(this, owner);
 		}
@@ -485,13 +438,6 @@ export namespace Noodles
 
 		friend struct Context;
 	};
-
-	export struct ExecuteContext
-	{
-		Potato::Task::TaskContext& task_context;
-		Context& noodles_context;
-	};
-	*/
 
 	template<typename Type>
 	concept IsExecuteContext = std::is_same_v<std::remove_cvref_t<Type>, ExecuteContext>;

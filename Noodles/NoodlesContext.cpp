@@ -107,7 +107,21 @@ namespace Noodles
 
 	void SystemNode::TaskFlowNodeExecute(Potato::Task::TaskFlowContext& status)
 	{
-		assert(false);
+		Context* Tar = nullptr;
+
+		{
+			SubContextTaskFlow* flow = static_cast<SubContextTaskFlow*>(status.flow.GetPointer());
+			std::lock_guard lg(flow->process_mutex);
+			Tar = static_cast<Context*>(flow->parent_node.GetPointer());
+		}
+
+		ExecuteContext exe_context
+		{
+			*Tar,
+			status.node_property.display_name
+		};
+
+		SystemNodeExecute(exe_context);
 	}
 
 	static Potato::Format::StaticFormatPattern<u8"{}:{}"> system_static_format_pattern;
@@ -118,7 +132,7 @@ namespace Noodles
 		auto t_layout = Potato::IR::Layout::Get<SystemNodeUserData>();
 		Potato::Format::FormatWritter<char8_t> temp_writer;
 		system_static_format_pattern.Format(temp_writer, property.property.group, property.property.name);
-		auto layout_offset = Potato::IR::InsertLayoutCPP(t_layout, Potato::IR::Layout::GetArray<RWUniqueTypeID>(mutex.singleton.size() + mutex.singleton.size()));
+		auto layout_offset = Potato::IR::InsertLayoutCPP(t_layout, Potato::IR::Layout::GetArray<RWUniqueTypeID>(mutex.components.size() + mutex.singleton.size()));
 		auto str_offset = Potato::IR::InsertLayoutCPP(t_layout, Potato::IR::Layout::GetArray<char8_t>(temp_writer.GetWritedSize()));
 		Potato::IR::FixLayoutCPP(t_layout);
 		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, t_layout);
@@ -205,9 +219,9 @@ namespace Noodles
 			auto user_data = SystemNodeUserData::Create(property, mutex, system_resource);
 			if(user_data)
 			{
-				std::lock_guard lg(raw_mutex);
+				std::lock_guard lg(preprocess_mutex);
 				SubContextTaskFlow::Ptr target_flow;
-				for(auto& ite : raw_nodes)
+				for(auto& ite : preprocess_nodes)
 				{
 					auto ptr = static_cast<SubContextTaskFlow*>(ite.node.GetPointer());
 					assert(ptr != nullptr);
@@ -233,12 +247,12 @@ namespace Noodles
 							auto socket = AddNode_AssumedLock(target_flow.GetPointer());
 							if(socket)
 							{
-								for(auto& ite : raw_nodes)
+								for(auto& ite : preprocess_nodes)
 								{
 									if(ite.node != target_flow)
 									{
 										auto ptr = static_cast<SubContextTaskFlow*>(ite.node.GetPointer());
-										if(ptr->layout < property.priority.layout)
+										if(ptr->layout > property.priority.layout)
 										{
 											auto re = AddDirectEdge_AssumedLock(*ite.socket, *socket);
 											assert(re);
@@ -256,11 +270,11 @@ namespace Noodles
 				}
 				else
 				{
-					std::lock_guard lg(target_flow->raw_mutex);
+					std::lock_guard lg(target_flow->preprocess_mutex);
 					auto tar = target_flow->AddNode_AssumedLock(system.GetPointer(), {user_data->display_name, user_data->property.filter}, user_data.GetPointer());
 					if(tar)
 					{
-						for(auto& ite : target_flow->raw_nodes)
+						for(auto& ite : target_flow->preprocess_nodes)
 						{
 							if(ite.socket != tar)
 							{

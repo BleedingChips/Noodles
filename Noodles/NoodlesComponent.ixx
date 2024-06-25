@@ -307,6 +307,7 @@ export namespace Noodles
 			std::pmr::memory_resource* archetype_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* component_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* singleton_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* filter_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource();
 		};
 
