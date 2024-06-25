@@ -276,22 +276,23 @@ export namespace Noodles
 		template<typename SingletonT, typename ...OT>
 		Potato::Pointer::ObserverPtr<SingletonT> CreateSingleton(OT&& ...ot) { return manager.CreateSingletonType<SingletonT>(std::forward<OT>(ot)...); }
 
+		/*
 		bool RegisterFilter(ComponentFilterInterface::Ptr interface, TaskFlow::Socket& owner) { return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner)); }
 
 		bool RegisterFilter(SingletonFilterInterface::Ptr interface, TaskFlow::Socket& owner) { return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner)); }
 
 		bool UnRegisterFilter(TaskFlow::Socket& owner) { return manager.ReleaseFilter(reinterpret_cast<std::size_t>(&owner)); }
-
+		*/
 		using ComponentWrapper = ArchetypeComponentManager::ComponentsWrapper;
 		using EntityWrapper = ArchetypeComponentManager::EntityWrapper;
 
-		ComponentWrapper IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index) const { return manager.ReadComponents(interface, ite_index); }
+		//ComponentWrapper IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index) const { return manager.ReadComponents(interface, ite_index); }
 
 
-		EntityWrapper ReadEntity(Entity const& entity, ComponentFilterInterface const& interface) const { { return manager.ReadEntityComponents(entity, interface); } }
-		std::optional<std::span<void*>> ReadEntityDirect(Entity const& entity, ComponentFilterInterface const& interface, std::span<void*> output) const { return manager.ReadEntityDirect(entity, interface, output); };
+		//EntityWrapper ReadEntity(Entity const& entity, ComponentFilterInterface const& interface) const { { return manager.ReadEntityComponents(entity, interface); } }
+		//std::optional<std::span<void*>> ReadEntityDirect(Entity const& entity, ComponentFilterInterface const& interface, std::span<void*> output) const { return manager.ReadEntityDirect(entity, interface, output); };
 
-		Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& interface) { return manager.ReadSingleton(interface);  }
+		//Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& interface) { return manager.ReadSingleton(interface);  }
 
 		void Quit();
 
@@ -333,7 +334,7 @@ export namespace Noodles
 		std::u8string_view display_name;
 	};
 
-	
+	/*
 	template<AcceptableFilterType ...ComponentT>
 	struct ComponentFilter : protected ComponentFilterInterface
 	{

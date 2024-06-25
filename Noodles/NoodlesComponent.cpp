@@ -159,7 +159,7 @@ namespace Noodles
 	{
 		
 	}
-
+	/*
 	bool FilterInterface::Register(std::size_t in_owner_id)
 	{
 		std::lock_guard lg(filter_mutex);
@@ -187,78 +187,69 @@ namespace Noodles
 	{
 		indexs.clear();
 	}
+	*/
 
-	void ComponentFilterInterface::OnCreatedArchetype(std::size_t in_owner_id, std::size_t archetype_index, Archetype const& archetype)
+	void ComponentFilterInterface::OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype)
 	{
-		std::lock_guard lg(filter_mutex);
-		if(owner_id == in_owner_id)
+		std::lock_guard lg(mutex);
+		auto aspan = GetArchetypeId();
+		assert(aspan.size() > 0);
+		auto old_size = index.size();
+		index.resize(old_size + aspan.size() + 1);
+		auto out_span = std::span(index).subspan(old_size);
+		out_span[0] = archetype_index;
+		out_span = out_span.subspan(1);
+		for (auto& ite : aspan)
 		{
-			auto aspan = GetArchetypeIndex();
-			assert(aspan.size() > 0);
-			auto old_size = indexs.size();
-			indexs.resize(old_size + aspan.size() + 1);
-			auto out_span = std::span(indexs).subspan(old_size);
-			out_span[0] = archetype_index;
-			out_span = out_span.subspan(1);
-			for (auto& ite : aspan)
+			auto ind = archetype.LocateTypeID(ite);
+			if (ind.has_value())
 			{
-				auto ind = archetype.LocateTypeID(ite);
-				if (ind.has_value())
-				{
-					out_span[0] = *ind;
-					out_span = out_span.subspan(1);
-				}
-				else
-				{
-					indexs.resize(old_size);
-					return;
-				}
+				out_span[0] = *ind;
+				out_span = out_span.subspan(1);
+			}
+			else
+			{
+				index.resize(old_size);
+				return;
 			}
 		}
 	}
 
-	std::optional<std::span<std::size_t const>> ComponentFilterInterface::EnumByArchetypeIndex(std::size_t in_owner_id, std::size_t archetype_index) const
+	std::optional<std::span<std::size_t const>> ComponentFilterInterface::EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index) const
 	{
-		std::shared_lock lg(filter_mutex);
-		if(owner_id == in_owner_id)
+		auto size = GetArchetypeId().size();
+		auto span = std::span(index);
+		assert((span.size() % (size + 1)) == 0);
+		while(!span.empty())
 		{
-			auto size = GetArchetypeIndex().size();
-			auto span = std::span(indexs);
-			assert((span.size() % (size + 1)) == 0);
-			while(!span.empty())
+			if(span[0] == archetype_index)
 			{
-				if(span[0] == archetype_index)
-				{
-					return span.subspan(1, size);
-				}else
-				{
-					span = span.subspan(size + 1);
-				}
-			}
-		}
-		return std::nullopt;
-	}
-
-	std::optional<std::span<std::size_t const>> ComponentFilterInterface::EnumByIteratorIndex(std::size_t in_owner_id, std::size_t ite_index, std::size_t& archetype_index) const
-	{
-		std::shared_lock lg(filter_mutex);
-		if (owner_id == in_owner_id)
-		{
-			auto size = GetArchetypeIndex().size();
-			auto span = std::span(indexs);
-			assert((span.size() % (size + 1)) == 0);
-
-			auto offset = ite_index * (size + 1);
-			if(offset < span.size())
-			{
-				span = span.subspan(offset);
-				archetype_index = span[0];
 				return span.subspan(1, size);
+			}else
+			{
+				span = span.subspan(size + 1);
 			}
 		}
 		return std::nullopt;
 	}
 
+	std::optional<std::span<std::size_t const>> ComponentFilterInterface::EnumMountPointIndexByIterator_AssumedLocked(std::size_t ite_index, std::size_t& archetype_index) const
+	{
+		auto size = GetArchetypeId().size();
+		auto span = std::span(index);
+		assert((span.size() % (size + 1)) == 0);
+
+		auto offset = ite_index * (size + 1);
+		if(offset < span.size())
+		{
+			span = span.subspan(offset);
+			archetype_index = span[0];
+			return span.subspan(1, size);
+		}
+		return std::nullopt;
+	}
+
+	/*
 	void SingletonFilterInterface::OnUnregister()
 	{
 		singleton_reference.Reset();
@@ -273,7 +264,9 @@ namespace Noodles
 		}
 		return nullptr;
 	}
+	*/
 
+	/*
 	std::optional<std::span<void*>> ArchetypeComponentManager::ReadEntityDirect(Entity const& entity, ComponentFilterInterface const& interface, std::span<void*> output_ptr, bool prefer_modify) const
 	{
 		std::shared_lock lg(entity.mutex);
@@ -326,6 +319,7 @@ namespace Noodles
 		}
 		return std::nullopt;
 	}
+	*/
 
 	std::tuple<Archetype::OPtr, Archetype::ArrayMountPoint> ArchetypeComponentManager::GetComponentPage(std::size_t archetype_index) const
 	{
@@ -347,7 +341,7 @@ namespace Noodles
 	ArchetypeComponentManager::ArchetypeComponentManager(SyncResource resource)
 		:components(resource.manager_resource), modified_entity(resource.manager_resource), temp_resource(resource.temporary_resource),
 		archetype_resource(resource.archetype_resource),components_resource(resource.component_resource), singletons(resource.manager_resource),
-		filter_mapping(resource.manager_resource), singleton_filters(resource.manager_resource), singleton_resource(resource.singleton_resource)
+		filter_mapping(resource.manager_resource), singleton_resource(resource.singleton_resource)
 	{
 		
 	}
@@ -355,6 +349,7 @@ namespace Noodles
 	
 	ArchetypeComponentManager::~ArchetypeComponentManager()
 	{
+		/*
 		{
 			std::lock_guard lg(filter_mapping_mutex);
 			for(auto& ite : filter_mapping)
@@ -370,6 +365,7 @@ namespace Noodles
 			}
 			singleton_filters.clear();
 		}
+		*/
 
 		{
 			std::lock_guard lg2(singletons_mutex);
@@ -467,6 +463,7 @@ namespace Noodles
 		return {};
 	}
 
+	/*
 	bool ArchetypeComponentManager::RegisterFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id)
 	{
 		if(ptr && ptr->Register(reinterpret_cast<std::size_t>(this)))
@@ -487,6 +484,7 @@ namespace Noodles
 		}
 		return false;
 	}
+	
 
 	ArchetypeComponentManager::ComponentsWrapper ArchetypeComponentManager::ReadComponents(ComponentFilterInterface const& interface, std::size_t ite_index) const
 	{
@@ -550,6 +548,7 @@ namespace Noodles
 		}
 		return false;
 	}
+	*/
 
 	bool ArchetypeComponentManager::ReleaseEntity(Entity& ptr)
 	{
@@ -588,10 +587,12 @@ namespace Noodles
 		return true;
 	}
 
+	/*
 	Potato::Pointer::ObserverPtr<void> ArchetypeComponentManager::ReadSingleton(SingletonFilterInterface const& filter) const
 	{
 		return filter.GetSingleton(reinterpret_cast<std::size_t>(this));
 	}
+	*/
 
 	bool ArchetypeComponentManager::AddEntityComponent(Entity& target_entity, ArchetypeID archetype_id, void* reference_buffer)
 	{
@@ -909,6 +910,7 @@ namespace Noodles
 
 			if(old_component_size != components.size())
 			{
+				/*
 				std::lock_guard lg2(filter_mapping_mutex);
 				for(auto& ite : filter_mapping)
 				{
@@ -918,6 +920,7 @@ namespace Noodles
 					}
 				}
 				Updated = true;
+				*/
 			}
 		}
 
@@ -1003,6 +1006,7 @@ namespace Noodles
 		}
 	}
 
+	/*
 	std::size_t ArchetypeComponentManager::ReleaseFilter(std::size_t group_id)
 	{
 		std::lock_guard lg(filter_mapping_mutex);
@@ -1042,4 +1046,5 @@ namespace Noodles
 
 		return osize - filter_mapping.size() - singleton_filters.size();
 	}
+	*/
 }

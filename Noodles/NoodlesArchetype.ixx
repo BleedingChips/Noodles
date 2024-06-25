@@ -11,8 +11,6 @@ import PotatoTaskSystem;
 export namespace Noodles
 {
 
-	struct ArchetypeComponentManager;
-
 	struct UniqueTypeID
 	{
 
@@ -234,8 +232,6 @@ export namespace Noodles
 		Potato::IR::Layout single_layout;
 		Potato::IR::Layout archetype_layout;
 		std::span<Element> infos;
-
-		friend struct ArchetypeComponentManager;
 	};
 
 }
