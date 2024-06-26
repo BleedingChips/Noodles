@@ -36,33 +36,13 @@ struct E
 	using NoodlesSingletonRequire = std::size_t;
 };
 
-template<typename ...AT>
-struct TestComponentFilter : public ComponentFilterInterface
-{
-	virtual void AddFilterRef() const override {};
-	virtual void SubFilterRef() const override {};
-	virtual std::span<UniqueTypeID const> GetArchetypeIndex() const override
-	{
-		static std::array<UniqueTypeID, sizeof...(AT)> TemBuffer{UniqueTypeID::Create<std::remove_cvref_t<AT>>()...};
-		return std::span(TemBuffer);
-	}
-	static constexpr std::size_t Count() { return sizeof...(AT); }
-};
-
-template<typename AT>
-struct TestSingletonFilter : public SingletonFilterInterface
-{
-	virtual void AddFilterRef() const override {};
-	virtual void SubFilterRef() const override {};
-	virtual UniqueTypeID RequireTypeID() const override { return UniqueTypeID::Create<AT>(); }
-};
-
 
 int main()
 {
 	{
-		TestComponentFilter<Report, A, EntityProperty, std::u8string> TF;
-		TestSingletonFilter<A> ATF;
+		TemporaryComponentFilterStorage<Report, A, EntityProperty, std::u8string> TF;
+		//TestComponentFilter<Report, A, EntityProperty, std::u8string> TF;
+		//TestSingletonFilter<A> ATF;
 
 		ArchetypeComponentManager manager;
 
@@ -80,20 +60,7 @@ int main()
 			manager.AddEntityComponent(*ite_e2, std::u8string{u8"Fuck You"});
 		}
 
-		manager.RegisterFilter(&TF, 0);
-
-		std::array<std::size_t, decltype(TF)::Count()> TemBuffer;
-
 		auto K = manager.CreateSingletonType<A>(100);
-
-		manager.RegisterFilter(&ATF, 0);
-
-		auto k = manager.ReadSingleton(ATF);
-		if(k != nullptr)
-		{
-			auto op = reinterpret_cast<A*>(k.GetPointer());
-			volatile int i = 0;
-		}
 
 		manager.ForceUpdateState();
 
@@ -107,8 +74,9 @@ int main()
 
 		manager.ForceUpdateState();
 
-
-		auto P = manager.ReadComponents(TF, 0);
+		auto F1 = manager.CreateComponentFilter(TF);
+		
+		auto P = manager.ReadComponents_AssumedLocked(*F1, 0, TF);
 		if(P)
 		{
 			auto k = P.GetRawArray(1).Translate<A>();
@@ -118,11 +86,12 @@ int main()
 
 			auto k5 = k4[0].GetEntity();
 
+
 			manager.ReleaseEntity(*k5);
 
 			manager.ForceUpdateState();
 
-			auto P2 = manager.ReadComponents(TF, 0);
+			auto P2 = manager.ReadComponents_AssumedLocked(*F1, 0, TF);
 			if(P2)
 			{
 				auto k = P2.GetRawArray(1).Translate<A>();
@@ -138,18 +107,17 @@ int main()
 
 				manager.ForceUpdateState();
 
-				auto P3 = manager.ReadComponents(TF, 0);
+				auto P3 = manager.ReadComponents_AssumedLocked(*F1, 0, TF);
 
 				if(P3)
 				{
-					auto k = P2.GetRawArray(1).Translate<A>();
-					auto k55 = P2.GetRawArray(2).Translate<EntityProperty>();
+					auto k = P3.GetRawArray(1).Translate<A>();
+					auto k55 = P3.GetRawArray(2).Translate<EntityProperty>();
 					volatile int op = 0;
 				}
 
 				volatile int op = 0;
 			}
-
 			volatile int i = 0;
 		}
 	}

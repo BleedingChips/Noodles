@@ -158,10 +158,10 @@ export namespace Noodles
 		friend struct ArchetypeComponentManager;
 	};
 
-	struct ComponentFilterInterface : public Potato::Pointer::DefaultStrongWeakInterface
+	struct ComponentFilter : public Potato::Pointer::DefaultStrongWeakInterface
 	{
 
-		using SPtr = Potato::Pointer::StrongPtr<ComponentFilterInterface>;
+		using SPtr = Potato::Pointer::StrongPtr<ComponentFilter>;
 
 
 
@@ -170,21 +170,23 @@ export namespace Noodles
 
 	protected:
 
-		using WPtr = Potato::Pointer::WeakPtr<ComponentFilterInterface>;
+		using WPtr = Potato::Pointer::WeakPtr<ComponentFilter>;
+		void WeakRelease() override;
+		void StrongRelease() override {}
 
 		void OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype);
 
-		ComponentFilterInterface(Potato::IR::MemoryResourceRecord record, std::size_t hash_id, std::span<UniqueTypeID const> archetype_id, Potato::Pointer::ObserverPtr<ArchetypeComponentManager> owner)
+		ComponentFilter(Potato::IR::MemoryResourceRecord record, std::size_t hash_id, std::span<UniqueTypeID const> archetype_id, Potato::Pointer::ObserverPtr<ArchetypeComponentManager> owner)
 			: index(record.GetMemoryResource()), record(record), hash_id(hash_id), archetype_id(archetype_id), owner(owner) {}
 
-		std::optional<std::span<std::size_t const>> EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index) const;
-		std::optional<std::span<std::size_t const>> EnumMountPointIndexByIterator_AssumedLocked(std::size_t iterator, std::size_t& archetype_index) const;
+		std::optional<std::span<std::size_t>> EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index, std::span<std::size_t> output) const;
+		std::optional<std::span<std::size_t>> EnumMountPointIndexByIterator_AssumedLocked(std::size_t iterator, std::size_t& archetype_index, std::span<std::size_t> output) const;
 
 		Potato::IR::MemoryResourceRecord record;
 		std::size_t hash_id = 0;
 		std::span<UniqueTypeID const> archetype_id;
 
-		std::shared_mutex mutex;
+		mutable std::shared_mutex mutex;
 		std::pmr::vector<std::size_t> index;
 		Potato::Pointer::ObserverPtr<ArchetypeComponentManager> owner;
 
@@ -359,16 +361,13 @@ export namespace Noodles
 		*/
 
 		bool ForceUpdateState();
-		ComponentFilterInterface::SPtr CreateComponentFilter(std::span<UniqueTypeID const> require_component);
-		//bool RegisterFilter(ComponentFilterInterface::Ptr ptr, std::size_t group_id);
-		//bool RegisterFilter(SingletonFilterInterface::Ptr ptr, std::size_t group_id);
-		std::size_t ReleaseFilter(std::size_t group_id);
+		ComponentFilter::SPtr CreateComponentFilter(std::span<UniqueTypeID const> require_component);
 
 		struct ComponentsWrapper
 		{
 			Archetype::OPtr archetype;
 			Archetype::ArrayMountPoint array_mount_point;
-			std::span<std::size_t const> output_archetype_locate;
+			std::span<std::size_t> output_archetype_locate;
 			operator bool() const { return archetype; }
 			Archetype::RawArray GetRawArray(std::size_t index) const { return archetype->Get(output_archetype_locate[index], array_mount_point); }
 		};
@@ -379,9 +378,9 @@ export namespace Noodles
 			std::size_t mount_point;
 		};
 
-		ComponentsWrapper ReadComponents(ComponentFilterInterface const& interface, std::size_t filter_ite) const;
-		EntityWrapper ReadEntityComponents(Entity const& ent, ComponentFilterInterface const& interface) const;
-		std::optional<std::span<void*>> ReadEntityDirect(Entity const& entity, ComponentFilterInterface const& interface, std::span<void*> output_ptr, bool prefer_modify = true) const;
+		ComponentsWrapper ReadComponents_AssumedLocked(ComponentFilter const& filter, std::size_t filter_ite, std::span<std::size_t> output_span) const;
+		EntityWrapper ReadEntityComponents_AssumedLocked(Entity const& ent, ComponentFilter const& filter, std::span<std::size_t> output_span) const;
+		std::optional<std::span<void*>> ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output_ptr, bool prefer_modify = true) const;
 
 		template<typename SingType, typename ...OT>
 		Potato::Pointer::ObserverPtr<SingType> CreateSingletonType(OT&& ...ot)
@@ -488,11 +487,26 @@ export namespace Noodles
 		*/
 
 		std::shared_mutex filter_mutex;
-		std::pmr::vector<ComponentFilterInterface::WPtr> filter_mapping;
+		std::pmr::vector<ComponentFilter::WPtr> component_filter;
 		//std::pmr::vector<SingletonFilterElement> singleton_filters;
 
 		std::pmr::memory_resource* singleton_resource;
+		std::pmr::memory_resource* filter_resource;
 		std::pmr::memory_resource* temp_resource;
+	};
+
+	template<typename ...AT>
+	struct TemporaryComponentFilterStorage
+	{
+		std::array<std::size_t, sizeof...(AT)> storage;
+		operator std::span<std::size_t>() { return std::span(storage); }
+		operator std::span<UniqueTypeID const>() const
+		{
+			static std::array ids = {
+				UniqueTypeID::Create<AT>()...
+			};
+			return std::span(ids);
+		}
 	};
 
 }
