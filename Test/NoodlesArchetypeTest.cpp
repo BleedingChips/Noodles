@@ -28,10 +28,10 @@ struct E
 int main()
 {
 
-	std::vector<Noodles::ArchetypeID> ids{
-		ArchetypeID::Create<A>(),
-		ArchetypeID::Create<B>(),
-		ArchetypeID::Create<C>()
+	std::vector<Noodles::AtomicType::Ptr> ids{
+		GetAtomicType<A>(),
+		GetAtomicType<B>(),
+		GetAtomicType<C>()
 	};
 
 	auto ptr = Archetype::Create(std::span(ids));
@@ -47,12 +47,12 @@ int main()
 	auto re_ad3 = ptr->Get((*ptr)[2], { &temp, 1, 1 }, 0);
 	static_cast<C*>(re_ad3)->i = 86;
 
-	auto re_ad4 = ptr->LocateTypeID(UniqueTypeID::Create<D>());
+	auto re_ad4 = ptr->LocateTypeID(*GetAtomicType<D>());
 
 	{
-		std::vector<Noodles::ArchetypeID> ids{
-			ArchetypeID::Create<E>(),
-			ArchetypeID::Create<E>()
+		std::vector<AtomicType::Ptr> ids{
+			GetAtomicType<E>(),
+			GetAtomicType<E>()
 		};
 
 		auto ptr2 = Archetype::Create(std::span(ids));
@@ -62,9 +62,9 @@ int main()
 
 
 	{
-		std::vector<Noodles::ArchetypeID> ids{
-			ArchetypeID::Create<D>(),
-			ArchetypeID::Create<D>()
+		std::vector<AtomicType::Ptr> ids{
+			GetAtomicType<D>(),
+			GetAtomicType<D>()
 		};
 
 		auto ptr2 = Archetype::Create(std::span(ids));

@@ -42,7 +42,7 @@ export namespace Noodles
 	{
 		bool is_write = false;
 		bool ignore_mutex = false;
-		UniqueTypeID type_id;
+		AtomicType::Ptr atomic_type;
 
 
 		template<AcceptableFilterType Type>
@@ -51,7 +51,7 @@ export namespace Noodles
 			return RWUniqueTypeID{
 				IsFilterWriteType<Type>,
 				IgnoreMutexComponentType<Type>,
-				UniqueTypeID::Create<std::remove_cvref_t<Type>>()
+				GetAtomicType<Type>()
 			};
 		}
 	};
@@ -273,9 +273,10 @@ export namespace Noodles
 
 		bool RemoveEntity(Entity& entity) { return manager.ReleaseEntity(entity); }
 
+		/*
 		template<typename SingletonT, typename ...OT>
 		Potato::Pointer::ObserverPtr<SingletonT> CreateSingleton(OT&& ...ot) { return manager.CreateSingletonType<SingletonT>(std::forward<OT>(ot)...); }
-
+		*/
 		/*
 		bool RegisterFilter(ComponentFilterInterface::Ptr interface, TaskFlow::Socket& owner) { return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner)); }
 

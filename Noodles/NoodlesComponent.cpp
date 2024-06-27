@@ -116,7 +116,7 @@ namespace Noodles
 		{
 			if(ite.record.Get() != nullptr)
 			{
-				(*ite.id.wrapper_function)(ArchetypeID::Status::Destruction, ite.record.Get(), nullptr);
+				ite.atomic_type->Destruction(ite.record.Get());
 				ite.record.Deallocate();
 			}
 		}
@@ -201,7 +201,7 @@ namespace Noodles
 		out_span = out_span.subspan(1);
 		for (auto& ite : aspan)
 		{
-			auto ind = archetype.LocateTypeID(ite);
+			auto ind = archetype.LocateTypeID(*ite);
 			if (ind.has_value())
 			{
 				out_span[0] = *ind;
@@ -304,7 +304,7 @@ namespace Noodles
 					{
 						for(auto& ite2 : entity.modifer->datas)
 						{
-							if(ite2.available && ite2.id.id == ite)
+							if(ite2.available && *ite2.atomic_type == *ite)
 							{
 								find = true;
 								if(ite2.record)
@@ -319,7 +319,7 @@ namespace Noodles
 					{
 						if(mp)
 						{
-							auto loc = mp->LocateTypeID(ite);
+							auto loc = mp->LocateTypeID(*ite);
 							if(loc)
 							{
 								data = mp->Get(*loc, index, entity.mount_point_index);
@@ -351,12 +351,13 @@ namespace Noodles
 		return {{}, {}};
 	}
 
-	ComponentFilter::SPtr ArchetypeComponentManager::CreateComponentFilter(std::span<UniqueTypeID const> require_component)
+	ComponentFilter::SPtr ArchetypeComponentManager::CreateComponentFilter(std::span<AtomicType::Ptr const> require_component)
 	{
 		std::size_t require_hash = 0;
 		for(std::size_t i = 0; i < require_component.size(); ++i)
 		{
-			require_hash += require_component[i].HashCode() + i * i;
+			assert(require_component[i]);
+			require_hash += require_component[i]->GetHashCode() + i * i;
 		}
 		std::lock_guard lg(filter_mutex);
 		for(auto& ite : component_filter)
@@ -382,15 +383,15 @@ namespace Noodles
 			}
 		}
 		auto layout = Potato::IR::Layout::Get<ComponentFilter>();
-		auto offset = Potato::IR::InsertLayoutCPP(layout, Potato::IR::Layout::GetArray<UniqueTypeID>(require_component.size()));
+		auto offset = Potato::IR::InsertLayoutCPP(layout, Potato::IR::Layout::GetArray<AtomicType::Ptr>(require_component.size()));
 		Potato::IR::FixLayoutCPP(layout);
 		auto re = Potato::IR::MemoryResourceRecord::Allocate(filter_resource, layout);
 		if(re)
 		{
-			auto span =	std::span(reinterpret_cast<UniqueTypeID*>(re.GetByte() + offset), require_component.size());
+			auto span =	std::span(reinterpret_cast<AtomicType::Ptr*>(re.GetByte() + offset), require_component.size());
 			for(std::size_t i = 0; i < require_component.size(); ++i)
 			{
-				new (&span[i]) UniqueTypeID{require_component[i]};
+				new (&span[i]) AtomicType::Ptr{require_component[i]};
 			}
 			ComponentFilter::SPtr ptr = new(re.Get()) ComponentFilter{
 				re, require_hash, span, this
@@ -408,7 +409,7 @@ namespace Noodles
 
 	ArchetypeComponentManager::ArchetypeComponentManager(SyncResource resource)
 		:components(resource.manager_resource), modified_entity(resource.manager_resource), temp_resource(resource.temporary_resource),
-		archetype_resource(resource.archetype_resource),components_resource(resource.component_resource), singletons(resource.manager_resource),
+		archetype_resource(resource.archetype_resource),components_resource(resource.component_resource), /*singletons(resource.manager_resource),*/
 
 		filter_resource(resource.filter_resource),component_filter(resource.manager_resource), singleton_resource(resource.singleton_resource)
 	{
@@ -436,10 +437,12 @@ namespace Noodles
 		}
 		*/
 
+		/*
 		{
 			std::lock_guard lg2(singletons_mutex);
 			singletons.clear();
 		}
+		*/
 
 		{
 			std::lock_guard lg(entity_modifier_mutex);
@@ -471,7 +474,8 @@ namespace Noodles
 						std::lock_guard lg(entity->mutex);
 						entity->SetFree();
 					}
-					for (auto& ite3 : *ite.archetype)
+					auto mv = ite.archetype->GetMemberView();
+					for (auto& ite3 : mv)
 					{
 						auto array_list = ite.archetype->Get(ite3, ite2->GetMountPoint());
 						for(std::size_t i = 0; i < index; ++i)
@@ -486,16 +490,20 @@ namespace Noodles
 		
 	}
 
-	bool ArchetypeComponentManager::CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<ArchetypeID const> ids)
+	bool ArchetypeComponentManager::CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<AtomicType::Ptr const> ids)
 	{
-		if(target.GetHashCode() == hash_code && target.GetElementCount() == ids.size())
+		if(target.GetHashCode() == hash_code)
 		{
-			for (auto& ite2 : ids)
+			auto mv = target.GetMemberView();
+			if(mv.size() == ids.size())
 			{
-				auto loc = target.LocateTypeID(ite2.id);
-				if (!loc.has_value())
+				for (auto& ite2 : ids)
 				{
-					return false;
+					auto loc = target.LocateTypeID(*ite2);
+					if (!loc.has_value())
+					{
+						return false;
+					}
 				}
 			}
 			return true;
@@ -517,7 +525,7 @@ namespace Noodles
 					new (re2.Get()) EntityProperty {ent};
 					ent->modifer->datas.emplace_back(
 						true,
-						ArchetypeID::Create<EntityProperty>(),
+						GetAtomicType<EntityProperty>(),
 						re2
 					);
 					ent->owner_id = reinterpret_cast<std::size_t>(this);
@@ -617,9 +625,9 @@ namespace Noodles
 	}
 	*/
 
-	bool ArchetypeComponentManager::AddEntityComponent(Entity& target_entity, ArchetypeID archetype_id, void* reference_buffer)
+	bool ArchetypeComponentManager::AddEntityComponent(Entity& target_entity, AtomicType const& atomic_type, void* reference_buffer)
 	{
-		if(archetype_id.id != UniqueTypeID::Create<EntityProperty>())
+		if(atomic_type != *GetAtomicType<EntityProperty>())
 		{
 			bool need_modifer = false;
 			{
@@ -631,7 +639,7 @@ namespace Noodles
 				{
 					std::shared_lock sl(component_mutex);
 					auto& ref = components[target_entity.archetype_index];
-					auto lo = ref.archetype->LocateTypeID(archetype_id);
+					auto lo = ref.archetype->LocateTypeID(atomic_type);
 					if(lo)
 					{
 						return false;
@@ -643,7 +651,7 @@ namespace Noodles
 					{
 						target_entity.modifer->datas.emplace_back(
 							true,
-							ite.id,
+							ite.struct_layout,
 							Potato::IR::MemoryResourceRecord{}
 						);
 					}
@@ -660,20 +668,20 @@ namespace Noodles
 				{
 					for(auto& ite : target_entity.modifer->datas)
 					{
-						if(ite.id == archetype_id && ite.available)
+						if(*ite.atomic_type == atomic_type && ite.available)
 						{
 							return false;
 						}
 					}
 				}
 				
-				auto re = Potato::IR::MemoryResourceRecord::Allocate(temp_resource, archetype_id.layout);
+				auto re = Potato::IR::MemoryResourceRecord::Allocate(temp_resource, atomic_type.GetLayout());
 				if(re)
 				{
-					(*archetype_id.wrapper_function)(ArchetypeID::Status::MoveConstruction, re.Get(), reference_buffer);
+					atomic_type.MoveConstruction(re.Get(), reference_buffer);
 					target_entity.modifer->datas.emplace_back(
 						true,
-							archetype_id,
+						&atomic_type,
 					re
 					);
 				}else
@@ -696,9 +704,9 @@ namespace Noodles
 		return false;
 	}
 
-	bool ArchetypeComponentManager::RemoveEntityComponent(Entity& target_entity, UniqueTypeID id)
+	bool ArchetypeComponentManager::RemoveEntityComponent(Entity& target_entity, AtomicType const& atomic_type)
 	{
-		if(id != UniqueTypeID::Create<EntityProperty>())
+		if(atomic_type != *GetAtomicType<EntityProperty>())
 		{
 			bool need_modifer = false;
 
@@ -710,17 +718,17 @@ namespace Noodles
 					{
 						std::shared_lock sl(component_mutex);
 						auto& ref = components[target_entity.archetype_index];
-						auto lo = ref.archetype->LocateTypeID(id);
+						auto lo = ref.archetype->LocateTypeID(atomic_type);
 						if(!lo)
 						{
 							return false;
 						}
-
-						for(auto& ite : *ref.archetype)
+						auto mv = ref.archetype->GetMemberView();
+						for(auto& ite : mv)
 						{
 							target_entity.modifer->datas.emplace_back(
-								ite.id.id != id,
-								ite.id,
+								*ite.struct_layout != atomic_type,
+								ite.struct_layout,
 								Potato::IR::MemoryResourceRecord{}
 							);
 						}
@@ -734,7 +742,7 @@ namespace Noodles
 					{
 						for(auto& ite : target_entity.modifer->datas)
 						{
-							if(ite.id.id == id && ite.available)
+							if(*ite.atomic_type == atomic_type && ite.available)
 							{
 								ite.available = false;
 								return true;
@@ -771,7 +779,7 @@ namespace Noodles
 				std::size_t mount_point_index;
 			};
 			std::pmr::vector<RemoveEntity> remove_list(temp_resource);
-			std::pmr::vector<ArchetypeID> new_archetype_index(temp_resource);
+			std::pmr::vector<AtomicType::Ptr> new_archetype_index(temp_resource);
 			while(true)
 			{
 				Entity::Ptr top;
@@ -812,8 +820,8 @@ namespace Noodles
 						{
 							if(ite.available)
 							{
-								new_archetype_index.emplace_back(ite.id);
-								hash_code += ite.id.id.HashCode();
+								new_archetype_index.emplace_back(ite.atomic_type);
+								hash_code += ite.atomic_type->GetHashCode();
 							}
 						}
 						Archetype::OPtr archetype_ptr;
@@ -829,9 +837,16 @@ namespace Noodles
 						}
 						if(!archetype_ptr)
 						{
-							std::sort(new_archetype_index.begin(), new_archetype_index.end(), [](ArchetypeID const& a1, ArchetypeID const& a2)
+							std::sort(new_archetype_index.begin(), new_archetype_index.end(), [](AtomicType::Ptr a1, AtomicType::Ptr a2)
 								{
-									return a1 > a2;
+									auto L1 = a1->GetLayout();
+									auto L2 = a2->GetLayout();
+									auto re = Potato::Misc::PriorityCompareStrongOrdering(
+										L1.Align, L2.Align,
+										L1.Size, L2.Size,
+										*a1, *a2
+									);
+									return re == std::strong_ordering::greater;
 								});
 
 							auto temp_ptr = Archetype::Create(new_archetype_index, &archetype_resource);
@@ -839,7 +854,7 @@ namespace Noodles
 							if (temp_ptr)
 							{
 								archetype_ptr = temp_ptr;
-								auto loc = temp_ptr->LocateTypeID(UniqueTypeID::Create<EntityProperty>());
+								auto loc = temp_ptr->LocateTypeID(*GetAtomicType<EntityProperty>());
 								assert(loc);
 								components.emplace_back(
 									temp_ptr,
@@ -876,19 +891,19 @@ namespace Noodles
 								{
 									if(ite.available)
 									{
-										auto lo = archetype_ptr->LocateTypeID(ite.id);
+										auto lo = archetype_ptr->LocateTypeID(*ite.atomic_type);
 										assert(lo);
 										if(ite.record)
 										{
-											auto& ref2 = (*archetype_ptr)[*lo];
+											auto& ref2 = archetype_ptr->GetMemberView()[*lo];
 											archetype_ptr->MoveConstruct(
 												ref2, archetype_ptr->Get(ref2, mp, *re), ite.record.Get()
 											);
 										}else
 										{
-											auto& ref2 = (*archetype_ptr)[*lo];
+											auto& ref2 = archetype_ptr->GetMemberView()[*lo];
 											auto& ref3 = components[top->archetype_index];
-											auto lo2 = ref3.archetype->LocateTypeID(ite.id);
+											auto lo2 = ref3.archetype->LocateTypeID(*ite.atomic_type);
 											auto mp2 = ref3.memory_page->GetMountPoint();
 											archetype_ptr->MoveConstruct(
 												ref2, archetype_ptr->Get(ref2, mp, *re),

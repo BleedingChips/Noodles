@@ -15,7 +15,7 @@ namespace Noodles
 
 		while (ite1 != t1.end() && ite2 != t2.end())
 		{
-			auto re = ite1->type_id <=> ite2->type_id;
+			auto re = *ite1->atomic_type <=> *ite2->atomic_type;
 			if (re == std::strong_ordering::equal)
 			{
 				if (
@@ -57,7 +57,7 @@ namespace Noodles
 			bool Find = false;
 			for(auto& ite2 : spn)
 			{
-				if(ite.type_id == ite2.type_id)
+				if(*ite.atomic_type == *ite2.atomic_type)
 				{
 					ite2.is_write = ite2.is_write || ite.is_write;
 					Find = true;
@@ -82,7 +82,7 @@ namespace Noodles
 			bool Find = false;
 			for (auto& ite2 : spn)
 			{
-				if (ite.type_id == ite2.type_id)
+				if (*ite.atomic_type == *ite2.atomic_type)
 				{
 					ite2.is_write = ite2.is_write || ite.is_write;
 					Find = true;

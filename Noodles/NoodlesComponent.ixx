@@ -94,7 +94,7 @@ export namespace Noodles
 		struct IDTuple
 		{
 			bool available = false;
-			ArchetypeID id;
+			AtomicType::Ptr atomic_type;
 			Potato::IR::MemoryResourceRecord record;
 		};
 		std::pmr::vector<IDTuple> datas;
@@ -165,7 +165,7 @@ export namespace Noodles
 
 
 
-		std::span<UniqueTypeID const> GetArchetypeId() const { return archetype_id; }
+		std::span<AtomicType::Ptr> GetArchetypeId() const { return archetype_id; }
 		std::size_t GetHash() const { return hash_id; }
 
 	protected:
@@ -176,7 +176,7 @@ export namespace Noodles
 
 		void OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype);
 
-		ComponentFilter(Potato::IR::MemoryResourceRecord record, std::size_t hash_id, std::span<UniqueTypeID const> archetype_id, Potato::Pointer::ObserverPtr<ArchetypeComponentManager> owner)
+		ComponentFilter(Potato::IR::MemoryResourceRecord record, std::size_t hash_id, std::span<AtomicType::Ptr> archetype_id, Potato::Pointer::ObserverPtr<ArchetypeComponentManager> owner)
 			: index(record.GetMemoryResource()), record(record), hash_id(hash_id), archetype_id(archetype_id), owner(owner) {}
 
 		std::optional<std::span<std::size_t>> EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index, std::span<std::size_t> output) const;
@@ -184,7 +184,7 @@ export namespace Noodles
 
 		Potato::IR::MemoryResourceRecord record;
 		std::size_t hash_id = 0;
-		std::span<UniqueTypeID const> archetype_id;
+		std::span<AtomicType::Ptr> archetype_id;
 
 		mutable std::shared_mutex mutex;
 		std::pmr::vector<std::size_t> index;
@@ -263,6 +263,7 @@ export namespace Noodles
 	};
 	*/
 
+	/*
 	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, Archetype::MountPoint mp, std::span<std::size_t> index){}
 
 	template<typename T, typename ...AT>
@@ -280,6 +281,7 @@ export namespace Noodles
 			throw;
 		}
 	};
+	*/
 
 	
 
@@ -301,14 +303,14 @@ export namespace Noodles
 		EntityPtr CreateEntity(std::pmr::memory_resource* entity_resource = std::pmr::get_default_resource());
 
 		template<typename Type>
-		bool AddEntityComponent(Entity& target_entity, Type&& type) requires(std::is_rvalue_reference_v<decltype(type)>) { return AddEntityComponent(target_entity, ArchetypeID::Create<Type>(), &type); }
+		bool AddEntityComponent(Entity& target_entity, Type&& type) requires(std::is_rvalue_reference_v<decltype(type)>) { return AddEntityComponent(target_entity, *GetAtomicType<Type>(), &type); }
 
-		bool AddEntityComponent(Entity& target_entity, ArchetypeID archetype_id, void* reference_buffer);
+		bool AddEntityComponent(Entity& target_entity, AtomicType const& archetype_id, void* reference_buffer);
 
 		template<typename Type>
-		bool RemoveEntityComponent() { return RemoveEntityComponent(UniqueTypeID::Create<Type>()); }
+		bool RemoveEntityComponent(Entity& target_entity) { return RemoveEntityComponent(target_entity,  *GetAtomicType<Type>()); }
 
-		bool RemoveEntityComponent(Entity& target_entity, UniqueTypeID id);
+		bool RemoveEntityComponent(Entity& target_entity, AtomicType const& atomic_type);
 
 		/*
 		template<typename ...AT>
@@ -361,7 +363,7 @@ export namespace Noodles
 		*/
 
 		bool ForceUpdateState();
-		ComponentFilter::SPtr CreateComponentFilter(std::span<UniqueTypeID const> require_component);
+		ComponentFilter::SPtr CreateComponentFilter(std::span<AtomicType::Ptr const> require_component);
 
 		struct ComponentsWrapper
 		{
@@ -382,6 +384,7 @@ export namespace Noodles
 		EntityWrapper ReadEntityComponents_AssumedLocked(Entity const& ent, ComponentFilter const& filter, std::span<std::size_t> output_span) const;
 		std::optional<std::span<void*>> ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output_ptr, bool prefer_modify = true) const;
 
+		/*
 		template<typename SingType, typename ...OT>
 		Potato::Pointer::ObserverPtr<SingType> CreateSingletonType(OT&& ...ot)
 		{
@@ -401,21 +404,12 @@ export namespace Noodles
 				{
 					Type* ptr = new (re.Get()) Type {re, std::forward<OT>(ot)...};
 					singletons.emplace_back(ptr, ID);
-					/*
-					std::lock_guard lg(filter_mapping_mutex);
-					for(auto& ite : singleton_filters)
-					{
-						if(ite.rquire_id == ID)
-						{
-							ite.ptr->singleton_reference = SingletonInterface::Ptr{ ptr };
-						}
-					}
-					*/
 					return &ptr->Data;
 				}
 			}
 			return nullptr;
 		}
+		*/
 
 		bool ReleaseEntity(Entity& entity);
 
@@ -426,7 +420,7 @@ export namespace Noodles
 		std::tuple<Archetype::OPtr, Archetype::ArrayMountPoint> GetComponentPage(std::size_t archetype_index) const;
 
 
-		static bool CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<ArchetypeID const> ids);
+		static bool CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<AtomicType::Ptr const> ids);
 		
 
 		static inline void ComponentConstructorHelper(std::span<void*> input)
@@ -455,6 +449,7 @@ export namespace Noodles
 		std::pmr::unsynchronized_pool_resource components_resource;
 		std::pmr::unsynchronized_pool_resource archetype_resource;
 
+		/*
 		struct SingletonElement
 		{
 			SingletonInterface::Ptr single;
@@ -464,6 +459,7 @@ export namespace Noodles
 		mutable std::mutex singletons_mutex;
 		std::pmr::vector<SingletonElement> singletons;
 		std::optional<std::size_t> update_index;
+		*/
 
 		std::optional<std::size_t> AllocateMountPoint(Element& tar);
 		void CopyMountPointFormLast(Element& tar, std::size_t mp_index);
@@ -500,10 +496,10 @@ export namespace Noodles
 	{
 		std::array<std::size_t, sizeof...(AT)> storage;
 		operator std::span<std::size_t>() { return std::span(storage); }
-		operator std::span<UniqueTypeID const>() const
+		operator std::span<Archetype::Ptr const>() const
 		{
 			static std::array ids = {
-				UniqueTypeID::Create<AT>()...
+				GetAtomicType<AT>()...
 			};
 			return std::span(ids);
 		}
