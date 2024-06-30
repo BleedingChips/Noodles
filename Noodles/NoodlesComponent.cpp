@@ -163,7 +163,7 @@ namespace Noodles
 	void ComponentFilter::OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype)
 	{
 		std::lock_guard lg(mutex);
-		auto aspan = GetArchetypeId();
+		auto aspan = GetAtomicType();
 		assert(aspan.size() > 0);
 		auto old_size = index.size();
 		index.resize(old_size + aspan.size() + 1);
@@ -188,7 +188,7 @@ namespace Noodles
 
 	std::optional<std::span<std::size_t>> ComponentFilter::EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index, std::span<std::size_t> output) const
 	{
-		auto size = GetArchetypeId().size();
+		auto size = GetAtomicType().size();
 		if(output.size() >= size)
 		{
 			auto span = std::span(index);
@@ -211,7 +211,7 @@ namespace Noodles
 
 	std::optional<std::span<std::size_t>> ComponentFilter::EnumMountPointIndexByIterator_AssumedLocked(std::size_t ite_index, std::size_t& archetype_index, std::span<std::size_t> output) const
 	{
-		auto size = GetArchetypeId().size();
+		auto size = GetAtomicType().size();
 		if(output.size() >= size)
 		{
 			auto span = std::span(index);
@@ -244,7 +244,7 @@ namespace Noodles
 		auto type = atomic_type;
 		auto temp_data = data;
 		this->~Singleton();
-		atomic_type->Destruction(temp_data);
+		type->Destruction(temp_data);
 		re.Deallocate();
 	}
 
@@ -266,6 +266,22 @@ namespace Noodles
 			return new (re.Get()) Singleton{re, atomic_type, re.GetByte() + offset};
 		}
 		return {};
+	}
+
+	void* SingletonFilter::Get() const {
+		std::shared_lock sl(mutex);
+		if(reference_singleton)
+		{
+			return reference_singleton->Get();
+		}
+		return nullptr;
+	}
+
+	void SingletonFilter::WeakRelease()
+	{
+		auto re = record;
+		this->~SingletonFilter();
+		re.Deallocate();
 	}
 
 	/*
@@ -291,7 +307,7 @@ namespace Noodles
 		std::shared_lock lg2(filter.mutex);
 		if(entity.owner_id == reinterpret_cast<std::size_t>(this) && filter.owner.GetPointer() == this)
 		{
-			auto span = filter.GetArchetypeId();
+			auto span = filter.GetAtomicType();
 			prefer_modify = entity.modifer && prefer_modify;
 			if(output_ptr.size() >= span.size())
 			{
@@ -357,7 +373,7 @@ namespace Noodles
 		std::lock_guard lg(singleton_modifier_mutex);
 		bool enable = true;
 		bool need_search_original = false;
-		for(auto& ite : new_singleton_modifier)
+		for(auto& ite : singleton_modifier)
 		{
 			if(ite.singleton->IsSameAtomicType(atomic_type))
 			{
@@ -374,7 +390,7 @@ namespace Noodles
 		if(need_search_original)
 		{
 			std::shared_lock sl(component_mutex);
-			for(auto& ite : new_singleton_modifier)
+			for(auto& ite : singleton_modifier)
 			{
 				if(*ite.atomic_type == atomic_type)
 				{
@@ -387,7 +403,7 @@ namespace Noodles
 			auto ptr = Singleton::MoveCreate(&singleton_resource, &atomic_type, move_reference);
 			if(ptr)
 			{
-				new_singleton_modifier.emplace_back(false, 0, &atomic_type, std::move(ptr));
+				singleton_modifier.emplace_back(false, 0, &atomic_type, std::move(ptr));
 				return true;
 			}
 		}
@@ -403,27 +419,42 @@ namespace Noodles
 			require_hash += require_component[i]->GetHashCode() + i * i;
 		}
 		std::lock_guard lg(filter_mutex);
+		bool need_remove = false;
 		for(auto& ite : component_filter)
 		{
 			auto k = ite.Isomer();
-			if(k && k->GetHash() == require_hash)
+			if(k)
 			{
-				auto span = k->GetArchetypeId();
-				if(span.size() == require_component.size())
+				if(k->GetHash() == require_hash)
 				{
-					bool Equal = true;
-					for(std::size_t i = 0; i < require_component.size(); ++i)
+					auto span = k->GetAtomicType();
+					if(span.size() == require_component.size())
 					{
-						if(span[i] != require_component[i])
+						bool Equal = true;
+						for(std::size_t i = 0; i < require_component.size(); ++i)
 						{
-							Equal = false;
-							break;
+							if(span[i] != require_component[i])
+							{
+								Equal = false;
+								break;
+							}
 						}
+						if(Equal)
+							return k;
 					}
-					if(Equal)
-						return k;
 				}
+			}else
+			{
+				need_remove = true;
 			}
+		}
+		if(need_remove)
+		{
+			component_filter.erase(
+				std::remove_if(component_filter.begin(), component_filter.end(), 
+					[](ComponentFilter::WPtr& ptr){ auto sptr = ptr.Isomer(); return !sptr; }),
+				component_filter.end()
+			);
 		}
 		auto layout = Potato::IR::Layout::Get<ComponentFilter>();
 		auto offset = Potato::IR::InsertLayoutCPP(layout, Potato::IR::Layout::GetArray<AtomicType::Ptr>(require_component.size()));
@@ -448,6 +479,50 @@ namespace Noodles
 			return ptr;
 		}
 		return {};
+	}
+
+	SingletonFilter::SPtr ArchetypeComponentManager::CreateSingletonFilter(AtomicType const& atomic_type)
+	{
+		std::lock_guard lg(filter_mutex);
+		bool need_destroy = false;
+		for(auto& ite : singleton_filters)
+		{
+			auto ite2 = ite.Isomer();
+			if(ite2)
+			{
+				if(ite2->IsSameAtomicType(atomic_type))
+				{
+					return ite;
+				}
+			}else
+			{
+				need_destroy = true;
+			}
+		}
+		if(need_destroy)
+		{
+			singleton_filters.erase(
+				std::remove_if(singleton_filters.begin(), singleton_filters.end(), [](SingletonFilter::WPtr& ptr)
+				{
+					auto lspw = ptr.Isomer();
+					return !lspw;
+				}),
+				singleton_filters.end()
+			);
+		}
+		auto re = Potato::IR::MemoryResourceRecord::Allocate<SingletonFilter>(filter_resource);
+		SingletonFilter::SPtr sptr = new (re.Get()) SingletonFilter{re, &atomic_type, this};
+		singleton_filters.emplace_back(sptr);
+		std::shared_lock sl(component_mutex);
+		for(auto& ite : singleton_element)
+		{
+			if((*ite.atomic_type) == atomic_type)
+			{
+				sptr->reference_singleton = ite.singleton;
+				break;
+			}
+		}
+		return sptr;
 	}
 
 	ArchetypeComponentManager::ArchetypeComponentManager(SyncResource resource)
@@ -1012,6 +1087,63 @@ namespace Noodles
 					component_filter.end()
 				);
 				Updated = true;
+			}
+
+			{
+				std::lock(singleton_modifier_mutex, filter_mutex);
+				std::lock_guard lg(singleton_modifier_mutex, std::adopt_lock);
+				std::lock_guard lg2(filter_mutex, std::adopt_lock);
+				if(!singleton_modifier.empty())
+				{
+					for(auto& ite : singleton_filters)
+					{
+						auto sptr = ite.Isomer();
+						if(sptr)
+						{
+							std::lock_guard lg(sptr->mutex);
+							for(auto& ite2 : singleton_modifier)
+							{
+								if((*ite2.atomic_type) == (*sptr->atomic_type))
+								{
+									if(ite2.require_destroy)
+									{
+										sptr->reference_singleton.Reset();
+									}else
+									{
+										sptr->reference_singleton = ite2.singleton;
+									}
+								}
+							}
+						}
+					}
+					bool need_destroy = false;
+					for(auto& ite : singleton_modifier)
+					{
+						if(ite.require_destroy)
+						{
+							need_destroy = true;
+							singleton_element[ite.fast_reference].singleton.Reset();
+						}else
+						{
+							singleton_element.emplace_back(
+								ite.atomic_type,
+								ite.singleton
+							);
+						}
+					}
+					if(need_destroy)
+					{
+						singleton_element.erase(
+							std::remove_if(singleton_element.begin(), singleton_element.end(), 
+								[](SingletonElement const& m)
+								{
+									return m.singleton;
+								}),
+							singleton_element.end()
+						);
+					}
+
+				}
 			}
 		}
 

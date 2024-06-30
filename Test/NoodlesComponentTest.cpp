@@ -70,6 +70,9 @@ int main()
 
 		auto e2 = manager.CreateEntity();
 
+		auto kcc = manager.CreateSingletonFilter(*GetAtomicType<A>());
+		auto ui = reinterpret_cast<A*>(kcc->Get());
+
 		manager.AddEntityComponent(*e2, Report{});
 		manager.AddEntityComponent(*e2, A{ 1008611 });
 		manager.AddEntityComponent(*e2, std::u8string{u8"Fuck You"});

@@ -165,7 +165,7 @@ export namespace Noodles
 
 
 
-		std::span<AtomicType::Ptr> GetArchetypeId() const { return archetype_id; }
+		std::span<AtomicType::Ptr> GetAtomicType() const { return atomic_type; }
 		std::size_t GetHash() const { return hash_id; }
 
 	protected:
@@ -176,15 +176,15 @@ export namespace Noodles
 
 		void OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype);
 
-		ComponentFilter(Potato::IR::MemoryResourceRecord record, std::size_t hash_id, std::span<AtomicType::Ptr> archetype_id, Potato::Pointer::ObserverPtr<ArchetypeComponentManager> owner)
-			: index(record.GetMemoryResource()), record(record), hash_id(hash_id), archetype_id(archetype_id), owner(owner) {}
+		ComponentFilter(Potato::IR::MemoryResourceRecord record, std::size_t hash_id, std::span<AtomicType::Ptr> atomic_type, Potato::Pointer::ObserverPtr<ArchetypeComponentManager> owner)
+			: index(record.GetMemoryResource()), record(record), hash_id(hash_id), atomic_type(atomic_type), owner(owner) {}
 
 		std::optional<std::span<std::size_t>> EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index, std::span<std::size_t> output) const;
 		std::optional<std::span<std::size_t>> EnumMountPointIndexByIterator_AssumedLocked(std::size_t iterator, std::size_t& archetype_index, std::span<std::size_t> output) const;
 
 		Potato::IR::MemoryResourceRecord record;
 		std::size_t hash_id = 0;
-		std::span<AtomicType::Ptr> archetype_id;
+		std::span<AtomicType::Ptr> atomic_type;
 
 		mutable std::shared_mutex mutex;
 		std::pmr::vector<std::size_t> index;
@@ -228,48 +228,34 @@ export namespace Noodles
 		void* data;
 	};
 
-	/*
-	struct SingletonFilterInterface : public FilterInterface
+	struct SingletonFilter : public Potato::Pointer::DefaultStrongWeakInterface
 	{
-		using Ptr = Potato::Pointer::IntrusivePtr<SingletonFilterInterface, FilterInterface::Wrapper>;
+		using SPtr = Potato::Pointer::StrongPtr<SingletonFilter>;
 
-		virtual UniqueTypeID RequireTypeID() const = 0;
-
-		void* GetSingleton(std::size_t owner_id) const;
+		AtomicType::Ptr GetAtomicType() const { return atomic_type; }
+		bool IsSameAtomicType(AtomicType const& atomic_type) const { return (*this->atomic_type) == atomic_type; }  
+		void* Get() const;
 
 	protected:
 
-		virtual void OnUnregister() override;
+		using WPtr = Potato::Pointer::WeakPtr<SingletonFilter>;
+		void WeakRelease() override;
+		void StrongRelease() override {}
+
+		void OnCreatedArchetype(Singleton& ref);
+
+		SingletonFilter(Potato::IR::MemoryResourceRecord record, AtomicType::Ptr atomic_type, Potato::Pointer::ObserverPtr<ArchetypeComponentManager> owner)
+			: record(record), atomic_type(std::move(atomic_type)), owner(owner) {}
+
+		Potato::IR::MemoryResourceRecord record;
+		AtomicType::Ptr atomic_type;
+
+		mutable std::shared_mutex mutex;
+		Singleton::Ptr reference_singleton;
+		Potato::Pointer::ObserverPtr<ArchetypeComponentManager> owner;
 
 		friend struct ArchetypeComponentManager;
-
-	private:
-
-		SingletonInterface::Ptr singleton_reference;
 	};
-	*/
-
-	/*
-	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, Archetype::MountPoint mp, std::span<std::size_t> index){}
-
-	template<typename T, typename ...AT>
-	inline void ArchetypeComponentManagerConstructHelper(Archetype const& ac, Archetype::MountPoint mp, std::span<std::size_t> index, T&& ref, AT&& ...at)
-	{
-		std::remove_cvref_t<T> tem_ref{std::forward<T>(ref)};
-		auto& el = ac.GetInfos(index[0]);
-		ac.MoveConstruct(el, ac.Get(el, mp), &tem_ref);
-		try
-		{
-			ArchetypeComponentManagerConstructHelper(ac, mp, index.subspan(1), std::forward<AT>(at)...);
-		}catch (...)
-		{
-			ac.Destruct(el, ac.Get(el, mp));
-			throw;
-		}
-	};
-	*/
-
-	
 
 	export struct ArchetypeComponentManager
 	{
@@ -350,6 +336,7 @@ export namespace Noodles
 
 		bool ForceUpdateState();
 		ComponentFilter::SPtr CreateComponentFilter(std::span<AtomicType::Ptr const> require_component);
+		SingletonFilter::SPtr CreateSingletonFilter(AtomicType const& atomic_type);
 
 		struct ComponentsWrapper
 		{
@@ -447,24 +434,12 @@ export namespace Noodles
 		std::pmr::unsynchronized_pool_resource components_resource;
 		std::pmr::unsynchronized_pool_resource archetype_resource;
 		std::pmr::unsynchronized_pool_resource singleton_resource;
-		/*
-		struct SingletonElement
-		{
-			SingletonInterface::Ptr single;
-			UniqueTypeID id;
-		};
-
-		mutable std::mutex singletons_mutex;
-		std::pmr::vector<SingletonElement> singletons;
-		std::optional<std::size_t> update_index;
-		*/
 
 		std::optional<std::size_t> AllocateMountPoint(Element& tar);
 		void CopyMountPointFormLast(Element& tar, std::size_t mp_index);
 
 		std::mutex entity_modifier_mutex;
 		std::pmr::vector<Entity::Ptr> modified_entity;
-
 
 		struct SingletonModifier
 		{
@@ -475,7 +450,7 @@ export namespace Noodles
 		};
 
 		std::mutex singleton_modifier_mutex;
-		std::pmr::vector<SingletonModifier> new_singleton_modifier;
+		std::pmr::vector<SingletonModifier> singleton_modifier;
 		
 		/*
 		struct CompFilterElement
@@ -494,7 +469,7 @@ export namespace Noodles
 
 		std::shared_mutex filter_mutex;
 		std::pmr::vector<ComponentFilter::WPtr> component_filter;
-		//std::pmr::vector<SingletonFilterElement> singleton_filters;
+		std::pmr::vector<SingletonFilter::WPtr> singleton_filters;
 
 		std::pmr::memory_resource* filter_resource;
 		std::pmr::memory_resource* temp_resource;
