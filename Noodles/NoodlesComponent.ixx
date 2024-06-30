@@ -193,8 +193,7 @@ export namespace Noodles
 		friend struct ArchetypeComponentManager;
 	};
 
-
-	struct SingletonInterface
+	struct Singleton : public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		struct Wrapper
 		{
@@ -204,42 +203,29 @@ export namespace Noodles
 			void SubRef(T* ref) { ref->SubSingletonRef(); }
 		};
 
-		using Ptr = Potato::Pointer::IntrusivePtr<SingletonInterface, Wrapper>;
+		using Ptr = Potato::Pointer::IntrusivePtr<Singleton, Wrapper>;
 
-		virtual void* Get() = 0;
-		virtual void const* Get() const = 0;
-		virtual ~SingletonInterface() = default;
+		virtual void* Get() const { return data; }
+		virtual AtomicType::Ptr GetAtomicType() const { return atomic_type; }
+		virtual ~Singleton() = default;
+
+		static auto MoveCreate(std::pmr::memory_resource* resource, AtomicType::Ptr atomic_type, void* reference_data)
+			->Ptr;
+
+		bool IsSameAtomicType(AtomicType const& atomic_type) const { return (*this->atomic_type) == atomic_type; }  
 
 	protected:
 
-		virtual void AddSingletonRef() const = 0;
-		virtual void SubSingletonRef() const = 0;
+		Singleton(Potato::IR::MemoryResourceRecord record, AtomicType::Ptr atomic_type, void* data)
+			: record(record), atomic_type(std::move(atomic_type)), data(data) {}
 
-	};
-
-	template<typename Type>
-	struct SingletonType : public SingletonInterface, public Potato::Pointer::DefaultIntrusiveInterface
-	{
-		using PureType = Type;
-		template<typename ...OT>
-		SingletonType(Potato::IR::MemoryResourceRecord record, OT&& ...ot)
-			: record(record), Data(std::forward<OT>(ot)...) {}
+		virtual void AddSingletonRef() const { DefaultIntrusiveInterface::AddRef(); }
+		virtual void SubSingletonRef() const { DefaultIntrusiveInterface::SubRef(); }
+		virtual void Release();
 
 		Potato::IR::MemoryResourceRecord record;
-		Type Data;
-
-		virtual void* Get() { return &Data; }
-		virtual void const* Get() const { return &Data; }
-
-	protected:
-
-		virtual void Release() override
-		{
-			auto re = record; this->~SingletonType(); re.Deallocate();
-		}
-		virtual void AddSingletonRef() const { AddRef(); }
-		virtual void SubSingletonRef() const { SubRef(); }
-
+		AtomicType::Ptr atomic_type;
+		void* data;
 	};
 
 	/*
@@ -411,6 +397,11 @@ export namespace Noodles
 		}
 		*/
 
+		bool MoveAndCreateSingleton(AtomicType const& atomic_type, void* move_reference);
+
+		template<typename Type>
+		bool MoveAndCreateSingleton(Type && reference) { return MoveAndCreateSingleton(*GetAtomicType<Type>(), &reference); }
+
 		bool ReleaseEntity(Entity& entity);
 
 		//Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& filter) const;
@@ -444,11 +435,18 @@ export namespace Noodles
 			std::size_t total_count;
 		};
 
+		struct SingletonElement
+		{
+			AtomicType::Ptr atomic_type;
+			Singleton::Ptr singleton;
+		};
+
 		mutable std::shared_mutex component_mutex;
 		std::pmr::vector<Element> components;
+		std::pmr::vector<SingletonElement> singleton_element;
 		std::pmr::unsynchronized_pool_resource components_resource;
 		std::pmr::unsynchronized_pool_resource archetype_resource;
-
+		std::pmr::unsynchronized_pool_resource singleton_resource;
 		/*
 		struct SingletonElement
 		{
@@ -466,6 +464,18 @@ export namespace Noodles
 
 		std::mutex entity_modifier_mutex;
 		std::pmr::vector<Entity::Ptr> modified_entity;
+
+
+		struct SingletonModifier
+		{
+			bool require_destroy = false;
+			std::size_t fast_reference = 0;
+			AtomicType::Ptr atomic_type;
+			Singleton::Ptr singleton;
+		};
+
+		std::mutex singleton_modifier_mutex;
+		std::pmr::vector<SingletonModifier> new_singleton_modifier;
 		
 		/*
 		struct CompFilterElement
@@ -486,7 +496,6 @@ export namespace Noodles
 		std::pmr::vector<ComponentFilter::WPtr> component_filter;
 		//std::pmr::vector<SingletonFilterElement> singleton_filters;
 
-		std::pmr::memory_resource* singleton_resource;
 		std::pmr::memory_resource* filter_resource;
 		std::pmr::memory_resource* temp_resource;
 	};
@@ -496,7 +505,7 @@ export namespace Noodles
 	{
 		std::array<std::size_t, sizeof...(AT)> storage;
 		operator std::span<std::size_t>() { return std::span(storage); }
-		operator std::span<Archetype::Ptr const>() const
+		operator std::span<AtomicType::Ptr const>() const
 		{
 			static std::array ids = {
 				GetAtomicType<AT>()...

@@ -60,7 +60,11 @@ int main()
 			manager.AddEntityComponent(*ite_e2, std::u8string{u8"Fuck You"});
 		}
 
-		auto K = manager.CreateSingletonType<A>(100);
+		{
+			A a{100};
+			auto K = manager.MoveAndCreateSingleton(a);
+		}
+		
 
 		manager.ForceUpdateState();
 
@@ -81,6 +85,8 @@ int main()
 		{
 			auto k = P.GetRawArray(1).Translate<A>();
 			auto k2 = P.GetRawArray(3).Translate<std::u8string>();
+
+			auto K333 = std::move(k2[3]);
 
 			auto k4 = P.GetRawArray(2).Translate<EntityProperty>();
 

@@ -159,35 +159,6 @@ namespace Noodles
 	{
 		
 	}
-	/*
-	bool FilterInterface::Register(std::size_t in_owner_id)
-	{
-		std::lock_guard lg(filter_mutex);
-		if(owner_id == 0 && in_owner_id != 0)
-		{
-			owner_id = in_owner_id;
-			return true;
-		}
-		return false;
-	}
-
-	bool FilterInterface::Unregister(std::size_t in_owner_id)
-	{
-		std::lock_guard lg(filter_mutex);
-		if (owner_id != 0 && owner_id == in_owner_id)
-		{
-			owner_id = 0;
-			OnUnregister();
-			return true;
-		}
-		return false;
-	}
-
-	void ComponentFilterInterface::OnUnregister()
-	{
-		indexs.clear();
-	}
-	*/
 
 	void ComponentFilter::OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype)
 	{
@@ -265,6 +236,36 @@ namespace Noodles
 		auto re = record;
 		this->~ComponentFilter();
 		re.Deallocate();
+	}
+
+	void Singleton::Release()
+	{
+		auto re = record;
+		auto type = atomic_type;
+		auto temp_data = data;
+		this->~Singleton();
+		atomic_type->Destruction(temp_data);
+		re.Deallocate();
+	}
+
+	auto Singleton::MoveCreate(std::pmr::memory_resource* resource, AtomicType::Ptr atomic_type, void* reference_data)
+		->Ptr
+	{
+		auto layout = Potato::IR::Layout::Get<Singleton>();
+		auto offset = Potato::IR::InsertLayoutCPP(layout, atomic_type->GetLayout());
+		Potato::IR::FixLayoutCPP(layout);
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout);
+		if(re)
+		{
+			auto res = atomic_type->MoveConstruction(re.GetByte() + offset, reference_data);
+			if(!res)
+			{
+				re.Deallocate();
+				return {};
+			}
+			return new (re.Get()) Singleton{re, atomic_type, re.GetByte() + offset};
+		}
+		return {};
 	}
 
 	/*
@@ -349,6 +350,48 @@ namespace Noodles
 			}
 		}
 		return {{}, {}};
+	}
+
+	bool ArchetypeComponentManager::MoveAndCreateSingleton(AtomicType const& atomic_type, void* move_reference)
+	{
+		std::lock_guard lg(singleton_modifier_mutex);
+		bool enable = true;
+		bool need_search_original = false;
+		for(auto& ite : new_singleton_modifier)
+		{
+			if(ite.singleton->IsSameAtomicType(atomic_type))
+			{
+				need_search_original = false;
+				if(!ite.require_destroy)
+				{
+					enable = false;
+				}else
+				{
+					enable = true;
+				}
+			}
+		}
+		if(need_search_original)
+		{
+			std::shared_lock sl(component_mutex);
+			for(auto& ite : new_singleton_modifier)
+			{
+				if(*ite.atomic_type == atomic_type)
+				{
+					enable = false;
+				}
+			}
+		}
+		if(enable)
+		{
+			auto ptr = Singleton::MoveCreate(&singleton_resource, &atomic_type, move_reference);
+			if(ptr)
+			{
+				new_singleton_modifier.emplace_back(false, 0, &atomic_type, std::move(ptr));
+				return true;
+			}
+		}
+		return false;
 	}
 
 	ComponentFilter::SPtr ArchetypeComponentManager::CreateComponentFilter(std::span<AtomicType::Ptr const> require_component)
