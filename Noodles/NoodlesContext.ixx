@@ -74,9 +74,9 @@ export namespace Noodles
 
 	struct ReadWriteMutex
 	{
-		std::span<RWUniqueTypeID const> components;
-		std::span<RWUniqueTypeID const> singleton;
-		//std::span<RWUniqueTypeID const> outside;
+		std::span<RWUniqueTypeID const> total_type_id;
+		Potato::Misc::IndexSpan<> components_span;
+		Potato::Misc::IndexSpan<> singleton_span;
 
 		bool IsConflict(ReadWriteMutex const& mutex) const;
 	};
@@ -88,7 +88,6 @@ export namespace Noodles
 
 		void RegisterComponentMutex(std::span<RWUniqueTypeID const> ifs);
 		void RegisterSingletonMutex(std::span<RWUniqueTypeID const> ifs);
-		void SetSystemRWUniqueID();
 		std::tuple<std::size_t, std::size_t> CalculateUniqueIDCount() const;
 		ReadWriteMutex GetMutex() const;
 
@@ -98,7 +97,7 @@ export namespace Noodles
 
 		std::pmr::vector<RWUniqueTypeID> unique_ids;
 		std::size_t component_count = 0;
-		std::optional<RWUniqueTypeID> system_id;
+		std::size_t singleton_count = 0;
 
 		friend struct Context;
 	};
@@ -271,8 +270,25 @@ export namespace Noodles
 				std::pmr::memory_resource* parameter_resource = std::pmr::get_default_resource()
 		);
 
-		bool RemoveEntity(Entity& entity) { return manager.ReleaseEntity(entity); }
+		template<typename Function>
+		SystemNode::Ptr CreateAutomaticSystemNode(Function&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
+		template<typename Function>
+		bool CreateAndAddAtomaticSystem(Function&& func, SystemNodeProperty property, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		{
+			auto ptr = CreateAutomaticSystemNode(std::forward<Function>(func), resource);
+			if(ptr)
+			{
+				return AddSystem(std::move(ptr), property);
+			}
+			return false;
+		}
+
+		bool RemoveEntity(Entity& entity) { return manager.ReleaseEntity(entity); }
+		template<typename SingletonT>
+		bool MoveAndCreateSingleton(SingletonT&& type) { return manager.MoveAndCreateSingleton(std::forward<SingletonT>(type)); }
+		decltype(auto) CreateComponentFilter(std::span<AtomicType::Ptr const> atomic_type) { return manager.CreateComponentFilter(atomic_type); }
+		decltype(auto) CreateSingletonFilter(AtomicType const& atomic_type) { return manager.CreateSingletonFilter(atomic_type); }
 		/*
 		template<typename SingletonT, typename ...OT>
 		Potato::Pointer::ObserverPtr<SingletonT> CreateSingleton(OT&& ...ot) { return manager.CreateSingletonType<SingletonT>(std::forward<OT>(ot)...); }
@@ -287,12 +303,10 @@ export namespace Noodles
 		using ComponentWrapper = ArchetypeComponentManager::ComponentsWrapper;
 		using EntityWrapper = ArchetypeComponentManager::EntityWrapper;
 
-		//ComponentWrapper IterateComponent(ComponentFilterInterface const& interface, std::size_t ite_index) const { return manager.ReadComponents(interface, ite_index); }
-
-
-		//EntityWrapper ReadEntity(Entity const& entity, ComponentFilterInterface const& interface) const { { return manager.ReadEntityComponents(entity, interface); } }
-		//std::optional<std::span<void*>> ReadEntityDirect(Entity const& entity, ComponentFilterInterface const& interface, std::span<void*> output) const { return manager.ReadEntityDirect(entity, interface, output); };
-
+		decltype(auto) IterateComponent_AssumedLocked(ComponentFilter const& filter, std::size_t ite_index, std::span<std::size_t> output) const { return manager.ReadComponents_AssumedLocked(filter, ite_index, output); }
+		decltype(auto) ReadEntity_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<std::size_t> output) const { { return manager.ReadEntityComponents_AssumedLocked(entity, filter, output); } }
+		decltype(auto) ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output, bool prefer_modifier = true) const { return manager.ReadEntityDirect_AssumedLocked(entity, filter, output, prefer_modifier); };
+		decltype(auto) ReadSingleton_AssumedLocked(SingletonFilter const& filter) { return manager.ReadSingleton_AssumedLock(filter); }
 		//Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& interface) { return manager.ReadSingleton(interface);  }
 
 		void Quit();
@@ -335,35 +349,37 @@ export namespace Noodles
 		std::u8string_view display_name;
 	};
 
-	/*
+	
 	template<AcceptableFilterType ...ComponentT>
-	struct ComponentFilter : protected ComponentFilterInterface
+	struct AtomicComponentFilter
 	{
 
 		static_assert(!Potato::TMP::IsRepeat<ComponentT...>::Value);
 
-		virtual std::span<UniqueTypeID const> GetArchetypeIndex() const override
+		static std::span<AtomicType::Ptr const> GetAtomicTypeSpan()
 		{
-			static std::array<UniqueTypeID, sizeof...(ComponentT)> temp_buffer = {
-				UniqueTypeID::Create<ComponentT>()...
+			static std::array<AtomicType::Ptr, sizeof...(ComponentT)> temp_buffer = {
+				GetAtomicType<ComponentT>()...
 			};
 			return std::span(temp_buffer);
 		}
 
-		void ParameterInit(SystemNode& owner, Context& context)
-		{
-			context.RegisterFilter(this, owner);
-		}
-		
-		ComponentFilter(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* resource)
-			: ComponentFilterInterface(resource)
+		void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const
 		{
 			static std::array<RWUniqueTypeID, sizeof...(ComponentT)> temp_buffer = {
 				RWUniqueTypeID::Create<ComponentT>()...
 			};
-
-			Generator.RegisterComponentMutex(std::span(temp_buffer));
+			generator.RegisterComponentMutex(std::span(temp_buffer));
 		}
+		
+		AtomicComponentFilter(Context& context)
+			: filter(context.CreateComponentFilter(GetAtomicTypeSpan()))
+		{
+			assert(filter);
+		}
+
+		AtomicComponentFilter(AtomicComponentFilter const&) = default;
+		AtomicComponentFilter(AtomicComponentFilter&&) = default;
 
 		using OutputIndexT = std::array<std::size_t, sizeof...(ComponentT)>;
 
@@ -398,45 +414,46 @@ export namespace Noodles
 			return GetByType<Type>(range.wrapper).data() + range.mount_point;
 		}
 
-		decltype(auto) IterateComponent(Context& context, std::size_t ite_index) const { return context.IterateComponent(*this, ite_index); }
-		decltype(auto) IterateComponent(ExecuteContext& context, std::size_t ite_index) const { return IterateComponent(context.noodles_context, ite_index); }
-		decltype(auto) ReadEntity(Context& context, Entity const& entity) const { return context.ReadEntity(entity, *this); }
-		decltype(auto) ReadEntity(ExecuteContext& context, Entity const& entity) const { return ReadEntity(context.noodles_context, entity); }
+		decltype(auto) IterateComponent_AssumedLocked(Context& context, std::size_t ite_index, std::span<std::size_t> output) const { return context.IterateComponent_AssumedLocked(*filter, ite_index, output); }
+		decltype(auto) ReadEntity_AssumedLocked(Context& context, Entity const& entity, std::span<std::size_t> output) const { { return context.ReadEntity_AssumedLocked(entity, *filter, output); } }
+		decltype(auto) ReadEntityDirect_AssumedLocked(Context& context, Entity const& entity, std::span<void*> output, bool prefer_modifier = true) const { return context.ReadEntityDirect_AssumedLocked(entity, *filter, output, prefer_modifier); };
+		
 
 	protected:
 
-		virtual void AddFilterRef() const override { }
-		virtual void SubFilterRef() const override { }
+		ComponentFilter::SPtr filter;
 
 		friend struct Context;
 	};  
 
 	template<AcceptableFilterType ComponentT>
-	struct SingletonFilter : protected SingletonFilterInterface
+	struct AtomicSingletonFilter
 	{
-		virtual UniqueTypeID RequireTypeID() const override
+		static AtomicType const& GetRequireAtomicType()
 		{
-			return UniqueTypeID::Create<ComponentT>();
+			return *GetAtomicType<ComponentT>();
 		}
 
-		void ParameterInit(SystemNode& owner, Context& context)
+		AtomicSingletonFilter(Context& context)
+			: filter(context.CreateSingletonFilter(GetRequireAtomicType()))
 		{
-			context.RegisterFilter(this, owner);
+			assert(filter);
 		}
 
-		SingletonFilter(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* resource)
+		void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const
 		{
-			RWUniqueTypeID tem_id = RWUniqueTypeID::Create<ComponentT>();
-			Generator.RegisterSingletonMutex(std::span(&tem_id, 1));
+			static std::array<RWUniqueTypeID, 1> temp_buffer = {
+				RWUniqueTypeID::Create<ComponentT>()
+			};
+			generator.RegisterSingletonMutex(std::span(temp_buffer));
 		}
 
-		decltype(auto) Get(Context& context) const { return Potato::Pointer::ObserverPtr<ComponentT>{ static_cast<ComponentT*>(context.ReadSingleton(*this).GetPointer()) }; }
+		decltype(auto) Get(Context& context) const { return static_cast<ComponentT*>(context.ReadSingleton_AssumedLocked(*filter)); }
 		decltype(auto) Get(ExecuteContext& context) const { return Get(context.noodles_context); }
 
 	protected:
 
-		virtual void AddFilterRef() const override { }
-		virtual void SubFilterRef() const override { }
+		SingletonFilter::SPtr filter;
 
 		friend struct Context;
 	};
@@ -445,18 +462,11 @@ export namespace Noodles
 	concept IsExecuteContext = std::is_same_v<std::remove_cvref_t<Type>, ExecuteContext>;
 
 	template<typename Type>
-	concept EnableParameterInit = requires(Type type)
+	concept EnableFlushMutexGenerator = requires(Type type)
 	{
-		{ type.ParameterInit(std::declval<SystemNode&>(), std::declval<Context&>()) };
+		{ type.FlushMutexGenerator(std::declval<ReadWriteMutexGenerator&>()) };
 	};
 
-	template<typename Type>
-	concept EnableParameterRelease = requires(Type type)
-	{
-		{ type.ParameterRelease(std::declval<SystemNode&>(), std::declval<Context&>()) };
-	};
-
-	/*
 	struct SystemAutomatic
 	{
 
@@ -471,27 +481,21 @@ export namespace Noodles
 
 			RealType data;
 
-			ParameterHolder(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* system_resource)
-				requires(std::is_constructible_v<RealType, ReadWriteMutexGenerator&, std::pmr::memory_resource*>)
-			: data(Generator, system_resource) {}
+			ParameterHolder(Context& context)
+				requires(std::is_constructible_v<RealType, Context&>)
+			: data(context) {}
 
-			ParameterHolder(ReadWriteMutexGenerator& Generator, std::pmr::memory_resource* system_resource)
-				requires(!std::is_constructible_v<RealType, ReadWriteMutexGenerator&, std::pmr::memory_resource*>)
+			ParameterHolder(Context& context)
+				requires(!std::is_constructible_v<RealType, Context&>)
 			{}
 
-			void ParameterInit(SystemNode& owner, Context& context)
-			{
-				if constexpr (EnableParameterInit<RealType>)
-				{
-					data.ParameterInit(owner, context);
-				}
-			}
 
-			void ParameterRelease(SystemNode& owner, Context& context)
+
+			void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const
 			{
-				if constexpr (EnableParameterRelease<RealType>)
+				if constexpr (EnableFlushMutexGenerator<RealType>)
 				{
-					data.ParameterRelease(owner, context);
+					data.FlushMutexGenerator(generator);
 				}
 			}
 
@@ -513,8 +517,8 @@ export namespace Noodles
 			ParameterHolder<Cur> cur_holder;
 			ParameterHolders<AT...> other_holders;
 
-			ParameterHolders(ReadWriteMutexGenerator& generator, std::pmr::memory_resource* resource)
-				: cur_holder(generator, resource), other_holders(generator, resource)
+			ParameterHolders(Context& context)
+				: cur_holder(context), other_holders(context)
 			{
 			}
 
@@ -522,26 +526,19 @@ export namespace Noodles
 			template<std::size_t i>
 			decltype(auto) Get(std::integral_constant<std::size_t, i>, ExecuteContext& context) { return other_holders.Get(std::integral_constant<std::size_t, i - 1>{}, context); }
 
-			void ParameterInit(SystemNode& owner, Context& context)
+			void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const
 			{
-				cur_holder.ParameterInit(owner, context);
-				other_holders.ParameterInit(owner, context);
-			}
-
-			void ParameterRelease(SystemNode& owner, Context& context)
-			{
-				other_holders.ParameterRelease(owner, context);
-				cur_holder.ParameterInit(owner, context);
+				cur_holder.FlushMutexGenerator(generator);
+				other_holders.FlushMutexGenerator(generator);
 			}
 		};
 
 		template<>
 		struct ParameterHolders<>
 		{
-			ParameterHolders(ReadWriteMutexGenerator& generator, std::pmr::memory_resource* resource){}
+			ParameterHolders(Context& context){}
 
-			void ParameterInit(SystemNode& owner, Context& context) {}
-			void ParameterRelease(SystemNode& owner, Context& context){}
+			void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const {}
 		};
 
 		template<typename ...ParT>
@@ -573,7 +570,7 @@ export namespace Noodles
 
 
 	template<typename Func>
-	struct DynamicAutoSystemHolder : public SystemNode
+	struct DynamicAutoSystemHolder : public SystemNode, public Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Automatic = SystemAutomatic::ExtractTickSystem<Func>;
 
@@ -587,13 +584,13 @@ export namespace Noodles
 
 		Potato::IR::MemoryResourceRecord record;
 
-		DynamicAutoSystemHolder(ReadWriteMutexGenerator& generator, Func&& fun, std::u8string_view display_name, Property in_property, Potato::IR::MemoryResourceRecord record, std::pmr::memory_resource* parameter_resource)
-			: SystemHolder(in_property, display_name), append_data(generator, parameter_resource), fun(std::move(fun)), record(record)
+		DynamicAutoSystemHolder(Context& context, Func&& fun, Potato::IR::MemoryResourceRecord record)
+			: append_data(context), fun(std::move(fun)), record(record)
 		{}
 
-		virtual void SystemExecute(ExecuteContext& context) override
+		virtual void SystemNodeExecute(ExecuteContext& context) override
 		{
-			Automatic::Execute(context, append_data, fun);
+			Automatic::Execute(context, append_data, *fun);
 		}
 
 		virtual void Release() override
@@ -603,71 +600,29 @@ export namespace Noodles
 			record.Deallocate();
 		}
 
-		virtual void SystemInit(Context& context) override
+		virtual void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const override
 		{
-			append_data.ParameterInit(*this, context);
+			append_data.FlushMutexGenerator(generator);
 		}
 
-		virtual void SystemRelease(Context& context) override
-		{
-			append_data.ParameterRelease(*this, context);
-			context.UnRegisterFilter(*this);
-		}
+		void AddSystemNodeRef() const override { DefaultIntrusiveInterface::AddRef(); }
+		void SubSystemNodeRef() const override { DefaultIntrusiveInterface::SubRef(); }
 	};
 
-	template<typename Func>
-	auto SystemHolder::CreateAuto(
-		Func&& func,
-		ReadWriteMutexGenerator& generator,
-		Property property,
-		std::u8string_view display_prefix,
-		std::pmr::memory_resource* resource,
-		std::pmr::memory_resource* parameter_resource
-	)
-		-> Ptr
+	template<typename Function>
+	SystemNode::Ptr Context::CreateAutomaticSystemNode(Function&& func, std::pmr::memory_resource* resource)
 	{
-		using Type = DynamicAutoSystemHolder<std::remove_cvref_t<Func>>;
-
-		auto layout = Potato::IR::Layout::Get<Type>();
-		std::size_t dis_size = SystemHolder::FormatDisplayNameSize(display_prefix, property);
-		std::size_t offset = 0;
-		if (dis_size != 0)
-		{
-			offset = Potato::IR::InsertLayoutCPP(layout, Potato::IR::Layout::GetArray<char8_t>(dis_size));
-			Potato::IR::FixLayoutCPP(layout);
-		}
-
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout);
+		using Type = DynamicAutoSystemHolder<std::remove_cvref_t<Function>>;
+		auto re = Potato::IR::MemoryResourceRecord::Allocate<Type>(resource);
 
 		if (re)
 		{
-			std::u8string_view dis;
-			if(dis_size != 0)
-			{
-				auto str = std::span(re.GetByte(), re.layout.Size).subspan(offset);
-				auto re2 = SystemHolder::FormatDisplayName(
-					std::span(reinterpret_cast<char8_t*>(str.data()), str.size() / sizeof(char8_t)),
-					display_prefix,
-					property
-				);
-				if(re2)
-				{
-					std::tie(dis, property) = *re2;
-				}
-			}
-			Type* ptr = new (re.Get()) Type(
-				generator,
-				std::forward<Func>(func),
-				dis,
-				property,
-				re,
-				parameter_resource
-			);
-			return Ptr{ ptr };
+			return new (re.Get()) Type{*this, std::forward<Function>(func), re};
 		}
 		return {};
 	}
 
+	/*
 	export template<typename Func>
 	bool Context::CreateTickSystemAuto(Priority priority, Property property,
 		Func&& func, OrderFunction order_func, std::optional<Potato::Task::TaskFilter> task_filter, 

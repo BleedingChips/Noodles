@@ -72,6 +72,11 @@ struct TestSystem : public SystemNode
 	void SystemNodeExecute(ExecuteContext& context) override { PrintSystemProperty(context); }
 };
 
+void TestFunction(ExecuteContext& context, AtomicComponentFilter<Tuple2>& fup)
+{
+	PrintSystemProperty(context);
+}
+
 
 int main()
 {
@@ -93,7 +98,7 @@ int main()
 		context.AddEntityComponent(*ent2, Tuple{o});
 	}
 
-	auto Ker = context.CreateSingleton<Tuple2>(std::u8string{u8"Fff"});
+	auto Ker = context.MoveAndCreateSingleton<Tuple2>(Tuple2{std::u8string{u8"Fff"}});
 	context.AddSystem(&systm, {
 		{1, 1, 1},
 		{u8"S1", u8"G11"}
@@ -106,6 +111,13 @@ int main()
 		{2, 1, 1},
 		{u8"S3", u8"G21"}
 	});
+	context.CreateAndAddAtomaticSystem(TestFunction, 
+		{
+		{1, 1, 3},
+		{u8"S4", u8"G11"}
+	}
+		
+		);
 
 	/*
 	context.CreateTickSystemAuto( {0, 0, 1}, {

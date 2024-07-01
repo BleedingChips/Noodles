@@ -357,6 +357,12 @@ export namespace Noodles
 		EntityWrapper ReadEntityComponents_AssumedLocked(Entity const& ent, ComponentFilter const& filter, std::span<std::size_t> output_span) const;
 		std::optional<std::span<void*>> ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output_ptr, bool prefer_modify = true) const;
 
+		struct SingletonWrapper
+		{
+			void* data = nullptr;
+			AtomicType::Ptr atomic_type;
+		};
+		SingletonWrapper ReadSingleton_AssumedLock(SingletonFilter const& filter);
 		/*
 		template<typename SingType, typename ...OT>
 		Potato::Pointer::ObserverPtr<SingType> CreateSingletonType(OT&& ...ot)

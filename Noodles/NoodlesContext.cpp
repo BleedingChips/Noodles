@@ -44,7 +44,16 @@ namespace Noodles
 
 	bool ReadWriteMutex::IsConflict(ReadWriteMutex const& mutex) const
 	{
-		return DetectConflict(components, mutex.components) || DetectConflict(singleton, mutex.singleton);
+		return DetectConflict(
+			components_span.Slice(total_type_id),
+			mutex.components_span.Slice(mutex.total_type_id)
+		)
+			
+		|| DetectConflict(
+			singleton_span.Slice(total_type_id),
+			mutex.singleton_span.Slice(mutex.total_type_id)
+		)
+		;
 	}
 
 	void ReadWriteMutexGenerator::RegisterComponentMutex(std::span<RWUniqueTypeID const> ifs)
@@ -99,8 +108,9 @@ namespace Noodles
 	ReadWriteMutex ReadWriteMutexGenerator::GetMutex() const
 	{
 		return ReadWriteMutex{
-			std::span(unique_ids).subspan(0, component_count),
-			std::span(unique_ids).subspan(component_count)
+				std::span(unique_ids),
+			Potato::Misc::IndexSpan<>{0, component_count},
+			Potato::Misc::IndexSpan<>{component_count, component_count + singleton_count}
 			//system_id
 		};
 	}
@@ -132,19 +142,14 @@ namespace Noodles
 		auto t_layout = Potato::IR::Layout::Get<SystemNodeUserData>();
 		Potato::Format::FormatWritter<char8_t> temp_writer;
 		system_static_format_pattern.Format(temp_writer, property.property.group, property.property.name);
-		auto layout_offset = Potato::IR::InsertLayoutCPP(t_layout, Potato::IR::Layout::GetArray<RWUniqueTypeID>(mutex.components.size() + mutex.singleton.size()));
+		auto layout_offset = Potato::IR::InsertLayoutCPP(t_layout, Potato::IR::Layout::GetArray<RWUniqueTypeID>(mutex.total_type_id.size()));
 		auto str_offset = Potato::IR::InsertLayoutCPP(t_layout, Potato::IR::Layout::GetArray<char8_t>(temp_writer.GetWritedSize()));
 		Potato::IR::FixLayoutCPP(t_layout);
 		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, t_layout);
 		if(re)
 		{
 			std::byte* ite = re.GetByte() + layout_offset;
-			for(auto& ite2 : mutex.components)
-			{
-				new (ite) RWUniqueTypeID{ ite2 };
-				ite += sizeof(RWUniqueTypeID);
-			}
-			for (auto& ite2 : mutex.singleton)
+			for(auto& ite2 : mutex.total_type_id)
 			{
 				new (ite) RWUniqueTypeID{ ite2 };
 				ite += sizeof(RWUniqueTypeID);
@@ -153,8 +158,9 @@ namespace Noodles
 				std::span(reinterpret_cast<char8_t*>(re.GetByte() + str_offset), temp_writer.GetWritedSize())
 			};
 			ReadWriteMutex new_mutex{
-				std::span(reinterpret_cast<RWUniqueTypeID*>(re.GetByte() + layout_offset), mutex.components.size()),
-				std::span(reinterpret_cast<RWUniqueTypeID*>(re.GetByte() + layout_offset) + mutex.components.size(), mutex.singleton.size()),
+				std::span(reinterpret_cast<RWUniqueTypeID*>(re.GetByte() + layout_offset), mutex.total_type_id.size()),
+				mutex.components_span,
+				mutex.singleton_span
 			};
 			system_static_format_pattern.Format(temp_writer2, property.property.group, property.property.name);
 			property.property.group = { reinterpret_cast<char8_t*>(re.GetByte() + str_offset),  property.property.group.size()};
@@ -174,11 +180,7 @@ namespace Noodles
 		auto re = record;
 		auto mu = mutex;
 		this->~SystemNodeUserData();
-		for(auto& ite : mutex.singleton)
-		{
-			ite.~RWUniqueTypeID();
-		}
-		for(auto& ite : mutex.components)
+		for(auto& ite : mu.total_type_id)
 		{
 			ite.~RWUniqueTypeID();
 		}

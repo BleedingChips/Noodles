@@ -284,23 +284,6 @@ namespace Noodles
 		re.Deallocate();
 	}
 
-	/*
-	void SingletonFilterInterface::OnUnregister()
-	{
-		singleton_reference.Reset();
-	}
-
-	void* SingletonFilterInterface::GetSingleton(std::size_t in_owner_id) const
-	{
-		std::lock_guard lg(filter_mutex);
-		if(owner_id != 0 && owner_id == in_owner_id && singleton_reference)
-		{
-			return singleton_reference->Get();
-		}
-		return nullptr;
-	}
-	*/
-
 	std::optional<std::span<void*>> ArchetypeComponentManager::ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output_ptr, bool prefer_modify) const
 	{
 		std::shared_lock lg(entity.mutex);
@@ -349,6 +332,16 @@ namespace Noodles
 			}
 		}
 		return std::nullopt;
+	}
+
+	ArchetypeComponentManager::SingletonWrapper ArchetypeComponentManager::ReadSingleton_AssumedLock(SingletonFilter const& filter)
+	{
+		std::shared_lock sl(filter.mutex);
+		if(filter.owner.GetPointer() == this)
+		{
+			return {filter.Get(), filter.GetAtomicType()};
+		}
+		return {nullptr, {}};
 	}
 
 	std::tuple<Archetype::OPtr, Archetype::ArrayMountPoint> ArchetypeComponentManager::GetComponentPage(std::size_t archetype_index) const
