@@ -284,56 +284,6 @@ export namespace Noodles
 
 		bool RemoveEntityComponent(Entity& target_entity, AtomicType const& atomic_type);
 
-		/*
-		template<typename ...AT>
-		EntityPtr CreateEntityDefer(std::pmr::memory_resource* resource, AT&& ...at)
-		{
-
-			static_assert(!Potato::TMP::IsRepeat<EntityProperty, std::remove_cvref_t<AT>...>::Value, "Archetype require no repeat component type");
-
-			std::array<ArchetypeID, sizeof...(at) + 1> archetype_ids{
-				ArchetypeID::Create<EntityProperty>(),
-				ArchetypeID::Create<std::remove_cvref_t<AT>>()...
-			};
-
-			
-			{
-				assert(resource != nullptr);
-				EntityPtr entity_ptr = Entity::Create(resource);
-				if (entity_ptr)
-				{
-					std::array<std::size_t, sizeof...(at) + 1> output_index;
-					auto [archetype_ptr, archetype_index, mp] = CreateArchetype(archetype_ids, output_index);
-					if (archetype_ptr && mp.GetBuffer() != nullptr)
-					{
-						EntityProperty pro{ entity_ptr };
-						auto& ref = archetype_ptr->GetInfos(output_index[0]);
-						archetype_ptr->MoveConstruct(ref, archetype_ptr->Get(ref, mp), &pro);
-						try
-						{
-							ArchetypeComponentManagerConstructHelper(*archetype_ptr, mp, std::span(output_index).subspan(1), std::forward<AT>(at)...);
-							entity_ptr->archetype_index = archetype_index;
-							entity_ptr->data_or_mount_point_index = reinterpret_cast<std::size_t>(mp.GetBuffer());
-							entity_ptr->owner_id = reinterpret_cast<std::size_t>(this);
-							entity_ptr->status = EntityStatus::PreInit;
-							std::lock_guard lg(spawn_mutex);
-							spawned_entities.emplace_back(entity_ptr, SpawnedStatus::New, archetype_index, true);
-							need_update = true;
-							return entity_ptr;
-						}
-						catch (...)
-						{
-							archetype_ptr->Destruct(ref, mp);
-							temp_resource->deallocate(mp.GetBuffer(), archetype_ptr->GetSingleLayout().Size);
-							throw;
-						}
-					}
-				}
-			}
-			return {};
-		}
-		*/
-
 		bool ForceUpdateState();
 		ComponentFilter::SPtr CreateComponentFilter(std::span<AtomicType::Ptr const> require_component);
 		SingletonFilter::SPtr CreateSingletonFilter(AtomicType const& atomic_type);
@@ -363,32 +313,6 @@ export namespace Noodles
 			AtomicType::Ptr atomic_type;
 		};
 		SingletonWrapper ReadSingleton_AssumedLock(SingletonFilter const& filter);
-		/*
-		template<typename SingType, typename ...OT>
-		Potato::Pointer::ObserverPtr<SingType> CreateSingletonType(OT&& ...ot)
-		{
-			using Type = SingletonType<std::remove_cvref_t<SingType>>;
-
-			auto ID = UniqueTypeID::Create<typename Type::PureType>();
-
-			std::lock_guard lg(singletons_mutex);
-			auto f = std::find_if(singletons.begin(), singletons.end(), [=](SingletonElement const& ele)
-			{
-				return ele.id == ID;
-			});
-			if(f == singletons.end())
-			{
-				auto re = Potato::IR::MemoryResourceRecord::Allocate<Type>(singleton_resource);
-				if(re)
-				{
-					Type* ptr = new (re.Get()) Type {re, std::forward<OT>(ot)...};
-					singletons.emplace_back(ptr, ID);
-					return &ptr->Data;
-				}
-			}
-			return nullptr;
-		}
-		*/
 
 		bool MoveAndCreateSingleton(AtomicType const& atomic_type, void* move_reference);
 
@@ -396,8 +320,6 @@ export namespace Noodles
 		bool MoveAndCreateSingleton(Type && reference) { return MoveAndCreateSingleton(*GetAtomicType<Type>(), &reference); }
 
 		bool ReleaseEntity(Entity& entity);
-
-		//Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& filter) const;
 
 	protected:
 
@@ -457,21 +379,6 @@ export namespace Noodles
 
 		std::mutex singleton_modifier_mutex;
 		std::pmr::vector<SingletonModifier> singleton_modifier;
-		
-		/*
-		struct CompFilterElement
-		{
-			ComponentFilterInterface::Ptr filter;
-			std::size_t group_id;
-		};
-
-		struct SingletonFilterElement
-		{
-			SingletonFilterInterface::Ptr ptr;
-			UniqueTypeID rquire_id;
-			std::size_t group_id;
-		};
-		*/
 
 		std::shared_mutex filter_mutex;
 		std::pmr::vector<ComponentFilter::WPtr> component_filter;

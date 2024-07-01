@@ -222,6 +222,7 @@ export namespace Noodles
 			std::pmr::memory_resource* component_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* singleton_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* system_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* filter_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource();
 		};
 
@@ -271,12 +272,12 @@ export namespace Noodles
 		);
 
 		template<typename Function>
-		SystemNode::Ptr CreateAutomaticSystemNode(Function&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		SystemNode::Ptr CreateAutomaticSystemNode(Function&& func);
 
 		template<typename Function>
-		bool CreateAndAddAtomaticSystem(Function&& func, SystemNodeProperty property, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		bool CreateAndAddAtomaticSystem(Function&& func, SystemNodeProperty property)
 		{
-			auto ptr = CreateAutomaticSystemNode(std::forward<Function>(func), resource);
+			auto ptr = CreateAutomaticSystemNode(std::forward<Function>(func));
 			if(ptr)
 			{
 				return AddSystem(std::move(ptr), property);
@@ -289,17 +290,7 @@ export namespace Noodles
 		bool MoveAndCreateSingleton(SingletonT&& type) { return manager.MoveAndCreateSingleton(std::forward<SingletonT>(type)); }
 		decltype(auto) CreateComponentFilter(std::span<AtomicType::Ptr const> atomic_type) { return manager.CreateComponentFilter(atomic_type); }
 		decltype(auto) CreateSingletonFilter(AtomicType const& atomic_type) { return manager.CreateSingletonFilter(atomic_type); }
-		/*
-		template<typename SingletonT, typename ...OT>
-		Potato::Pointer::ObserverPtr<SingletonT> CreateSingleton(OT&& ...ot) { return manager.CreateSingletonType<SingletonT>(std::forward<OT>(ot)...); }
-		*/
-		/*
-		bool RegisterFilter(ComponentFilterInterface::Ptr interface, TaskFlow::Socket& owner) { return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner)); }
 
-		bool RegisterFilter(SingletonFilterInterface::Ptr interface, TaskFlow::Socket& owner) { return manager.RegisterFilter(std::move(interface), reinterpret_cast<std::size_t>(&owner)); }
-
-		bool UnRegisterFilter(TaskFlow::Socket& owner) { return manager.ReleaseFilter(reinterpret_cast<std::size_t>(&owner)); }
-		*/
 		using ComponentWrapper = ArchetypeComponentManager::ComponentsWrapper;
 		using EntityWrapper = ArchetypeComponentManager::EntityWrapper;
 
@@ -307,8 +298,7 @@ export namespace Noodles
 		decltype(auto) ReadEntity_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<std::size_t> output) const { { return manager.ReadEntityComponents_AssumedLocked(entity, filter, output); } }
 		decltype(auto) ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output, bool prefer_modifier = true) const { return manager.ReadEntityDirect_AssumedLocked(entity, filter, output, prefer_modifier); };
 		decltype(auto) ReadSingleton_AssumedLocked(SingletonFilter const& filter) { return manager.ReadSingleton_AssumedLock(filter); }
-		//Potato::Pointer::ObserverPtr<void> ReadSingleton(SingletonFilterInterface const& interface) { return manager.ReadSingleton(interface);  }
-
+		
 		void Quit();
 
 		Context(Config config = {}, SyncResource resource = {});
@@ -316,11 +306,6 @@ export namespace Noodles
 
 	protected:
 
-		
-
-		//bool RegisterSystem(SystemHolder::Ptr, Priority priority, Property property, OrderFunction func, std::optional<Potato::Task::TaskFilter> task_filter, ReadWriteMutexGenerator& generator);
-		
-		//bool FlushSystemStatus(std::pmr::vector<Potato::Task::TaskFlow::ErrorNode>* error = nullptr);
 		virtual void TaskFlowExecuteBegin(Potato::Task::TaskFlowContext& context) override;
 		virtual void TaskFlowExecuteEnd(Potato::Task::TaskFlowContext& context) override;
 		virtual void AddContextRef() const = 0;
@@ -610,10 +595,10 @@ export namespace Noodles
 	};
 
 	template<typename Function>
-	SystemNode::Ptr Context::CreateAutomaticSystemNode(Function&& func, std::pmr::memory_resource* resource)
+	SystemNode::Ptr Context::CreateAutomaticSystemNode(Function&& func)
 	{
 		using Type = DynamicAutoSystemHolder<std::remove_cvref_t<Function>>;
-		auto re = Potato::IR::MemoryResourceRecord::Allocate<Type>(resource);
+		auto re = Potato::IR::MemoryResourceRecord::Allocate<Type>(system_resource);
 
 		if (re)
 		{
@@ -621,19 +606,5 @@ export namespace Noodles
 		}
 		return {};
 	}
-
-	/*
-	export template<typename Func>
-	bool Context::CreateTickSystemAuto(Priority priority, Property property,
-		Func&& func, OrderFunction order_func, std::optional<Potato::Task::TaskFilter> task_filter, 
-		std::pmr::memory_resource* parameter_resource
-	)
-	{
-		std::pmr::monotonic_buffer_resource temp_resource(temporary_resource);
-		ReadWriteMutexGenerator generator(&temp_resource);
-		auto ptr = SystemHolder::CreateAuto(std::forward<Func>(func), generator, property, name, system_resource, parameter_resource);
-		return RegisterSystem(std::move(ptr), priority, property, order_func, task_filter, generator);
-	}
-	*/
 	
 }
