@@ -297,7 +297,7 @@ export namespace Noodles
 		decltype(auto) IterateComponent_AssumedLocked(ComponentFilter const& filter, std::size_t ite_index, std::span<std::size_t> output) const { return manager.ReadComponents_AssumedLocked(filter, ite_index, output); }
 		decltype(auto) ReadEntity_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<std::size_t> output) const { { return manager.ReadEntityComponents_AssumedLocked(entity, filter, output); } }
 		decltype(auto) ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output, bool prefer_modifier = true) const { return manager.ReadEntityDirect_AssumedLocked(entity, filter, output, prefer_modifier); };
-		decltype(auto) ReadSingleton_AssumedLocked(SingletonFilter const& filter) { return manager.ReadSingleton_AssumedLock(filter); }
+		decltype(auto) ReadSingleton_AssumedLocked(SingletonFilter const& filter) { return manager.ReadSingleton_AssumedLocked(filter); }
 		
 		void Quit();
 
@@ -341,7 +341,7 @@ export namespace Noodles
 
 		static_assert(!Potato::TMP::IsRepeat<ComponentT...>::Value);
 
-		static std::span<AtomicType::Ptr const> GetAtomicTypeSpan()
+		static std::span<AtomicType::Ptr const> GetFilterAtomicType()
 		{
 			static std::array<AtomicType::Ptr, sizeof...(ComponentT)> temp_buffer = {
 				GetAtomicType<ComponentT>()...
@@ -358,7 +358,7 @@ export namespace Noodles
 		}
 		
 		AtomicComponentFilter(Context& context)
-			: filter(context.CreateComponentFilter(GetAtomicTypeSpan()))
+			: filter(context.CreateComponentFilter(GetFilterAtomicType()))
 		{
 			assert(filter);
 		}
@@ -414,13 +414,13 @@ export namespace Noodles
 	template<AcceptableFilterType ComponentT>
 	struct AtomicSingletonFilter
 	{
-		static AtomicType const& GetRequireAtomicType()
+		static AtomicType const& GetFilterAtomicType()
 		{
 			return *GetAtomicType<ComponentT>();
 		}
 
 		AtomicSingletonFilter(Context& context)
-			: filter(context.CreateSingletonFilter(GetRequireAtomicType()))
+			: filter(context.CreateSingletonFilter(GetFilterAtomicType()))
 		{
 			assert(filter);
 		}

@@ -395,6 +395,7 @@ namespace Noodles
 		std::lock_guard lg(TaskFlow::process_mutex);
 		if(current_status == Status::DONE || current_status == Status::READY)
 		{
+			manager.ForceUpdateState();
 			Update_AssumedLock();
 			return TaskFlow::Commited_AssumedLock(context, std::move(property));
 		}

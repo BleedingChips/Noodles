@@ -334,14 +334,14 @@ namespace Noodles
 		return std::nullopt;
 	}
 
-	ArchetypeComponentManager::SingletonWrapper ArchetypeComponentManager::ReadSingleton_AssumedLock(SingletonFilter const& filter)
+	void* ArchetypeComponentManager::ReadSingleton_AssumedLocked(SingletonFilter const& filter)
 	{
 		std::shared_lock sl(filter.mutex);
 		if(filter.owner.GetPointer() == this)
 		{
-			return {filter.Get(), filter.GetAtomicType()};
+			return filter.Get();
 		}
-		return {nullptr, {}};
+		return nullptr;
 	}
 
 	std::tuple<Archetype::OPtr, Archetype::ArrayMountPoint> ArchetypeComponentManager::GetComponentPage(std::size_t archetype_index) const

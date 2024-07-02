@@ -72,8 +72,9 @@ struct TestSystem : public SystemNode
 	void SystemNodeExecute(ExecuteContext& context) override { PrintSystemProperty(context); }
 };
 
-void TestFunction(ExecuteContext& context, AtomicComponentFilter<Tuple2>& fup)
+void TestFunction(ExecuteContext& context, AtomicComponentFilter<Tuple2>& fup, AtomicSingletonFilter<Tuple2>& filter)
 {
+	auto P = filter.Get(context);
 	PrintSystemProperty(context);
 }
 
