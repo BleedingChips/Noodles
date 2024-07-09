@@ -81,6 +81,7 @@ void TestFunction(ExecuteContext& context, AtomicComponentFilter<Tuple2>& fup, A
 
 int main()
 {
+	//static_assert(std::is_function_v<decltype([](){})>);
 
 	Context::Config fig;
 	fig.min_frame_time = std::chrono::seconds{ 1 };

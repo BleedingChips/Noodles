@@ -548,7 +548,10 @@ export namespace Noodles
 			template<std::size_t ...i>
 			static auto Execute(ExecuteContext& context, AppendDataT& append_data, Func& func, std::index_sequence<i...>)
 			{
-				return func(append_data.Get(std::integral_constant<std::size_t, i>{}, context)...);
+				return std::invoke(
+					func,
+					append_data.Get(std::integral_constant<std::size_t, i>{}, context)...
+				);
 			}
 		};
 	};
@@ -575,7 +578,14 @@ export namespace Noodles
 
 		virtual void SystemNodeExecute(ExecuteContext& context) override
 		{
-			Automatic::Execute(context, append_data, *fun);
+			if constexpr (std::is_function_v<Func>)
+			{
+				Automatic::Execute(context, append_data, *fun);
+			}else
+			{
+				Automatic::Execute(context, append_data, fun);
+			}
+			
 		}
 
 		virtual void Release() override
