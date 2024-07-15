@@ -366,7 +366,6 @@ namespace Noodles
 	{
 		std::lock_guard lg(mutex);
 		start_up_tick_lock = std::chrono::steady_clock::now();
-		std::println("---start");
 	}
 
 	void Context::TaskFlowExecuteEnd(Potato::Task::TaskFlowContext& context)
@@ -375,7 +374,6 @@ namespace Noodles
 		std::chrono::steady_clock::time_point require_time;
 		{
 			std::lock_guard lg(mutex);
-			std::println("---finish");
 			if (require_quit)
 			{
 				require_quit = false;
