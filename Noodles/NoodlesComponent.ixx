@@ -163,8 +163,6 @@ export namespace Noodles
 
 		using SPtr = Potato::Pointer::StrongPtr<ComponentFilter>;
 
-
-
 		std::span<AtomicType::Ptr> GetAtomicType() const { return atomic_type; }
 		std::size_t GetHash() const { return hash_id; }
 

@@ -53,6 +53,11 @@ namespace Noodles
 			singleton_span.Slice(total_type_id),
 			mutex.singleton_span.Slice(mutex.total_type_id)
 		)
+
+			|| DetectConflict(
+				user_modify.Slice(total_type_id),
+				mutex.user_modify.Slice(mutex.total_type_id)
+			)
 		;
 	}
 
@@ -101,6 +106,30 @@ namespace Noodles
 			if (!Find)
 			{
 				unique_ids.emplace_back(ite);
+				++singleton_count;
+			}
+		}
+	}
+
+	void ReadWriteMutexGenerator::RegisterUserModifyMutex(std::span<RWUniqueTypeID const> ifs)
+	{
+		for (auto& ite : ifs)
+		{
+			auto spn = std::span(unique_ids).subspan(component_count + singleton_count);
+			bool Find = false;
+			for (auto& ite2 : spn)
+			{
+				if (*ite.atomic_type == *ite2.atomic_type)
+				{
+					ite2.is_write = ite2.is_write || ite.is_write;
+					Find = true;
+					break;
+				}
+			}
+			if (!Find)
+			{
+				unique_ids.emplace_back(ite);
+				++user_modify_count;
 			}
 		}
 	}
@@ -110,8 +139,8 @@ namespace Noodles
 		return ReadWriteMutex{
 				std::span(unique_ids),
 			Potato::Misc::IndexSpan<>{0, component_count},
-			Potato::Misc::IndexSpan<>{component_count, component_count + singleton_count}
-			//system_id
+			Potato::Misc::IndexSpan<>{component_count, component_count + singleton_count},
+			Potato::Misc::IndexSpan<>{component_count + singleton_count, user_modify_count}
 		};
 	}
 
@@ -160,7 +189,8 @@ namespace Noodles
 			ReadWriteMutex new_mutex{
 				std::span(reinterpret_cast<RWUniqueTypeID*>(re.GetByte() + layout_offset), mutex.total_type_id.size()),
 				mutex.components_span,
-				mutex.singleton_span
+				mutex.singleton_span,
+				mutex.user_modify
 			};
 			system_static_format_pattern.Format(temp_writer2, property.property.group, property.property.name);
 			property.property.group = { reinterpret_cast<char8_t*>(re.GetByte() + str_offset),  property.property.group.size()};

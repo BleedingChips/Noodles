@@ -77,6 +77,7 @@ export namespace Noodles
 		std::span<RWUniqueTypeID const> total_type_id;
 		Potato::Misc::IndexSpan<> components_span;
 		Potato::Misc::IndexSpan<> singleton_span;
+		Potato::Misc::IndexSpan<> user_modify;
 
 		bool IsConflict(ReadWriteMutex const& mutex) const;
 	};
@@ -88,6 +89,7 @@ export namespace Noodles
 
 		void RegisterComponentMutex(std::span<RWUniqueTypeID const> ifs);
 		void RegisterSingletonMutex(std::span<RWUniqueTypeID const> ifs);
+		void RegisterUserModifyMutex(std::span<RWUniqueTypeID const> ifs);
 		std::tuple<std::size_t, std::size_t> CalculateUniqueIDCount() const;
 		ReadWriteMutex GetMutex() const;
 
@@ -98,6 +100,7 @@ export namespace Noodles
 		std::pmr::vector<RWUniqueTypeID> unique_ids;
 		std::size_t component_count = 0;
 		std::size_t singleton_count = 0;
+		std::size_t user_modify_count = 0;
 
 		friend struct Context;
 	};
