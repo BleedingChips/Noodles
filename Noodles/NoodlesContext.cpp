@@ -140,7 +140,7 @@ namespace Noodles
 				std::span(unique_ids),
 			Potato::Misc::IndexSpan<>{0, component_count},
 			Potato::Misc::IndexSpan<>{component_count, component_count + singleton_count},
-			Potato::Misc::IndexSpan<>{component_count + singleton_count, user_modify_count}
+			Potato::Misc::IndexSpan<>{component_count + singleton_count, component_count + singleton_count + user_modify_count}
 		};
 	}
 

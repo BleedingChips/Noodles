@@ -409,7 +409,7 @@ export namespace Noodles
 
 	protected:
 
-		ComponentFilter::SPtr filter;
+		ComponentFilter::VPtr filter;
 
 		friend struct Context;
 	};  
@@ -441,7 +441,7 @@ export namespace Noodles
 
 	protected:
 
-		SingletonFilter::SPtr filter;
+		SingletonFilter::VPtr filter;
 
 		friend struct Context;
 	};

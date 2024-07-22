@@ -231,7 +231,7 @@ namespace Noodles
 		return std::nullopt;
 	}
 
-	void ComponentFilter::WeakRelease()
+	void ComponentFilter::ControllerRelease()
 	{
 		auto re = record;
 		this->~ComponentFilter();
@@ -277,7 +277,7 @@ namespace Noodles
 		return nullptr;
 	}
 
-	void SingletonFilter::WeakRelease()
+	void SingletonFilter::ControllerRelease()
 	{
 		auto re = record;
 		this->~SingletonFilter();
@@ -288,7 +288,7 @@ namespace Noodles
 	{
 		std::shared_lock lg(entity.mutex);
 		std::shared_lock lg2(filter.mutex);
-		if(entity.owner_id == reinterpret_cast<std::size_t>(this) && filter.owner.GetPointer() == this)
+		if(entity.owner_id == reinterpret_cast<std::size_t>(this))
 		{
 			auto span = filter.GetAtomicType();
 			prefer_modify = entity.modifer && prefer_modify;
@@ -337,11 +337,7 @@ namespace Noodles
 	void* ArchetypeComponentManager::ReadSingleton_AssumedLocked(SingletonFilter const& filter)
 	{
 		std::shared_lock sl(filter.mutex);
-		if(filter.owner.GetPointer() == this)
-		{
-			return filter.Get();
-		}
-		return nullptr;
+		return filter.Get();
 	}
 
 	std::tuple<Archetype::OPtr, Archetype::ArrayMountPoint> ArchetypeComponentManager::GetComponentPage(std::size_t archetype_index) const
@@ -403,7 +399,7 @@ namespace Noodles
 		return false;
 	}
 
-	ComponentFilter::SPtr ArchetypeComponentManager::CreateComponentFilter(std::span<AtomicType::Ptr const> require_component)
+	ComponentFilter::VPtr ArchetypeComponentManager::CreateComponentFilter(std::span<AtomicType::Ptr const> require_component)
 	{
 		std::size_t require_hash = 0;
 		for(std::size_t i = 0; i < require_component.size(); ++i)
@@ -412,42 +408,27 @@ namespace Noodles
 			require_hash += require_component[i]->GetHashCode() + i * i;
 		}
 		std::lock_guard lg(filter_mutex);
-		bool need_remove = false;
 		for(auto& ite : component_filter)
 		{
-			auto k = ite.Isomer();
-			if(k)
+			assert(ite);
+			if(ite->GetHash() == require_hash)
 			{
-				if(k->GetHash() == require_hash)
+				auto span = ite->GetAtomicType();
+				if(span.size() == require_component.size())
 				{
-					auto span = k->GetAtomicType();
-					if(span.size() == require_component.size())
+					bool Equal = true;
+					for(std::size_t i = 0; i < require_component.size(); ++i)
 					{
-						bool Equal = true;
-						for(std::size_t i = 0; i < require_component.size(); ++i)
+						if(span[i] != require_component[i])
 						{
-							if(span[i] != require_component[i])
-							{
-								Equal = false;
-								break;
-							}
+							Equal = false;
+							break;
 						}
-						if(Equal)
-							return k;
 					}
+					if(Equal)
+						return ite.Isomer();
 				}
-			}else
-			{
-				need_remove = true;
 			}
-		}
-		if(need_remove)
-		{
-			component_filter.erase(
-				std::remove_if(component_filter.begin(), component_filter.end(), 
-					[](ComponentFilter::WPtr& ptr){ auto sptr = ptr.Isomer(); return !sptr; }),
-				component_filter.end()
-			);
 		}
 		auto layout = Potato::IR::Layout::Get<ComponentFilter>();
 		auto offset = Potato::IR::InsertLayoutCPP(layout, Potato::IR::Layout::GetArray<AtomicType::Ptr>(require_component.size()));
@@ -460,51 +441,33 @@ namespace Noodles
 			{
 				new (&span[i]) AtomicType::Ptr{require_component[i]};
 			}
-			ComponentFilter::SPtr ptr = new(re.Get()) ComponentFilter{
-				re, require_hash, span, this
+			ComponentFilter::CPtr ptr = new(re.Get()) ComponentFilter{
+				re, require_hash, span
 			};
 			std::shared_lock sl(component_mutex);
 			for(std::size_t i = 0; i < components.size(); ++i)
 			{
 				ptr->OnCreatedArchetype(i, *components[i].archetype);
 			}
-			component_filter.emplace_back(ptr.Isomer());
-			return ptr;
+			component_filter.emplace_back(ptr);
+			return ptr.Isomer();
 		}
 		return {};
 	}
 
-	SingletonFilter::SPtr ArchetypeComponentManager::CreateSingletonFilter(AtomicType const& atomic_type)
+	SingletonFilter::VPtr ArchetypeComponentManager::CreateSingletonFilter(AtomicType const& atomic_type)
 	{
 		std::lock_guard lg(filter_mutex);
 		bool need_destroy = false;
 		for(auto& ite : singleton_filters)
 		{
-			auto ite2 = ite.Isomer();
-			if(ite2)
+			if(ite->IsSameAtomicType(atomic_type))
 			{
-				if(ite2->IsSameAtomicType(atomic_type))
-				{
-					return ite;
-				}
-			}else
-			{
-				need_destroy = true;
+				return ite.Isomer();
 			}
 		}
-		if(need_destroy)
-		{
-			singleton_filters.erase(
-				std::remove_if(singleton_filters.begin(), singleton_filters.end(), [](SingletonFilter::WPtr& ptr)
-				{
-					auto lspw = ptr.Isomer();
-					return !lspw;
-				}),
-				singleton_filters.end()
-			);
-		}
 		auto re = Potato::IR::MemoryResourceRecord::Allocate<SingletonFilter>(filter_resource);
-		SingletonFilter::SPtr sptr = new (re.Get()) SingletonFilter{re, &atomic_type, this};
+		SingletonFilter::CPtr sptr = new (re.Get()) SingletonFilter{re, &atomic_type};
 		singleton_filters.emplace_back(sptr);
 		std::shared_lock sl(component_mutex);
 		for(auto& ite : singleton_element)
@@ -515,7 +478,7 @@ namespace Noodles
 				break;
 			}
 		}
-		return sptr;
+		return sptr.Isomer();
 	}
 
 	ArchetypeComponentManager::ArchetypeComponentManager(SyncResource resource)
@@ -530,30 +493,20 @@ namespace Noodles
 	
 	ArchetypeComponentManager::~ArchetypeComponentManager()
 	{
-		/*
 		{
-			std::lock_guard lg(filter_mapping_mutex);
-			for(auto& ite : filter_mapping)
+			std::lock_guard lg(filter_mutex);
+			for(auto& ite : component_filter)
 			{
-				auto& ref = *ite.filter;
-				ref.Unregister(reinterpret_cast<size_t>(this));
+				std::lock_guard lg(ite->mutex);
+				ite->index.clear();
 			}
-			filter_mapping.clear();
+			component_filter.clear();
 			for(auto& ite : singleton_filters)
 			{
-				auto& ref = *ite.ptr;
-				ref.Unregister(reinterpret_cast<size_t>(this));
+				std::lock_guard lg(ite->mutex);
+				ite->reference_singleton.Reset();
 			}
-			singleton_filters.clear();
 		}
-		*/
-
-		/*
-		{
-			std::lock_guard lg2(singletons_mutex);
-			singletons.clear();
-		}
-		*/
 
 		{
 			std::lock_guard lg(entity_modifier_mutex);
@@ -598,6 +551,7 @@ namespace Noodles
 			}
 			components.clear();
 		}
+
 		
 	}
 
@@ -655,20 +609,16 @@ namespace Noodles
 	ArchetypeComponentManager::ComponentsWrapper ArchetypeComponentManager::ReadComponents_AssumedLocked(ComponentFilter const& filter, std::size_t ite_index, std::span<std::size_t> output) const
 	{
 		std::shared_lock sl(filter.mutex);
-		if(filter.owner.GetPointer() == this)
+		std::size_t archetype_index = std::numeric_limits<std::size_t>::max();
+		auto re = filter.EnumMountPointIndexByIterator_AssumedLocked(ite_index, archetype_index, output);
+		if(re)
 		{
-			std::size_t archetype_index = std::numeric_limits<std::size_t>::max();
-			auto re = filter.EnumMountPointIndexByIterator_AssumedLocked(ite_index, archetype_index, output);
-			if(re)
+			auto [re2, mp] = GetComponentPage(archetype_index);
+			if(re2)
 			{
-				auto [re2, mp] = GetComponentPage(archetype_index);
-				if(re2)
-				{
-					return {re2.GetPointer(), mp, *re };
-				}
+				return {re2.GetPointer(), mp, *re };
 			}
 		}
-		
 		return {{}, {}, {}};
 	}
 
@@ -677,7 +627,7 @@ namespace Noodles
 	{
 		std::shared_lock sl2(ent.mutex);
 		std::shared_lock sl(filter.mutex);
-		if(ent.owner_id == reinterpret_cast<std::size_t>(this) && filter.owner.GetPointer() == this)
+		if(ent.owner_id == reinterpret_cast<std::size_t>(this))
 		{
 			auto re = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(ent.archetype_index, output_span);
 			if(re.has_value())
@@ -1062,18 +1012,21 @@ namespace Noodles
 				std::lock_guard lg2(filter_mutex);
 
 				component_filter.erase(
-					std::remove_if(component_filter.begin(), component_filter.end(), [&](ComponentFilter::WPtr& ptr)->bool
+					std::remove_if(component_filter.begin(), component_filter.end(), [&](ComponentFilter::CPtr& ptr)->bool
 					{
-						auto up = ptr.Isomer();
-						if(up)
+						if(ptr->GetViewerRef() != 0)
 						{
 							for(std::size_t i = old_component_size; i < components.size(); ++i)
 							{
-								up->OnCreatedArchetype(i, *components[i].archetype);
+								ptr->OnCreatedArchetype(i, *components[i].archetype);
 							}
 							return false;
 						}else
 						{
+							{
+								std::lock_guard lg(ptr->mutex);
+								ptr->index.clear();
+							}
 							return true;
 						}
 					}),
@@ -1088,26 +1041,44 @@ namespace Noodles
 				std::lock_guard lg2(filter_mutex, std::adopt_lock);
 				if(!singleton_modifier.empty())
 				{
+					bool require_remove = false;
 					for(auto& ite : singleton_filters)
 					{
-						auto sptr = ite.Isomer();
-						if(sptr)
+						if(ite->GetViewerRef() != 0)
 						{
-							std::lock_guard lg(sptr->mutex);
+							std::lock_guard lg(ite->mutex);
 							for(auto& ite2 : singleton_modifier)
 							{
-								if((*ite2.atomic_type) == (*sptr->atomic_type))
+								if((*ite2.atomic_type) == (*ite->atomic_type))
 								{
 									if(ite2.require_destroy)
 									{
-										sptr->reference_singleton.Reset();
+										ite->reference_singleton.Reset();
 									}else
 									{
-										sptr->reference_singleton = ite2.singleton;
+										ite->reference_singleton = ite2.singleton;
 									}
 								}
 							}
+						}else
+						{
+							{
+								std::lock_guard lg(ite->mutex);
+								ite->reference_singleton.Reset();
+								require_remove = true;
+							}
+							ite.Reset();
 						}
+					}
+					if(require_remove)
+					{
+						singleton_filters.erase(
+							std::remove_if(singleton_filters.begin(), singleton_filters.end(), [](SingletonFilter::CPtr& ptr)
+							{
+								return !ptr;
+							}),
+							singleton_filters.end()
+						);
 					}
 					bool need_destroy = false;
 					for(auto& ite : singleton_modifier)
