@@ -65,24 +65,32 @@ export namespace Noodles
 		bool operator==(const Priority&) const = default;
 	};
 
-	struct Property
+	struct SystemDisplayName
 	{
 		std::u8string_view name;
 		std::u8string_view group;
-		bool operator==(const Property& i1) const { return name == i1.name && group == i1.group; }
+		bool operator==(const SystemDisplayName& i1) const { return name == i1.name && group == i1.group; }
+		Potato::IR::Layout GetSerializeLayout() const;
+		void SerializeTo(std::span<std::byte> output) const;
+		SystemDisplayName ReMap(std::span<std::byte> input) const;
+	};
+
+	struct ReadWriteMutexIndex
+	{
+		Potato::Misc::IndexSpan<> components_span;
+		Potato::Misc::IndexSpan<> singleton_span;
+		Potato::Misc::IndexSpan<> user_modify;
 	};
 
 	struct ReadWriteMutex
 	{
 		std::span<RWUniqueTypeID const> total_type_id;
-		Potato::Misc::IndexSpan<> components_span;
-		Potato::Misc::IndexSpan<> singleton_span;
-		Potato::Misc::IndexSpan<> user_modify;
-
+		ReadWriteMutexIndex index;
 		bool IsConflict(ReadWriteMutex const& mutex) const;
 	};
 
 	export struct Context;
+	export struct SubContextTaskFlow;
 
 	struct ReadWriteMutexGenerator
 	{
@@ -93,9 +101,9 @@ export namespace Noodles
 		std::tuple<std::size_t, std::size_t> CalculateUniqueIDCount() const;
 		ReadWriteMutex GetMutex() const;
 
-	protected:
-
 		ReadWriteMutexGenerator(std::pmr::memory_resource* template_resource) : unique_ids(template_resource){ }
+
+	protected:
 
 		std::pmr::vector<RWUniqueTypeID> unique_ids;
 		std::size_t component_count = 0;
@@ -103,6 +111,7 @@ export namespace Noodles
 		std::size_t user_modify_count = 0;
 
 		friend struct Context;
+		friend struct SubContextTaskFlow;
 	};
 
 	export struct ExecuteContext;
@@ -118,6 +127,8 @@ export namespace Noodles
 
 		using Ptr = Potato::Pointer::IntrusivePtr<SystemNode, Wrapper>;
 
+		virtual SystemDisplayName GetDisplayName() const = 0;
+
 	protected:
 
 		virtual void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const = 0;
@@ -132,6 +143,7 @@ export namespace Noodles
 		virtual void SubSystemNodeRef() const = 0;
 
 		friend struct Context;
+		friend struct SubContextTaskFlow;
 	};
 
 	enum class Order
@@ -142,58 +154,25 @@ export namespace Noodles
 		UNDEFINE
 	};
 
-	using OrderFunction = Order(*)(Property p1, Property p2);
+	using OrderFunction = Order(*)(SystemDisplayName p1, SystemDisplayName p2);
 
 	struct SystemNodeProperty
 	{
 		Priority priority;
-		Property property;
 		OrderFunction order_function = nullptr;
 		Potato::Task::TaskFilter filter;
 	};
 
-	struct SystemNodeUserData : protected Potato::Task::TaskFlow::UserData, protected Potato::Pointer::DefaultIntrusiveInterface
-	{
-
-		using Ptr = Potato::Pointer::IntrusivePtr<SystemNodeUserData>;
-
-		static Ptr Create(SystemNodeProperty property, ReadWriteMutex mutex, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
-
-	protected:
-
-		SystemNodeUserData(
-			Potato::IR::MemoryResourceRecord record,
-			SystemNodeProperty property,
-			ReadWriteMutex mutex,
-			std::u8string_view display_name
-		)
-			: record(record), property(std::move(property)), mutex(mutex), display_name(display_name)
-		{
-			
-		}
-
-		virtual void AddUserDataRef() const override { DefaultIntrusiveInterface::AddRef(); }
-		virtual void SubUserDataRef() const override { DefaultIntrusiveInterface::SubRef(); }
-		virtual void Release() override;
-		
-		Potato::IR::MemoryResourceRecord record;
-		SystemNodeProperty property;
-		ReadWriteMutex mutex;
-		std::u8string_view display_name;
-		friend struct Context;
-		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
-		friend struct Potato::Task::TaskFlow::UserData::Wrapper;
-		//friend struct Potato::Task::TaskFlow::UserData::Ptr;
-	};
-
-	struct SubContextTaskFlow : public Potato::Task::TaskFlow, protected Potato::Pointer::DefaultIntrusiveInterface
+	export struct SubContextTaskFlow : public Potato::Task::TaskFlow, protected Potato::Pointer::DefaultIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<SubContextTaskFlow, Potato::Task::TaskFlow::Wrapper>;
 
 	protected:
 
+		bool AddTickedNode(SystemNode& node, Priority priority, OrderFunction order_func = nullptr, Potato::Task::TaskFlowNodeProperty property = {});
+
 		SubContextTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
-			: record(record), layout(layout) {}
+			: record(record), layout(layout), read_write_ids(record.GetMemoryResource()), system_mutex(record.GetMemoryResource()) {}
 
 		virtual void AddTaskFlowRef() const override { DefaultIntrusiveInterface::AddRef(); }
 		virtual void SubTaskFlowRef() const override { DefaultIntrusiveInterface::SubRef(); }
@@ -203,7 +182,15 @@ export namespace Noodles
 
 		Potato::IR::MemoryResourceRecord record;
 		std::int32_t layout;
-
+		std::pmr::vector<RWUniqueTypeID> read_write_ids;
+		struct SystemProperty
+		{
+			ReadWriteMutexIndex read_write_mutex;
+			Priority priority;
+			OrderFunction order_func = nullptr;
+			SystemDisplayName name;
+		};
+		std::pmr::vector<SystemProperty> system_mutex;
 
 		friend struct Context;
 		friend struct SystemNode;
@@ -263,24 +250,20 @@ export namespace Noodles
 			return true;
 		}
 
-		bool AddSystem(SystemNode::Ptr system, SystemNodeProperty property);
+		//bool AddSystem(SystemNode::Ptr system, SystemNodeProperty property);
 		//bool RemoveSystem(TaskFlow::Node& node);
-		bool RemoveSystemDefer(Property require_property);
+		bool RemoveSystemDefer(SystemDisplayName display_name);
 		bool RemoveSystemDeferByGroup(std::u8string_view group_name);
 
 		template<typename Func>
-		bool CreateTickSystemAuto(Priority priority, Property property,
-			Func&& func, OrderFunction order_func = nullptr, std::optional<Potato::Task::TaskFilter> task_filter = std::nullopt,
-				std::pmr::memory_resource* parameter_resource = std::pmr::get_default_resource()
-		);
+		SystemNode::Ptr CreateAutomaticSystem(Func&& func, SystemDisplayName name, std::pmr::memory_resource* resource);
+
+		bool AddTickedSystemNode(SystemNode& node, Priority priority, OrderFunction order_func = nullptr, Potato::Task::TaskFlowNodeProperty property = {});
 
 		template<typename Function>
-		SystemNode::Ptr CreateAutomaticSystemNode(Function&& func);
-
-		template<typename Function>
-		bool CreateAndAddAtomaticSystem(Function&& func, SystemNodeProperty property)
+		bool CreateAndAddAutomaticSystem(Function&& func, SystemNodeProperty property)
 		{
-			auto ptr = CreateAutomaticSystemNode(std::forward<Function>(func));
+			auto ptr = CreateAutomaticSystem(std::forward<Function>(func));
 			if(ptr)
 			{
 				return AddSystem(std::move(ptr), property);
@@ -305,7 +288,7 @@ export namespace Noodles
 		void Quit();
 
 		Context(Config config = {}, SyncResource resource = {});
-		bool Commited(Potato::Task::TaskContext& context, Potato::Task::NodeProperty property) override;
+		bool Commited(Potato::Task::TaskContext& context, Potato::Task::TaskFlowNodeProperty property) override;
 
 	protected:
 
@@ -574,9 +557,10 @@ export namespace Noodles
 		> fun;
 
 		Potato::IR::MemoryResourceRecord record;
+		SystemDisplayName display_name;
 
-		DynamicAutoSystemHolder(Context& context, Func&& fun, Potato::IR::MemoryResourceRecord record)
-			: append_data(context), fun(std::move(fun)), record(record)
+		DynamicAutoSystemHolder(Context& context, Func&& fun, Potato::IR::MemoryResourceRecord record, SystemDisplayName display_name)
+			: append_data(context), fun(std::move(fun)), record(record), display_name(display_name)
 		{}
 
 		virtual void SystemNodeExecute(ExecuteContext& context) override
@@ -605,17 +589,23 @@ export namespace Noodles
 
 		void AddSystemNodeRef() const override { DefaultIntrusiveInterface::AddRef(); }
 		void SubSystemNodeRef() const override { DefaultIntrusiveInterface::SubRef(); }
+		virtual SystemDisplayName GetDisplayName() const override { return display_name; }
 	};
 
 	template<typename Function>
-	SystemNode::Ptr Context::CreateAutomaticSystemNode(Function&& func)
+	SystemNode::Ptr Context::CreateAutomaticSystem(Function&& func, SystemDisplayName name, std::pmr::memory_resource* resource)
 	{
 		using Type = DynamicAutoSystemHolder<std::remove_cvref_t<Function>>;
-		auto re = Potato::IR::MemoryResourceRecord::Allocate<Type>(system_resource);
-
-		if (re)
+		auto type_layout = Potato::IR::Layout::Get<Type>();
+		auto str_layout = name.GetSerializeLayout();
+		auto offset = Potato::IR::InsertLayoutCPP(type_layout, str_layout);
+		Potato::IR::FixLayoutCPP(type_layout);
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, type_layout);
+		if(re)
 		{
-			return new (re.Get()) Type{*this, std::forward<Function>(func), re};
+			name.SerializeTo({re.GetByte() + offset, str_layout.Size});
+			auto new_name = name.ReMap({re.GetByte() + offset, str_layout.Size});
+			return new (re.Get()) Type{*this, std::forward<Function>(func), re, new_name};
 		}
 		return {};
 	}

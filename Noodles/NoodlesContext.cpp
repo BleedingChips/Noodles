@@ -45,18 +45,18 @@ namespace Noodles
 	bool ReadWriteMutex::IsConflict(ReadWriteMutex const& mutex) const
 	{
 		return DetectConflict(
-			components_span.Slice(total_type_id),
-			mutex.components_span.Slice(mutex.total_type_id)
+			index.components_span.Slice(total_type_id),
+			mutex.index.components_span.Slice(mutex.total_type_id)
 		)
 			
 		|| DetectConflict(
-			singleton_span.Slice(total_type_id),
-			mutex.singleton_span.Slice(mutex.total_type_id)
+			index.singleton_span.Slice(total_type_id),
+			mutex.index.singleton_span.Slice(mutex.total_type_id)
 		)
 
 			|| DetectConflict(
-				user_modify.Slice(total_type_id),
-				mutex.user_modify.Slice(mutex.total_type_id)
+				index.user_modify.Slice(total_type_id),
+				mutex.index.user_modify.Slice(mutex.total_type_id)
 			)
 		;
 	}
@@ -165,6 +165,31 @@ namespace Noodles
 
 	static Potato::Format::StaticFormatPattern<u8"{}:{}"> system_static_format_pattern;
 
+	Potato::IR::Layout SystemDisplayName::GetSerializeLayout() const
+	{
+		Potato::Format::FormatWritter<char8_t> temp_writer;
+		auto re = system_static_format_pattern.Format(temp_writer, group, name);
+		assert(re);
+		return Potato::IR::Layout::GetArray<char8_t>(temp_writer.GetWritedSize());
+	}
+
+	void SystemDisplayName::SerializeTo(std::span<std::byte> output) const
+	{
+		Potato::Format::FormatWritter<char8_t> temp_writer{
+			std::span<char8_t>{reinterpret_cast<char8_t*>(output.data()), output.size()}
+		};
+		auto re = system_static_format_pattern.Format(temp_writer, group, name);
+		assert(re);
+	}
+	SystemDisplayName SystemDisplayName::ReMap(std::span<std::byte> input) const
+	{
+		return {
+			std::u8string_view{reinterpret_cast<char8_t*>(input.data() + sizeof(char8_t) * ( group.size() + 1)), name.size()},
+			std::u8string_view{reinterpret_cast<char8_t*>(input.data()), group.size()}
+		};
+	}
+
+	/*
 	auto SystemNodeUserData::Create(SystemNodeProperty property, ReadWriteMutex mutex, std::pmr::memory_resource* resource)
 		-> Ptr
 	{
@@ -204,6 +229,7 @@ namespace Noodles
 		}
 		return {};
 	}
+	
 
 	void SystemNodeUserData::Release()
 	{
@@ -216,8 +242,118 @@ namespace Noodles
 		}
 		re.Deallocate();
 	}
+	*/
 
-
+	bool SubContextTaskFlow::AddTickedNode(SystemNode& node, Priority priority, OrderFunction order_func, Potato::Task::TaskFlowNodeProperty property)
+	{
+		ReadWriteMutexGenerator gener{std::pmr::get_default_resource()};
+		node.FlushMutexGenerator(gener);
+		auto mutex = gener.GetMutex();
+		std::lock_guard lg(preprocess_mutex);
+		if(AddNode_AssumedLocked(static_cast<Potato::Task::TaskFlowNode&>(node), property))
+		{
+			std::size_t old_size = read_write_ids.size();
+			read_write_ids.insert(read_write_ids.end(), 
+				std::move_iterator(gener.unique_ids.begin()), 
+				std::move_iterator(gener.unique_ids.end())
+			);
+			mutex.total_type_id = std::span(read_write_ids).subspan(old_size);
+			std::size_t index = 0;
+			auto disname = node.GetDisplayName();
+			for(auto& ite : system_mutex)
+			{
+				ReadWriteMutex ite_mutex{std::span(read_write_ids)};
+				if(ite_mutex.IsConflict(mutex))
+				{
+					auto num_order = priority <=> ite.priority;
+					if(num_order == std::strong_ordering::greater)
+					{
+						auto re = AddDirectEdge_AssumedLock(node, *preprocess_nodes[index].node);
+						if(!re)
+						{
+							read_write_ids.resize(old_size);
+							Remove_AssumedLock(node);
+							return false;
+						}
+					}else if(num_order == std::strong_ordering::less)
+					{
+						auto re = AddDirectEdge_AssumedLock(*preprocess_nodes[index].node, node);
+						if(!re)
+						{
+							read_write_ids.resize(old_size);
+							Remove_AssumedLock(node);
+							return false;
+						}
+					}else
+					{
+						Order o1 = Order::UNDEFINE;
+						Order o2 = Order::UNDEFINE;
+						if(order_func != nullptr)
+						{
+							o1 = (*order_func)(disname, ite.name);
+						}
+						if(ite.order_func != nullptr && ite.order_func != order_func)
+						{
+							o2 = (*ite.order_func)(ite.name, disname);
+						}
+						if(
+							o1 == Order::BIGGER && o2 == Order::SMALLER 
+							|| o1 == Order::SMALLER && o2 == Order::BIGGER 
+							|| o1 == Order::UNDEFINE && o2 == Order::UNDEFINE
+							)
+						{
+							read_write_ids.resize(old_size);
+							Remove_AssumedLock(node);
+							return false;
+						}else if(o1 == Order::UNDEFINE)
+						{
+							o1 = o2;
+						}
+						if(o1 == Order::SMALLER)
+						{
+							auto re = AddDirectEdge_AssumedLock(*preprocess_nodes[index].node, node);
+							if(!re)
+							{
+								read_write_ids.resize(old_size);
+								Remove_AssumedLock(node);
+								return false;
+							}
+						}else if(o1 == Order::BIGGER)
+						{
+							auto re = AddDirectEdge_AssumedLock(node, *preprocess_nodes[index].node);
+							if(!re)
+							{
+								read_write_ids.resize(old_size);
+								Remove_AssumedLock(node);
+								return false;
+							}
+						}else if(o1 == Order::MUTEX)
+						{
+							auto re = AddMutexEdge_AssumedLock(node, *preprocess_nodes[index].node);
+							if(!re)
+							{
+								read_write_ids.resize(old_size);
+								Remove_AssumedLock(node);
+								return false;
+							}
+						}
+					}
+				}
+				++index;
+			}
+			mutex.index.components_span.WholeOffset(old_size);
+			mutex.index.singleton_span.WholeOffset(old_size);
+			mutex.index.user_modify.WholeOffset(old_size);
+			system_mutex.emplace_back(
+				mutex.index,
+				priority,
+				order_func,
+				disname
+			);
+			return true;
+		}
+		return false;
+	}
 	void Context::Quit()
 	{
 		std::lock_guard lg(mutex);
@@ -242,6 +378,55 @@ namespace Noodles
 
 	}
 
+	bool Context::AddTickedSystemNode(SystemNode& node, Priority priority, OrderFunction order_func, Potato::Task::TaskFlowNodeProperty property)
+	{
+		ReadWriteMutexGenerator Generator(temporary_resource);
+		node.FlushMutexGenerator(Generator);
+		auto mutex = Generator.GetMutex();
+
+		std::lock_guard lg(preprocess_mutex);
+		for(auto& ite : preprocess_nodes)
+		{
+			auto ptr = static_cast<SubContextTaskFlow*>(ite.node.GetPointer());
+			assert(ptr != nullptr);
+			if(ptr->layout == priority.layout)
+			{
+				if(ptr->AddTickedNode(node, priority, order_func, property))
+				{
+					return true;
+				}else
+				{
+					return false;
+				}
+			}
+		}
+		auto re = Potato::IR::MemoryResourceRecord::Allocate<SubContextTaskFlow>(context_resource);
+		if(re)
+		{
+			auto ptr = new(re.Get()) SubContextTaskFlow{re, priority.layout};
+			assert(ptr);
+			if(ptr->AddTickedNode(node, std::move(priority), order_func, property))
+			{
+				AddNode_AssumedLocked(*ptr, {u8"sub_task"});
+				for(auto& ite : preprocess_nodes)
+				{
+					auto tar = static_cast<SubContextTaskFlow*>(ite.node.GetPointer());
+					if(tar->layout > priority.layout)
+					{
+						AddDirectEdge(*tar, *ptr);
+					}else
+					{
+						assert(tar->layout != priority.layout);
+						AddDirectEdge(*ptr, *tar);
+					}
+				}
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/*
 	bool Context::AddSystem(SystemNode::Ptr system, SystemNodeProperty property)
 	{
 		if(system)
@@ -249,81 +434,117 @@ namespace Noodles
 			ReadWriteMutexGenerator Generator(temporary_resource);
 			system->FlushMutexGenerator(Generator);
 			auto mutex = Generator.GetMutex();
-			auto user_data = SystemNodeUserData::Create(property, mutex, system_resource);
-			if(user_data)
+
+			std::lock_guard lg(preprocess_mutex);
+			SubContextTaskFlow::Ptr target_flow;
+			for(auto& ite : preprocess_nodes)
 			{
-				std::lock_guard lg(preprocess_mutex);
-				SubContextTaskFlow::Ptr target_flow;
-				for(auto& ite : preprocess_nodes)
+				auto ptr = static_cast<SubContextTaskFlow*>(ite.node.GetPointer());
+				assert(ptr != nullptr);
+				if(ptr->layout == property.priority.layout)
 				{
-					auto ptr = static_cast<SubContextTaskFlow*>(ite.node.GetPointer());
-					assert(ptr != nullptr);
-					if(ptr->layout == property.priority.layout)
-					{
-						target_flow = ptr;
-						break;
-					}
+					target_flow = ptr;
+					break;
 				}
-				if(!target_flow)
+			}
+			if(!target_flow)
+			{
+				auto re = Potato::IR::MemoryResourceRecord::Allocate<SubContextTaskFlow>(context_resource);
+				if(re)
 				{
-					auto re = Potato::IR::MemoryResourceRecord::Allocate<SubContextTaskFlow>(context_resource);
-					if(re)
+					target_flow = new(re.Get()) SubContextTaskFlow{re, property.priority.layout};
+
+
+
+
+					if(target_flow->AddNode(system.GetPointer(), {}))
+
+					auto tem_node = target_flow->AddNode(
+							system.GetPointer(), 
+					{user_data->display_name, user_data->property.filter}, 
+					user_data.GetPointer()
+					);
+					if(tem_node)
 					{
-						target_flow = new(re.Get()) SubContextTaskFlow{re, property.priority.layout};
-						auto tem_node = target_flow->AddNode(
-								system.GetPointer(), 
-						{user_data->display_name, user_data->property.filter}, 
-						user_data.GetPointer()
-						);
-						if(tem_node)
+						auto socket = AddNode_AssumedLock(target_flow.GetPointer());
+						if(socket)
 						{
-							auto socket = AddNode_AssumedLock(target_flow.GetPointer());
-							if(socket)
+							for(auto& ite : preprocess_nodes)
 							{
-								for(auto& ite : preprocess_nodes)
+								if(ite.node != target_flow)
 								{
-									if(ite.node != target_flow)
+									auto ptr = static_cast<SubContextTaskFlow*>(ite.node.GetPointer());
+									if(ptr->layout > property.priority.layout)
 									{
-										auto ptr = static_cast<SubContextTaskFlow*>(ite.node.GetPointer());
-										if(ptr->layout > property.priority.layout)
-										{
-											auto re = AddDirectEdge_AssumedLock(*ite.socket, *socket);
-											assert(re);
-										}else
-										{
-											auto re = AddDirectEdge_AssumedLock(*socket, *ite.socket);
-											assert(re);
-										}
+										auto re = AddDirectEdge_AssumedLock(*ite.socket, *socket);
+										assert(re);
+									}else
+									{
+										auto re = AddDirectEdge_AssumedLock(*socket, *ite.socket);
+										assert(re);
 									}
 								}
-								return true;
 							}
+							return true;
 						}
 					}
 				}
-				else
+			}
+			else
+			{
+				std::lock_guard lg(target_flow->preprocess_mutex);
+				auto tar = target_flow->AddNode_AssumedLock(system.GetPointer(), {user_data->display_name, user_data->property.filter}, user_data.GetPointer());
+				if(tar)
 				{
-					std::lock_guard lg(target_flow->preprocess_mutex);
-					auto tar = target_flow->AddNode_AssumedLock(system.GetPointer(), {user_data->display_name, user_data->property.filter}, user_data.GetPointer());
-					if(tar)
+					for(auto& ite : target_flow->preprocess_nodes)
 					{
-						for(auto& ite : target_flow->preprocess_nodes)
+						if(ite.socket != tar)
 						{
-							if(ite.socket != tar)
+							auto ud = static_cast<SystemNodeUserData*>(ite.socket->GetUserData().GetPointer());
+							if(user_data->mutex.IsConflict(ud->mutex))
 							{
-								auto ud = static_cast<SystemNodeUserData*>(ite.socket->GetUserData().GetPointer());
-								if(user_data->mutex.IsConflict(ud->mutex))
+								auto num_order = user_data->property.priority <=> ud->property.priority;
+								if(num_order == std::strong_ordering::greater)
 								{
-									auto num_order = user_data->property.priority <=> ud->property.priority;
-									if(num_order == std::strong_ordering::greater)
+									auto re = target_flow->AddDirectEdge_AssumedLock(*tar, *ite.socket);
+									if(!re)
 									{
-										auto re = target_flow->AddDirectEdge_AssumedLock(*tar, *ite.socket);
-										if(!re)
-										{
-											target_flow->Remove(*tar);
-											return false;
-										}
-									}else if(num_order == std::strong_ordering::less)
+										target_flow->Remove(*tar);
+										return false;
+									}
+								}else if(num_order == std::strong_ordering::less)
+								{
+									auto re = target_flow->AddDirectEdge_AssumedLock(*ite.socket, *tar);
+									if(!re)
+									{
+										target_flow->Remove(*tar);
+										return false;
+									}
+								}else
+								{
+									Order o1 = Order::UNDEFINE;
+									Order o2 = Order::UNDEFINE;
+									if(user_data->property.order_function != nullptr)
+									{
+										o1 = (*user_data->property.order_function)(user_data->property.property, ud->property.property);
+									}
+									if(ud->property.order_function != nullptr && ud->property.order_function != user_data->property.order_function)
+									{
+										o2 = (*ud->property.order_function)(user_data->property.property, ud->property.property);
+									}
+									if(
+										o1 == Order::BIGGER && o2 == Order::SMALLER 
+										|| o1 == Order::SMALLER && o2 == Order::BIGGER 
+										|| o1 == Order::UNDEFINE && o2 == Order::UNDEFINE
+										)
+									{
+										target_flow->Remove(*tar);
+										return false;
+									}else if(o1 == Order::UNDEFINE)
+									{
+										o1 = o2;
+									}
+									if(o1 == Order::SMALLER)
 									{
 										auto re = target_flow->AddDirectEdge_AssumedLock(*ite.socket, *tar);
 										if(!re)
@@ -331,66 +552,42 @@ namespace Noodles
 											target_flow->Remove(*tar);
 											return false;
 										}
-									}else
+									}else if(o1 == Order::BIGGER)
 									{
-										Order o1 = Order::UNDEFINE;
-										Order o2 = Order::UNDEFINE;
-										if(user_data->property.order_function != nullptr)
-										{
-											o1 = (*user_data->property.order_function)(user_data->property.property, ud->property.property);
-										}
-										if(ud->property.order_function != nullptr && ud->property.order_function != user_data->property.order_function)
-										{
-											o2 = (*ud->property.order_function)(user_data->property.property, ud->property.property);
-										}
-										if(
-											o1 == Order::BIGGER && o2 == Order::SMALLER 
-											|| o1 == Order::SMALLER && o2 == Order::BIGGER 
-											|| o1 == Order::UNDEFINE && o2 == Order::UNDEFINE
-											)
+										auto re = target_flow->AddDirectEdge_AssumedLock(*tar, *ite.socket);
+										if(!re)
 										{
 											target_flow->Remove(*tar);
 											return false;
-										}else if(o1 == Order::UNDEFINE)
-										{
-											o1 = o2;
 										}
-										if(o1 == Order::SMALLER)
+									}else if(o1 == Order::MUTEX)
+									{
+										auto re = target_flow->AddMutexEdge_AssumedLock(*tar, *ite.socket);
+										if(!re)
 										{
-											auto re = target_flow->AddDirectEdge_AssumedLock(*ite.socket, *tar);
-											if(!re)
-											{
-												target_flow->Remove(*tar);
-												return false;
-											}
-										}else if(o1 == Order::BIGGER)
-										{
-											auto re = target_flow->AddDirectEdge_AssumedLock(*tar, *ite.socket);
-											if(!re)
-											{
-												target_flow->Remove(*tar);
-												return false;
-											}
-										}else if(o1 == Order::MUTEX)
-										{
-											auto re = target_flow->AddMutexEdge_AssumedLock(*tar, *ite.socket);
-											if(!re)
-											{
-												target_flow->Remove(*tar);
-												return false;
-											}
+											target_flow->Remove(*tar);
+											return false;
 										}
 									}
 								}
 							}
 						}
-						return true;
 					}
+					return true;
 				}
+			}
+
+			auto user_data = SystemNodeUserData::Create(property, mutex, system_resource);
+			if(user_data)
+			{
+				
+				
+				
 			}
 		}
 		return false;
 	}
+	*/
 
 	void Context::TaskFlowExecuteBegin(Potato::Task::TaskFlowContext& context)
 	{
@@ -418,7 +615,7 @@ namespace Noodles
 		TaskFlow::Commited(context.context, require_time, context.node_property);
 	}
 
-	bool Context::Commited(Potato::Task::TaskContext& context, Potato::Task::NodeProperty property)
+	bool Context::Commited(Potato::Task::TaskContext& context, Potato::Task::TaskFlowNodeProperty property)
 	{
 		std::lock_guard lg(TaskFlow::process_mutex);
 		if(current_status == Status::DONE || current_status == Status::READY)
