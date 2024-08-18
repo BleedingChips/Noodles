@@ -169,7 +169,7 @@ export namespace Noodles
 
 	protected:
 
-		bool AddTickedNode(SystemNode& node, Priority priority, OrderFunction order_func = nullptr, Potato::Task::TaskFlowNodeProperty property = {});
+		bool AddTickedNode(SystemNode& node, SystemNodeProperty property);
 
 		SubContextTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
 			: record(record), layout(layout), read_write_ids(record.GetMemoryResource()), system_mutex(record.GetMemoryResource()) {}
@@ -258,15 +258,15 @@ export namespace Noodles
 		template<typename Func>
 		SystemNode::Ptr CreateAutomaticSystem(Func&& func, SystemDisplayName name, std::pmr::memory_resource* resource);
 
-		bool AddTickedSystemNode(SystemNode& node, Priority priority, OrderFunction order_func = nullptr, Potato::Task::TaskFlowNodeProperty property = {});
+		bool AddTickedSystemNode(SystemNode& node, SystemNodeProperty property);
 
 		template<typename Function>
-		bool CreateAndAddAutomaticSystem(Function&& func, SystemNodeProperty property)
+		bool CreateAndAddTickedAutomaticSystem(Function&& func, SystemDisplayName name, SystemNodeProperty property = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 		{
-			auto ptr = CreateAutomaticSystem(std::forward<Function>(func));
+			auto ptr = this->CreateAutomaticSystem(std::forward<Function>(func), name, resource);
 			if(ptr)
 			{
-				return AddSystem(std::move(ptr), property);
+				return AddTickedSystemNode(*ptr, property);
 			}
 			return false;
 		}
@@ -544,7 +544,7 @@ export namespace Noodles
 
 
 	template<typename Func>
-	struct DynamicAutoSystemHolder : public SystemNode, public Potato::Pointer::DefaultIntrusiveInterface
+	struct DynamicAutoSystemHolder : public SystemNode, public Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
 		using Automatic = SystemAutomatic::ExtractTickSystem<Func>;
 
@@ -556,11 +556,10 @@ export namespace Noodles
 			Func
 		> fun;
 
-		Potato::IR::MemoryResourceRecord record;
 		SystemDisplayName display_name;
 
-		DynamicAutoSystemHolder(Context& context, Func&& fun, Potato::IR::MemoryResourceRecord record, SystemDisplayName display_name)
-			: append_data(context), fun(std::move(fun)), record(record), display_name(display_name)
+		DynamicAutoSystemHolder(Context& context, Func fun, Potato::IR::MemoryResourceRecord record, SystemDisplayName display_name)
+			: append_data(context), fun(std::move(fun)), MemoryResourceRecordIntrusiveInterface(record), display_name(display_name)
 		{}
 
 		virtual void SystemNodeExecute(ExecuteContext& context) override
@@ -575,20 +574,13 @@ export namespace Noodles
 			
 		}
 
-		virtual void Release() override
-		{
-			auto re = record;
-			this->~DynamicAutoSystemHolder();
-			record.Deallocate();
-		}
-
 		virtual void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const override
 		{
 			append_data.FlushMutexGenerator(generator);
 		}
 
-		void AddSystemNodeRef() const override { DefaultIntrusiveInterface::AddRef(); }
-		void SubSystemNodeRef() const override { DefaultIntrusiveInterface::SubRef(); }
+		void AddSystemNodeRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
+		void SubSystemNodeRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
 		virtual SystemDisplayName GetDisplayName() const override { return display_name; }
 	};
 

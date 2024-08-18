@@ -53,6 +53,7 @@ struct Tuple2
 struct TestContext : public Context
 {
 	using Context::Context;
+protected:
 	void AddContextRef() const override {}
 	void SubContextRef() const override {}
 };
@@ -70,6 +71,7 @@ struct TestSystem : public SystemNode
 		generator.RegisterComponentMutex(std::span(test));
 	}
 	void SystemNodeExecute(ExecuteContext& context) override { PrintSystemProperty(context); }
+	virtual SystemDisplayName GetDisplayName() const override { return {}; }
 };
 
 void TestFunction(ExecuteContext& context, AtomicComponentFilter<Tuple2>& fup, AtomicSingletonFilter<Tuple2>& filter)
@@ -100,25 +102,30 @@ int main()
 		context.AddEntityComponent(*ent2, Tuple{o});
 	}
 
+	auto Lambda = [](ExecuteContext& context, Noodles::AtomicComponentFilter<Tuple2> filter)
+	{
+			PrintSystemProperty(context);
+	};
+
 	auto Ker = context.MoveAndCreateSingleton<Tuple2>(Tuple2{std::u8string{u8"Fff"}});
-	context.AddSystem(&systm, {
+	context.CreateAndAddTickedAutomaticSystem(Lambda,
+		{ u8"S133", u8"G11" },
+	{
 		{1, 1, 1},
-		{u8"S1", u8"G11"}
 	});
-	context.AddSystem(&systm, {
-		{1, 1, 0},
-		{u8"S2", u8"G11"}
+	context.CreateAndAddTickedAutomaticSystem(Lambda,
+		{ u8"S233", u8"G11" },
+	{
+		{1, 2, 1},
 	});
-	context.AddSystem(&systm, {
+	context.CreateAndAddTickedAutomaticSystem(Lambda,
+		{ u8"S144", u8"G22" },
+	{
 		{2, 1, 1},
-		{u8"S3", u8"G21"}
 	});
-	context.CreateAndAddAtomaticSystem(TestFunction, 
-		{
-		{1, 1, 3},
-		{u8"S4", u8"G11"}
-	}
-		
+	context.CreateAndAddTickedAutomaticSystem(TestFunction,
+		{u8"S4", u8"G11"},
+		{1, 1, 3}
 		);
 
 	/*
