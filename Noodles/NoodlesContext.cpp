@@ -10,33 +10,18 @@ namespace Noodles
 
 	bool DetectConflict(std::span<RWUniqueTypeID const> t1, std::span<RWUniqueTypeID const> t2)
 	{
-		auto ite1 = t1.begin();
-		auto ite2 = t2.begin();
-
-		while (ite1 != t1.end() && ite2 != t2.end())
+		for(auto& ite : t1)
 		{
-			auto re = *ite1->atomic_type <=> *ite2->atomic_type;
-			if (re == std::strong_ordering::equal)
+			assert(!ite.ignore_mutex);
+			for(auto& ite2 : t2)
 			{
-				if (
-					ite1->is_write
-					|| ite2->is_write
-					)
+				if(ite.is_write || ite2.is_write)
 				{
-					return true;
+					if(*ite.atomic_type == *ite2.atomic_type)
+					{
+						return false;
+					}
 				}
-				else
-				{
-					++ite2; ++ite1;
-				}
-			}
-			else if (re == std::strong_ordering::less)
-			{
-				++ite1;
-			}
-			else
-			{
-				++ite2;
 			}
 		}
 		return false;
@@ -105,7 +90,7 @@ namespace Noodles
 			}
 			if (!Find)
 			{
-				unique_ids.emplace_back(ite);
+				unique_ids.insert(unique_ids.begin() + component_count + singleton_count, ite);
 				++singleton_count;
 			}
 		}
