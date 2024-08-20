@@ -65,14 +65,14 @@ export namespace Noodles
 		bool operator==(const Priority&) const = default;
 	};
 
-	struct SystemDisplayName
+	struct SystemName
 	{
 		std::u8string_view name;
 		std::u8string_view group;
-		bool operator==(const SystemDisplayName& i1) const { return name == i1.name && group == i1.group; }
+		bool operator==(const SystemName& i1) const { return name == i1.name && group == i1.group; }
 		Potato::IR::Layout GetSerializeLayout() const;
 		void SerializeTo(std::span<std::byte> output) const;
-		SystemDisplayName ReMap(std::span<std::byte> input) const;
+		SystemName ReMap(std::span<std::byte> input) const;
 	};
 
 	struct ReadWriteMutexIndex
@@ -127,7 +127,7 @@ export namespace Noodles
 
 		using Ptr = Potato::Pointer::IntrusivePtr<SystemNode, Wrapper>;
 
-		virtual SystemDisplayName GetDisplayName() const = 0;
+		virtual SystemName GetDisplayName() const = 0;
 
 	protected:
 
@@ -154,7 +154,7 @@ export namespace Noodles
 		UNDEFINE
 	};
 
-	using OrderFunction = Order(*)(SystemDisplayName p1, SystemDisplayName p2);
+	using OrderFunction = Order(*)(SystemName p1, SystemName p2);
 
 	struct SystemNodeProperty
 	{
@@ -167,12 +167,18 @@ export namespace Noodles
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<SubContextTaskFlow, Potato::Task::TaskFlow::Wrapper>;
 
+		bool AddTemporaryNode(SystemNode& node, Potato::Task::TaskFilter filter, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
+		
 	protected:
 
 		bool AddTickedNode(SystemNode& node, SystemNodeProperty property);
+		virtual bool Update_AssumedLocked() override;
 
 		SubContextTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
-			: record(record), layout(layout), read_write_ids(record.GetMemoryResource()), system_mutex(record.GetMemoryResource()) {}
+			: record(record), layout(layout),
+			preprocess_rw_id(record.GetMemoryResource()), preprocess_system_infos(record.GetMemoryResource())
+			, process_rw_id(record.GetMemoryResource()), process_system_infos(record.GetMemoryResource())
+		{}
 
 		virtual void AddTaskFlowRef() const override { DefaultIntrusiveInterface::AddRef(); }
 		virtual void SubTaskFlowRef() const override { DefaultIntrusiveInterface::SubRef(); }
@@ -182,15 +188,24 @@ export namespace Noodles
 
 		Potato::IR::MemoryResourceRecord record;
 		std::int32_t layout;
-		std::pmr::vector<RWUniqueTypeID> read_write_ids;
-		struct SystemProperty
+		std::pmr::vector<RWUniqueTypeID> preprocess_rw_id;
+		struct SystemNodeInfo
 		{
 			ReadWriteMutexIndex read_write_mutex;
 			Priority priority;
 			OrderFunction order_func = nullptr;
-			SystemDisplayName name;
+			SystemName name;
 		};
-		std::pmr::vector<SystemProperty> system_mutex;
+		std::pmr::vector<SystemNodeInfo> preprocess_system_infos;
+
+		struct ProcessSystemInfo
+		{
+			ReadWriteMutexIndex read_write_mutex;
+		};
+
+		std::size_t temporary_rw_id_offset = 0;
+		std::pmr::vector<RWUniqueTypeID> process_rw_id;
+		std::pmr::vector<ProcessSystemInfo> process_system_infos;
 
 		friend struct Context;
 		friend struct SystemNode;
@@ -252,16 +267,18 @@ export namespace Noodles
 
 		//bool AddSystem(SystemNode::Ptr system, SystemNodeProperty property);
 		//bool RemoveSystem(TaskFlow::Node& node);
-		bool RemoveSystemDefer(SystemDisplayName display_name);
+		bool RemoveSystemDefer(SystemName display_name);
 		bool RemoveSystemDeferByGroup(std::u8string_view group_name);
 
 		template<typename Func>
-		SystemNode::Ptr CreateAutomaticSystem(Func&& func, SystemDisplayName name, std::pmr::memory_resource* resource);
+		SystemNode::Ptr CreateAutomaticSystem(Func&& func, SystemName name, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		bool AddTickedSystemNode(SystemNode& node, SystemNodeProperty property);
+		bool AddTemporarySystemNode(SystemNode& node, std::int32_t layout, Potato::Task::TaskFilter property);
+
 
 		template<typename Function>
-		bool CreateAndAddTickedAutomaticSystem(Function&& func, SystemDisplayName name, SystemNodeProperty property = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		bool CreateAndAddTickedAutomaticSystem(Function&& func, SystemName name, SystemNodeProperty property = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 		{
 			auto ptr = this->CreateAutomaticSystem(std::forward<Function>(func), name, resource);
 			if(ptr)
@@ -317,6 +334,7 @@ export namespace Noodles
 	export struct ExecuteContext
 	{
 		Context& noodles_context;
+		SubContextTaskFlow& current_layout_flow;
 		std::u8string_view display_name;
 	};
 
@@ -556,9 +574,9 @@ export namespace Noodles
 			Func
 		> fun;
 
-		SystemDisplayName display_name;
+		SystemName display_name;
 
-		DynamicAutoSystemHolder(Context& context, Func fun, Potato::IR::MemoryResourceRecord record, SystemDisplayName display_name)
+		DynamicAutoSystemHolder(Context& context, Func fun, Potato::IR::MemoryResourceRecord record, SystemName display_name)
 			: append_data(context), fun(std::move(fun)), MemoryResourceRecordIntrusiveInterface(record), display_name(display_name)
 		{}
 
@@ -581,11 +599,11 @@ export namespace Noodles
 
 		void AddSystemNodeRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
 		void SubSystemNodeRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
-		virtual SystemDisplayName GetDisplayName() const override { return display_name; }
+		virtual SystemName GetDisplayName() const override { return display_name; }
 	};
 
 	template<typename Function>
-	SystemNode::Ptr Context::CreateAutomaticSystem(Function&& func, SystemDisplayName name, std::pmr::memory_resource* resource)
+	SystemNode::Ptr Context::CreateAutomaticSystem(Function&& func, SystemName name, std::pmr::memory_resource* resource)
 	{
 		using Type = DynamicAutoSystemHolder<std::remove_cvref_t<Function>>;
 		auto type_layout = Potato::IR::Layout::Get<Type>();

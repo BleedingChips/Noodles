@@ -71,7 +71,7 @@ struct TestSystem : public SystemNode
 		generator.RegisterComponentMutex(std::span(test));
 	}
 	void SystemNodeExecute(ExecuteContext& context) override { PrintSystemProperty(context); }
-	virtual SystemDisplayName GetDisplayName() const override { return {}; }
+	virtual SystemName GetDisplayName() const override { return {}; }
 };
 
 void TestFunction(ExecuteContext& context, AtomicComponentFilter<Tuple2>& fup, AtomicSingletonFilter<Tuple2>& filter)
@@ -122,6 +122,17 @@ int main()
 		{ u8"S144", u8"G22" },
 	{
 		{2, 1, 1},
+	});
+
+	context.CreateAndAddTickedAutomaticSystem([&](ExecuteContext& context, Noodles::AtomicComponentFilter<Tuple2> filter)
+	{
+		PrintSystemProperty(context);
+		auto sys = context.noodles_context.CreateAutomaticSystem(Lambda, {u8"Temp", u8"Temp"});
+		context.current_layout_flow.AddTemporaryNode(*sys, {});
+	},
+		{ u8"TempTemp", u8"G22" },
+	{
+		{2, 1, 3},
 	});
 	context.CreateAndAddTickedAutomaticSystem(TestFunction,
 		{u8"S4", u8"G11"},
