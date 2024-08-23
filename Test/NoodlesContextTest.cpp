@@ -10,7 +10,7 @@ std::mutex PrintMutex;
 
 void PrintSystemProperty(ExecuteContext& context)
 {
-	auto wstr = *Potato::Encode::StrEncoder<char8_t, wchar_t>::EncodeToString(context.display_name);
+	auto wstr = *Potato::Encode::StrEncoder<char8_t, wchar_t>::EncodeToString(context.node_property.display_name);
 	auto sstr = *Potato::Encode::StrEncoder<wchar_t, char>::EncodeToString(std::wstring_view{wstr});
 	{
 		std::lock_guard lg(PrintMutex);
@@ -136,6 +136,27 @@ int main()
 	});
 	context.CreateAndAddTickedAutomaticSystem(TestFunction,
 		{u8"S4", u8"G11"},
+		{1, 1, 3}
+		);
+
+	context.CreateAndAddTickedAutomaticSystem([](ExecuteContext& context)
+	{
+		if(context.parallel_info.status == ParallelInfo::Status::None)
+		{
+			
+			PrintSystemProperty(context);
+			context.current_layout_flow.CreateParallelTask(context, 0, 3, 3);
+		}else if(context.parallel_info.status == ParallelInfo::Status::Parallel)
+		{
+			std::lock_guard lg(PrintMutex);
+			std::println("Parallel - {0} {1}", context.parallel_info.current_index, context.parallel_info.user_index);
+		}else
+		{
+			std::lock_guard lg(PrintMutex);
+			std::println("Done - {0} {1}", context.parallel_info.current_index, context.parallel_info.user_index);
+		}
+	},
+		{u8"S5", u8"G11"},
 		{1, 1, 3}
 		);
 

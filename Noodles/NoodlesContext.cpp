@@ -1,6 +1,7 @@
 module;
 
 #include <cassert>
+#include <Windows.h>
 
 module NoodlesContext;
 import PotatoFormat;
@@ -141,9 +142,13 @@ namespace Noodles
 
 		ExecuteContext exe_context
 		{
+			status.context,
+			status.node_property,
 			*Tar,
 			*flow,
-			status.node_property.display_name
+			static_cast<SystemNode&>(*status.current_node),
+			status.node_identity,
+			{}
 		};
 
 		SystemNodeExecute(exe_context);
@@ -351,6 +356,35 @@ namespace Noodles
 		return false;
 	}
 
+	bool SubContextTaskFlow::CreateParallelTask(ExecuteContext& context, std::size_t user_index, std::size_t total_count, std::size_t executor_count, std::pmr::memory_resource* resource)
+	{
+		if(context.parallel_info.status != ParallelInfo::Status::Parallel && total_count > 0)
+		{
+			if(context.current_layout_flow.MarkNodePause(context.node_index))
+			{
+				ParallelExecutor::Ptr re = Potato::IR::MemoryResourceRecord::AllocateAndConstruct<ParallelExecutor>(resource);
+				if(re)
+				{
+					re->current_flow = &context.current_layout_flow;
+					re->reference_node = &context.current_node;
+					re->reference_context = &context.noodles_context;
+					re->total_count = total_count;
+					re->node_index = context.node_index;
+					for(std::size_t i = 0; i < executor_count; ++i)
+					{
+						auto res = re->TryCommited(context.task_context, context.node_property, user_index);
+					}
+
+					return true;
+				}else
+				{
+					context.current_layout_flow.ContinuePauseNode(context.task_context, context.node_index);
+				}
+			}
+		}
+		return false;
+	}
+
 	void Context::Quit()
 	{
 		std::lock_guard lg(mutex);
@@ -461,6 +495,63 @@ namespace Noodles
 			manager.ForceUpdateState();
 			Update_AssumedLocked();
 			return TaskFlow::Commited_AssumedLocked(context, std::move(property));
+		}
+		return false;
+	}
+
+	void ParallelExecutor::TaskExecute(Potato::Task::ExecuteStatus& status)
+	{
+		ExecuteContext exe_context
+		{
+			status.context,
+			{status.task_property.display_name, status.task_property.filter},
+			*reference_context,
+			*current_flow,
+			*reference_node,
+			node_index,
+			ParallelInfo{
+				ParallelInfo::Status::Parallel,
+				total_count,
+				status.task_property.user_data[0],
+				status.task_property.user_data[1]
+			}
+		};
+		reference_node->SystemNodeExecute(exe_context);
+		std::size_t desird = 0;
+		while(!finish_task.compare_exchange_weak(desird, desird + 1))
+		{
+			
+		}
+		if(desird == total_count - 1)
+		{
+			exe_context.parallel_info.status = ParallelInfo::Status::Done;
+			reference_node->SystemNodeExecute(exe_context);
+			auto flow = std::move(current_flow);
+			reference_context.Reset();
+			current_flow.Reset();
+			reference_node.Reset();
+			flow->ContinuePauseNode(status.context, node_index);
+			
+		}else if(!TryCommited(status.context, {status.task_property.display_name, status.task_property.filter}, status.task_property.user_data[1] ))
+		{
+		}
+	}
+
+	bool ParallelExecutor::TryCommited(Potato::Task::TaskContext& context, Potato::Task::TaskFlowNodeProperty property, std::size_t user_index)
+	{
+		std::size_t desird = 0;
+		while(!waiting_task.compare_exchange_weak(desird, desird + 1))
+		{
+			if(desird >= total_count)
+				break;
+		};
+		if(desird < total_count)
+		{
+			auto re = context.CommitTask(this, {
+				property.display_name, {desird, user_index}, property.filter
+			});
+			assert(re);
+			return true;
 		}
 		return false;
 	}

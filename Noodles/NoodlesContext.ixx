@@ -91,6 +91,7 @@ export namespace Noodles
 
 	export struct Context;
 	export struct SubContextTaskFlow;
+	export struct ParallelExecutor;
 
 	struct ReadWriteMutexGenerator
 	{
@@ -144,6 +145,7 @@ export namespace Noodles
 
 		friend struct Context;
 		friend struct SubContextTaskFlow;
+		friend struct ParallelExecutor;
 	};
 
 	enum class Order
@@ -168,7 +170,9 @@ export namespace Noodles
 		using Ptr = Potato::Pointer::IntrusivePtr<SubContextTaskFlow, Potato::Task::TaskFlow::Wrapper>;
 
 		bool AddTemporaryNode(SystemNode& node, Potato::Task::TaskFilter filter, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
-		
+
+		bool CreateParallelTask(ExecuteContext& context, std::size_t user_index, std::size_t total_count, std::size_t executor_count, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+
 	protected:
 
 		bool AddTickedNode(SystemNode& node, SystemNodeProperty property);
@@ -207,6 +211,7 @@ export namespace Noodles
 		std::pmr::vector<RWUniqueTypeID> process_rw_id;
 		std::pmr::vector<ProcessSystemInfo> process_system_infos;
 
+		friend struct TaskFlow::Wrapper;
 		friend struct Context;
 		friend struct SystemNode;
 	};
@@ -329,13 +334,32 @@ export namespace Noodles
  
 		friend struct TaskFlow::Wrapper;
 		friend struct SystemNode;
+		friend struct ParallelExecutor;
+	};
+
+	struct ParallelInfo
+	{
+		enum class Status
+		{
+			None,
+			Parallel,
+			Done
+		};
+		Status status = Status::None;
+		std::size_t total_count = 0;
+		std::size_t current_index = 0;
+		std::size_t user_index = 0;
 	};
 
 	export struct ExecuteContext
 	{
+		Potato::Task::TaskContext& task_context;
+		Potato::Task::TaskFlowNodeProperty node_property;
 		Context& noodles_context;
 		SubContextTaskFlow& current_layout_flow;
-		std::u8string_view display_name;
+		SystemNode& current_node;
+		std::size_t node_index;
+		ParallelInfo parallel_info;
 	};
 
 	
@@ -619,5 +643,35 @@ export namespace Noodles
 		}
 		return {};
 	}
-	
+
+
+	export struct ParallelExecutor : public Potato::Task::Task, Potato::IR::MemoryResourceRecordIntrusiveInterface
+	{
+		using Ptr = Potato::Pointer::IntrusivePtr<ParallelExecutor>;
+
+		bool TryCommited(Potato::Task::TaskContext& context, Potato::Task::TaskFlowNodeProperty property, std::size_t user_index);
+		ParallelExecutor(Potato::IR::MemoryResourceRecord record) : MemoryResourceRecordIntrusiveInterface(record) {}
+		~ParallelExecutor() { assert(!reference_context); }
+
+	protected:
+
+		virtual void TaskExecute(Potato::Task::ExecuteStatus& status) override;
+
+		
+		void AddTaskRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
+		void SubTaskRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
+		
+
+		Context::Ptr reference_context;
+		SubContextTaskFlow::Ptr current_flow;
+		SystemNode::Ptr reference_node;
+		std::size_t node_index = 0;
+
+		std::size_t total_count = 0;
+		std::atomic_size_t waiting_task = 0;
+		std::atomic_size_t finish_task = 0;
+
+		friend struct SubContextTaskFlow;
+	};
+
 }
