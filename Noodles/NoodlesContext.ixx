@@ -475,6 +475,9 @@ export namespace Noodles
 	concept IsExecuteContext = std::is_same_v<std::remove_cvref_t<Type>, ExecuteContext>;
 
 	template<typename Type>
+	concept IsCoverFromExecuteContext = std::is_constructible_v<std::remove_cvref_t<Type>, ExecuteContext&>;
+
+	template<typename Type>
 	concept EnableFlushMutexGenerator = requires(Type type)
 	{
 		{ type.FlushMutexGenerator(std::declval<ReadWriteMutexGenerator&>()) };
@@ -489,7 +492,11 @@ export namespace Noodles
 			using RealType = std::conditional_t<
 				std::is_same_v<std::remove_cvref_t<Type>, ExecuteContext>,
 				Potato::TMP::ItSelf<void>,
-				std::remove_cvref_t<Type>
+				std::conditional_t<
+					IsCoverFromExecuteContext<Type>,
+					std::optional<std::remove_cvref_t<Type>>,
+					std::remove_cvref_t<Type>
+				>
 			>;
 
 			RealType data;
@@ -501,8 +508,6 @@ export namespace Noodles
 			ParameterHolder(Context& context)
 				requires(!std::is_constructible_v<RealType, Context&>)
 			{}
-
-
 
 			void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const
 			{
@@ -516,8 +521,23 @@ export namespace Noodles
 			{
 				if constexpr (IsExecuteContext<Type>)
 					return context;
+				else if constexpr(IsCoverFromExecuteContext<Type>)
+				{
+					assert(!data.has_value());
+					data.emplace(context);
+					return *data;
+				}
 				else
 					return std::ref(data);
+			}
+
+			void Reset()
+			{
+				if constexpr(IsCoverFromExecuteContext<Type>)
+				{
+					assert(data.has_value());
+					data.reset();
+				}
 			}
 		};
 
@@ -544,6 +564,12 @@ export namespace Noodles
 				cur_holder.FlushMutexGenerator(generator);
 				other_holders.FlushMutexGenerator(generator);
 			}
+
+			void Reset()
+			{
+				cur_holder.Reset();
+				other_holders.Reset();
+			}
 		};
 
 		template<>
@@ -552,6 +578,7 @@ export namespace Noodles
 			ParameterHolders(Context& context){}
 
 			void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const {}
+			void Reset() {}
 		};
 
 		template<typename ...ParT>
@@ -576,6 +603,11 @@ export namespace Noodles
 			template<std::size_t ...i>
 			static auto Execute(ExecuteContext& context, AppendDataT& append_data, Func& func, std::index_sequence<i...>)
 			{
+				struct Scope
+				{
+					AppendDataT& ref;
+					~Scope(){ ref.Reset(); }
+				}Scope{append_data};
 				return std::invoke(
 					func,
 					append_data.Get(std::integral_constant<std::size_t, i>{}, context)...
