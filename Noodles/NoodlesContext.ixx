@@ -101,12 +101,14 @@ export namespace Noodles
 		void RegisterUserModifyMutex(std::span<RWUniqueTypeID const> ifs);
 		std::tuple<std::size_t, std::size_t> CalculateUniqueIDCount() const;
 		ReadWriteMutex GetMutex() const;
+		void RecoverModify() { unique_ids.resize(old_index); }
 
-		ReadWriteMutexGenerator(std::pmr::memory_resource* template_resource) : unique_ids(template_resource){ }
+		ReadWriteMutexGenerator(std::pmr::vector<RWUniqueTypeID>& reference_vector) : unique_ids(reference_vector), old_index(reference_vector.size()){ }
 
 	protected:
 
-		std::pmr::vector<RWUniqueTypeID> unique_ids;
+		std::pmr::vector<RWUniqueTypeID>& unique_ids;
+		std::size_t old_index;
 		std::size_t component_count = 0;
 		std::size_t singleton_count = 0;
 		std::size_t user_modify_count = 0;
@@ -169,14 +171,15 @@ export namespace Noodles
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<SubContextTaskFlow, Potato::Task::TaskFlow::Wrapper>;
 
-		bool AddTemporaryNode(SystemNode& node, Potato::Task::TaskFilter filter, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
-
+		bool AddTemporaryNodeImmediately(SystemNode& node, Potato::Task::TaskFilter filter);
+		bool AddTemporaryNodeDefer(SystemNode& node, Potato::Task::TaskFilter filter);
 		bool CreateParallelTask(ExecuteContext& context, std::size_t user_index, std::size_t total_count, std::size_t executor_count, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 	protected:
 
 		bool AddTickedNode(SystemNode& node, SystemNodeProperty property);
 		virtual bool Update_AssumedLocked() override;
+		bool AddTemporaryNodeImmediately_AssumedLocked(SystemNode& node, Potato::Task::TaskFilter filter);
 
 		SubContextTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
 			: record(record), layout(layout),
@@ -201,6 +204,14 @@ export namespace Noodles
 			SystemName name;
 		};
 		std::pmr::vector<SystemNodeInfo> preprocess_system_infos;
+
+		struct DeferInfo
+		{
+			SystemNode::Ptr ptr;
+			Potato::Task::TaskFilter filter;
+		};
+
+		std::pmr::vector<DeferInfo> defer_temporary_system_node;
 
 		struct ProcessSystemInfo
 		{
@@ -279,7 +290,7 @@ export namespace Noodles
 		SystemNode::Ptr CreateAutomaticSystem(Func&& func, SystemName name, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		bool AddTickedSystemNode(SystemNode& node, SystemNodeProperty property);
-		bool AddTemporarySystemNode(SystemNode& node, std::int32_t layout, Potato::Task::TaskFilter property);
+		bool AddTemporarySystemNodeDefer(SystemNode& node, std::int32_t layout, Potato::Task::TaskFilter property);
 
 
 		template<typename Function>
