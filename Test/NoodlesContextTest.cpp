@@ -4,13 +4,11 @@ import NoodlesComponent;
 import NoodlesContext;
 import PotatoEncode;
 
-using namespace Noodles;
-
 std::mutex PrintMutex;
 
-void PrintSystemProperty(ExecuteContext& context)
+void PrintSystemProperty(Noodles::ContextWrapper& wrapper)
 {
-	auto wstr = *Potato::Encode::StrEncoder<char8_t, wchar_t>::EncodeToString(context.node_property.display_name);
+	auto wstr = *Potato::Encode::StrEncoder<char8_t, wchar_t>::EncodeToString(wrapper.GetProperty().display_name);
 	auto sstr = *Potato::Encode::StrEncoder<wchar_t, char>::EncodeToString(std::wstring_view{wstr});
 	{
 		std::lock_guard lg(PrintMutex);
@@ -50,7 +48,7 @@ struct Tuple2
 	std::u8string str;
 };
 
-struct TestContext : public Context
+struct TestContext : public Noodles::Context
 {
 	using Context::Context;
 protected:
@@ -59,22 +57,22 @@ protected:
 };
 
 
-struct TestSystem : public SystemNode
+struct TestSystem : public Noodles::SystemNode
 {
 	void AddSystemNodeRef() const override {}
 	void SubSystemNodeRef() const override {}
-	void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const override
+	void FlushMutexGenerator(Noodles::ReadWriteMutexGenerator& generator) const override
 	{
-		static std::array<RWUniqueTypeID, 1> test = {
-			RWUniqueTypeID::Create<Tuple2>()
+		static std::array<Noodles::RWUniqueTypeID, 1> test = {
+			Noodles::RWUniqueTypeID::Create<Tuple2>()
 		};
 		generator.RegisterComponentMutex(std::span(test));
 	}
-	void SystemNodeExecute(ExecuteContext& context) override { PrintSystemProperty(context); }
-	virtual SystemName GetDisplayName() const override { return {}; }
+	void SystemNodeExecute(Noodles::ContextWrapper& context) override { PrintSystemProperty(context); }
+	virtual Noodles::SystemName GetDisplayName() const override { return {}; }
 };
 
-void TestFunction(ExecuteContext& context, AtomicComponentFilter<Tuple2>& fup, AtomicSingletonFilter<Tuple2>& filter)
+void TestFunction(Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple2>& fup, Noodles::AtomicSingletonFilter<Tuple2>& filter)
 {
 	auto P = filter.Get(context);
 	PrintSystemProperty(context);
@@ -85,7 +83,7 @@ int main()
 {
 	//static_assert(std::is_function_v<decltype([](){})>);
 
-	Context::Config fig;
+	Noodles::Context::Config fig;
 	fig.min_frame_time = std::chrono::seconds{ 1 };
 
 	TestContext context{fig};
@@ -102,9 +100,9 @@ int main()
 		context.AddEntityComponent(*ent2, Tuple{o});
 	}
 
-	auto Lambda = [](ExecuteContext& context, Noodles::AtomicComponentFilter<Tuple2> filter)
+	auto Lambda = [](Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple2> filter)
 	{
-			PrintSystemProperty(context);
+		PrintSystemProperty(context);
 	};
 
 	auto Ker = context.MoveAndCreateSingleton<Tuple2>(Tuple2{std::u8string{u8"Fff"}});
@@ -124,11 +122,11 @@ int main()
 		{2, 1, 1},
 	});
 
-	context.CreateAndAddTickedAutomaticSystem([&](ExecuteContext& context, Noodles::AtomicComponentFilter<Tuple2> filter)
+	context.CreateAndAddTickedAutomaticSystem([&](Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple2> filter)
 	{
 		PrintSystemProperty(context);
-		auto sys = context.noodles_context.CreateAutomaticSystem(Lambda, {u8"Temp", u8"Temp"});
-		context.current_layout_flow.AddTemporaryNode(*sys, {});
+		auto sys = context.CreateAutomaticSystem(Lambda, {u8"Temp", u8"Temp"});
+		context.AddTemporaryNodeDefer(*sys, {});
 	},
 		{ u8"TempTemp", u8"G22" },
 	{
@@ -139,22 +137,39 @@ int main()
 		{1, 1, 3}
 		);
 
-	context.CreateAndAddTickedAutomaticSystem([](ExecuteContext& context)
+	int index2 = 0;
+
+	context.CreateAndAddTickedAutomaticSystem([&](Noodles::ContextWrapper& wrapper)
 	{
-		if(context.parallel_info.status == ParallelInfo::Status::None)
+		auto info = wrapper.GetParrallelInfo();
+		if(info.status == Noodles::ParallelInfo::Status::None)
 		{
 			
-			PrintSystemProperty(context);
-			context.current_layout_flow.CreateParallelTask(context, 0, 3, 3);
-		}else if(context.parallel_info.status == ParallelInfo::Status::Parallel)
+			PrintSystemProperty(wrapper);
+			wrapper.CommitParallelTask(0, 3, 3);
+			if(index2 % 2 == 0)
+			{
+				auto P = wrapper.CreateAutomaticSystem(
+					[&](){
+						std::lock_guard lg(PrintMutex);
+						std::println("defer - {0}", index2);
+					},
+					{u8"temp"}
+				);
+				wrapper.AddTemporaryNodeDefer(*P, {});
+			}
+			index2 += 1;
+		}else if(info.status == Noodles::ParallelInfo::Status::Parallel)
 		{
 			std::lock_guard lg(PrintMutex);
-			std::println("Parallel - {0} {1}", context.parallel_info.current_index, context.parallel_info.user_index);
+			std::println("Parallel - {0} {1}", info.current_index, info.user_index);
 		}else
 		{
 			std::lock_guard lg(PrintMutex);
-			std::println("Done - {0} {1}", context.parallel_info.current_index, context.parallel_info.user_index);
+			std::println("Done - {0} {1}", info.current_index, info.user_index);
 		}
+
+		
 	},
 		{u8"S5", u8"G11"},
 		{1, 1, 3}
@@ -163,7 +178,7 @@ int main()
 	/*
 	context.CreateTickSystemAuto( {0, 0, 1}, {
 		u8"wtf1"
-	}, [=](ExecuteContext& context,  ComponentFilter<Tuple const, EntityProperty>& p, SingletonFilter<Tuple2>& s, std::size_t i)
+	}, [=](ContextWrapper& context,  ComponentFilter<Tuple const, EntityProperty>& p, SingletonFilter<Tuple2>& s, std::size_t i)
 	{
 		ComponentFilter<Tuple const, EntityProperty>::OutputIndexT output;
 		auto k = p.IterateComponent(context,0);
@@ -188,7 +203,7 @@ int main()
 	/*
 	context.CreateTickSystemAuto({0, 0, 3}, {
 		u8"wtf2"
-		}, [&](ExecuteContext& context, ComponentFilter<Tuple, EntityProperty>& p, std::size_t i)
+		}, [&](ContextWrapper& context, ComponentFilter<Tuple, EntityProperty>& p, std::size_t i)
 		{
 			std::println("wtf2");
 
@@ -201,7 +216,7 @@ int main()
 			if(index == 5)
 			{
 				context.noodles_context.CreateTickSystemAuto(
-					{0, 0, 1}, {u8"wtf3"}, [](ExecuteContext& context, ComponentFilter<Tuple, EntityProperty>& p)
+					{0, 0, 1}, {u8"wtf3"}, [](ContextWrapper& context, ComponentFilter<Tuple, EntityProperty>& p)
 					{
 						std::println("wtf3");
 					}

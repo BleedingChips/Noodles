@@ -117,7 +117,7 @@ export namespace Noodles
 		friend struct SubContextTaskFlow;
 	};
 
-	export struct ExecuteContext;
+	export struct ContextWrapper;
 
 	struct SystemNode : protected Potato::Task::TaskFlowNode
 	{
@@ -136,7 +136,7 @@ export namespace Noodles
 
 		virtual void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const = 0;
 		virtual void TaskFlowNodeExecute(Potato::Task::TaskFlowContext& status) override final;
-		virtual void SystemNodeExecute(ExecuteContext& context) = 0;
+		virtual void SystemNodeExecute(ContextWrapper& context) = 0;
 
 		virtual void AddTaskFlowNodeRef() const override { AddSystemNodeRef(); }
 		virtual void SubTaskFlowNodeRef() const override { SubSystemNodeRef(); }
@@ -173,8 +173,7 @@ export namespace Noodles
 
 		bool AddTemporaryNodeImmediately(SystemNode& node, Potato::Task::TaskFilter filter);
 		bool AddTemporaryNodeDefer(SystemNode& node, Potato::Task::TaskFilter filter);
-		bool CreateParallelTask(ExecuteContext& context, std::size_t user_index, std::size_t total_count, std::size_t executor_count, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
-
+	
 	protected:
 
 		bool AddTickedNode(SystemNode& node, SystemNodeProperty property);
@@ -362,8 +361,37 @@ export namespace Noodles
 		std::size_t user_index = 0;
 	};
 
-	export struct ExecuteContext
+	export struct ContextWrapper
 	{
+		ContextWrapper(
+			Potato::Task::TaskContext& task_context,
+			Potato::Task::TaskFlowNodeProperty node_property,
+			Context& noodles_context,
+			SubContextTaskFlow& current_layout_flow,
+			SystemNode& current_node,
+			std::size_t node_index,
+			ParallelInfo parallel_info
+		)
+			: task_context(task_context), node_property(node_property),
+			noodles_context(noodles_context), current_layout_flow(current_layout_flow), 
+			current_node(current_node), node_index(node_index), 
+			parallel_info(parallel_info)
+		{
+		}
+		Potato::Task::TaskContext& GetTaskContext() const { return task_context; }
+		ParallelInfo GetParrallelInfo() const { return parallel_info; }
+		bool CommitParallelTask(std::size_t user_index, std::size_t total_count, std::size_t executor_count, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		Potato::Task::TaskFlowNodeProperty GetProperty() const { return node_property; }	
+		Context& GetContext() const { return noodles_context; }
+		template<typename Func>
+		SystemNode::Ptr CreateAutomaticSystem(Func&& func, SystemName name, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		{
+			return noodles_context.CreateAutomaticSystem(std::forward<Func>(func), name, resource);
+		}
+		bool AddTemporaryNodeImmediately(SystemNode& node, Potato::Task::TaskFilter filter) { return current_layout_flow.AddTemporaryNodeDefer(node, std::move(filter)); }
+		bool AddTemporaryNodeDefer(SystemNode& node, Potato::Task::TaskFilter filter) { return current_layout_flow.AddTemporaryNodeDefer(node, std::move(filter));  }
+		void Quit() { return noodles_context.Quit(); }
+	protected:
 		Potato::Task::TaskContext& task_context;
 		Potato::Task::TaskFlowNodeProperty node_property;
 		Context& noodles_context;
@@ -473,7 +501,7 @@ export namespace Noodles
 		}
 
 		decltype(auto) Get(Context& context) const { return static_cast<ComponentT*>(context.ReadSingleton_AssumedLocked(*filter)); }
-		decltype(auto) Get(ExecuteContext& context) const { return Get(context.noodles_context); }
+		decltype(auto) Get(ContextWrapper& wrapper) const { return Get(wrapper.GetContext()); }
 
 	protected:
 
@@ -483,10 +511,10 @@ export namespace Noodles
 	};
 
 	template<typename Type>
-	concept IsExecuteContext = std::is_same_v<std::remove_cvref_t<Type>, ExecuteContext>;
+	concept IsContextWrapper = std::is_same_v<std::remove_cvref_t<Type>, ContextWrapper>;
 
 	template<typename Type>
-	concept IsCoverFromExecuteContext = std::is_constructible_v<std::remove_cvref_t<Type>, ExecuteContext&>;
+	concept IsCoverFromContextWrapper = std::is_constructible_v<std::remove_cvref_t<Type>, ContextWrapper&>;
 
 	template<typename Type>
 	concept EnableFlushMutexGenerator = requires(Type type)
@@ -501,10 +529,10 @@ export namespace Noodles
 		struct ParameterHolder
 		{
 			using RealType = std::conditional_t<
-				std::is_same_v<std::remove_cvref_t<Type>, ExecuteContext>,
+				IsContextWrapper<Type>,
 				Potato::TMP::ItSelf<void>,
 				std::conditional_t<
-					IsCoverFromExecuteContext<Type>,
+					IsCoverFromContextWrapper<Type>,
 					std::optional<std::remove_cvref_t<Type>>,
 					std::remove_cvref_t<Type>
 				>
@@ -528,11 +556,11 @@ export namespace Noodles
 				}
 			}
 
-			decltype(auto) Translate(ExecuteContext& context)
+			decltype(auto) Translate(ContextWrapper& context)
 			{
-				if constexpr (IsExecuteContext<Type>)
+				if constexpr (IsContextWrapper<Type>)
 					return context;
-				else if constexpr(IsCoverFromExecuteContext<Type>)
+				else if constexpr(IsCoverFromContextWrapper<Type>)
 				{
 					assert(!data.has_value());
 					data.emplace(context);
@@ -544,7 +572,7 @@ export namespace Noodles
 
 			void Reset()
 			{
-				if constexpr(IsCoverFromExecuteContext<Type>)
+				if constexpr(!IsContextWrapper<Type> && IsCoverFromContextWrapper<Type>)
 				{
 					assert(data.has_value());
 					data.reset();
@@ -566,9 +594,9 @@ export namespace Noodles
 			{
 			}
 
-			decltype(auto) Get(std::integral_constant<std::size_t, 0>, ExecuteContext& context) { return cur_holder.Translate(context);  }
+			decltype(auto) Get(std::integral_constant<std::size_t, 0>, ContextWrapper& context) { return cur_holder.Translate(context);  }
 			template<std::size_t i>
-			decltype(auto) Get(std::integral_constant<std::size_t, i>, ExecuteContext& context) { return other_holders.Get(std::integral_constant<std::size_t, i - 1>{}, context); }
+			decltype(auto) Get(std::integral_constant<std::size_t, i>, ContextWrapper& context) { return other_holders.Get(std::integral_constant<std::size_t, i - 1>{}, context); }
 
 			void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const
 			{
@@ -606,13 +634,13 @@ export namespace Noodles
 
 			using AppendDataT = typename Extract::Type;
 
-			static auto Execute(ExecuteContext& context, AppendDataT& append_data, Func& func)
+			static auto Execute(ContextWrapper& context, AppendDataT& append_data, Func& func)
 			{
 				return Execute(context, append_data, func, typename Extract::Index{});
 			}
 
 			template<std::size_t ...i>
-			static auto Execute(ExecuteContext& context, AppendDataT& append_data, Func& func, std::index_sequence<i...>)
+			static auto Execute(ContextWrapper& context, AppendDataT& append_data, Func& func, std::index_sequence<i...>)
 			{
 				struct Scope
 				{
@@ -647,7 +675,7 @@ export namespace Noodles
 			: append_data(context), fun(std::move(fun)), MemoryResourceRecordIntrusiveInterface(record), display_name(display_name)
 		{}
 
-		virtual void SystemNodeExecute(ExecuteContext& context) override
+		virtual void SystemNodeExecute(ContextWrapper& context) override
 		{
 			if constexpr (std::is_function_v<Func>)
 			{
@@ -686,35 +714,5 @@ export namespace Noodles
 		}
 		return {};
 	}
-
-
-	export struct ParallelExecutor : public Potato::Task::Task, Potato::IR::MemoryResourceRecordIntrusiveInterface
-	{
-		using Ptr = Potato::Pointer::IntrusivePtr<ParallelExecutor>;
-
-		bool TryCommited(Potato::Task::TaskContext& context, Potato::Task::TaskFlowNodeProperty property, std::size_t user_index);
-		ParallelExecutor(Potato::IR::MemoryResourceRecord record) : MemoryResourceRecordIntrusiveInterface(record) {}
-		~ParallelExecutor() { assert(!reference_context); }
-
-	protected:
-
-		virtual void TaskExecute(Potato::Task::ExecuteStatus& status) override;
-
-		
-		void AddTaskRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
-		void SubTaskRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
-		
-
-		Context::Ptr reference_context;
-		SubContextTaskFlow::Ptr current_flow;
-		SystemNode::Ptr reference_node;
-		std::size_t node_index = 0;
-
-		std::size_t total_count = 0;
-		std::atomic_size_t waiting_task = 0;
-		std::atomic_size_t finish_task = 0;
-
-		friend struct SubContextTaskFlow;
-	};
 
 }

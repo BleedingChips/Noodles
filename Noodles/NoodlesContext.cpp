@@ -124,9 +124,9 @@ namespace Noodles
 	{
 		return ReadWriteMutex{
 				std::span(unique_ids),
-			Potato::Misc::IndexSpan<>{old_index, component_count},
-			Potato::Misc::IndexSpan<>{component_count + old_index, component_count + singleton_count},
-			Potato::Misc::IndexSpan<>{component_count + singleton_count + old_index, component_count + singleton_count + user_modify_count}
+			Potato::Misc::IndexSpan<>{old_index, old_index + component_count},
+			Potato::Misc::IndexSpan<>{component_count + old_index, component_count + old_index + singleton_count},
+			Potato::Misc::IndexSpan<>{component_count + singleton_count + old_index, component_count + singleton_count + old_index + user_modify_count}
 		};
 	}
 
@@ -140,7 +140,7 @@ namespace Noodles
 			Tar = static_cast<Context*>(flow->parent_node.GetPointer());
 		}
 
-		ExecuteContext exe_context
+		ContextWrapper exe_context
 		{
 			status.context,
 			status.node_property,
@@ -370,29 +370,54 @@ namespace Noodles
 		return false;
 	}
 
-	bool SubContextTaskFlow::CreateParallelTask(ExecuteContext& context, std::size_t user_index, std::size_t total_count, std::size_t executor_count, std::pmr::memory_resource* resource)
+	struct ParallelExecutor : public Potato::Task::Task, Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
-		if(context.parallel_info.status != ParallelInfo::Status::Parallel && total_count > 0)
+		using Ptr = Potato::Pointer::IntrusivePtr<ParallelExecutor>;
+
+		bool TryCommited(Potato::Task::TaskContext& context, Potato::Task::TaskFlowNodeProperty property, std::size_t user_index);
+		ParallelExecutor(Potato::IR::MemoryResourceRecord record) : MemoryResourceRecordIntrusiveInterface(record) {}
+		~ParallelExecutor() { assert(!reference_context); }
+
+		virtual void TaskExecute(Potato::Task::ExecuteStatus& status) override;
+
+		
+		void AddTaskRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
+		void SubTaskRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
+		
+
+		Context::Ptr reference_context;
+		SubContextTaskFlow::Ptr current_flow;
+		SystemNode::Ptr reference_node;
+		std::size_t node_index = 0;
+
+		std::size_t total_count = 0;
+		std::atomic_size_t waiting_task = 0;
+		std::atomic_size_t finish_task = 0;
+	};
+
+	bool ContextWrapper::CommitParallelTask(std::size_t user_index, std::size_t total_count, std::size_t executor_count, std::pmr::memory_resource* resource)
+	{
+		if(parallel_info.status != ParallelInfo::Status::Parallel && total_count > 0)
 		{
-			if(context.current_layout_flow.MarkNodePause(context.node_index))
+			if(current_layout_flow.MarkNodePause(node_index))
 			{
 				ParallelExecutor::Ptr re = Potato::IR::MemoryResourceRecord::AllocateAndConstruct<ParallelExecutor>(resource);
 				if(re)
 				{
-					re->current_flow = &context.current_layout_flow;
-					re->reference_node = &context.current_node;
-					re->reference_context = &context.noodles_context;
+					re->current_flow = &current_layout_flow;
+					re->reference_node = &current_node;
+					re->reference_context = &noodles_context;
 					re->total_count = total_count;
-					re->node_index = context.node_index;
+					re->node_index = node_index;
 					for(std::size_t i = 0; i < executor_count; ++i)
 					{
-						auto res = re->TryCommited(context.task_context, context.node_property, user_index);
+						auto res = re->TryCommited(task_context, node_property, user_index);
 					}
 
 					return true;
 				}else
 				{
-					context.current_layout_flow.ContinuePauseNode(context.task_context, context.node_index);
+					current_layout_flow.ContinuePauseNode(task_context, node_index);
 				}
 			}
 		}
@@ -526,7 +551,7 @@ namespace Noodles
 
 	void ParallelExecutor::TaskExecute(Potato::Task::ExecuteStatus& status)
 	{
-		ExecuteContext exe_context
+		ContextWrapper exe_context
 		{
 			status.context,
 			{status.task_property.display_name, status.task_property.filter},
@@ -549,8 +574,22 @@ namespace Noodles
 		}
 		if(desird == total_count - 1)
 		{
-			exe_context.parallel_info.status = ParallelInfo::Status::Done;
-			reference_node->SystemNodeExecute(exe_context);
+			ContextWrapper exe_context2
+			{
+				status.context,
+				{status.task_property.display_name, status.task_property.filter},
+				*reference_context,
+				*current_flow,
+				*reference_node,
+				node_index,
+				ParallelInfo{
+					ParallelInfo::Status::Parallel,
+					total_count,
+					status.task_property.user_data[0],
+					status.task_property.user_data[1]
+				}
+			};
+			reference_node->SystemNodeExecute(exe_context2);
 			auto flow = std::move(current_flow);
 			reference_context.Reset();
 			current_flow.Reset();
