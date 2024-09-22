@@ -321,6 +321,12 @@ export namespace Noodles
 
 		Context(Config config = {}, SyncResource resource = {});
 		bool Commited(Potato::Task::TaskContext& context, Potato::Task::TaskFlowNodeProperty property) override;
+		std::chrono::steady_clock::duration GetFramedDuration() const { return framed_duration; }
+		float GetFramedDurationInSecond() const
+		{
+			auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(GetFramedDuration());
+			return ms.count() / 1000.0f;
+		}
 
 	protected:
 
@@ -330,6 +336,8 @@ export namespace Noodles
 		virtual void SubContextRef() const = 0;
 		virtual void AddTaskFlowRef() const override { AddContextRef(); }
 		virtual void SubTaskFlowRef() const override { SubContextRef(); }
+
+		std::atomic<std::chrono::steady_clock::duration> framed_duration;
 
 		std::mutex mutex;
 		Config config;

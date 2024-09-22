@@ -514,7 +514,9 @@ namespace Noodles
 	void Context::TaskFlowExecuteBegin(Potato::Task::TaskFlowContext& context)
 	{
 		std::lock_guard lg(mutex);
-		start_up_tick_lock = std::chrono::steady_clock::now();
+		auto cur = std::chrono::steady_clock::now();
+		framed_duration = cur - start_up_tick_lock;
+		start_up_tick_lock = cur;
 	}
 
 	void Context::TaskFlowExecuteEnd(Potato::Task::TaskFlowContext& context)
