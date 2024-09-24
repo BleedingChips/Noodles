@@ -20,7 +20,7 @@ namespace Noodles
 				{
 					if(*ite.atomic_type == *ite2.atomic_type)
 					{
-						return false;
+						return true;
 					}
 				}
 			}
@@ -378,7 +378,7 @@ namespace Noodles
 		ParallelExecutor(Potato::IR::MemoryResourceRecord record) : MemoryResourceRecordIntrusiveInterface(record) {}
 		~ParallelExecutor() { assert(!reference_context); }
 
-		virtual void TaskExecute(Potato::Task::ExecuteStatus& status) override;
+		virtual void TaskExecute(Potato::Task::TaskContextWrapper& status) override;
 
 		
 		void AddTaskRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
@@ -515,7 +515,8 @@ namespace Noodles
 	{
 		std::lock_guard lg(mutex);
 		auto cur = std::chrono::steady_clock::now();
-		framed_duration = cur - start_up_tick_lock;
+		if(start_up_tick_lock.time_since_epoch().count() != 0)
+			framed_duration = cur - start_up_tick_lock;
 		start_up_tick_lock = cur;
 	}
 
@@ -551,7 +552,7 @@ namespace Noodles
 		return false;
 	}
 
-	void ParallelExecutor::TaskExecute(Potato::Task::ExecuteStatus& status)
+	void ParallelExecutor::TaskExecute(Potato::Task::TaskContextWrapper& status)
 	{
 		ContextWrapper exe_context
 		{

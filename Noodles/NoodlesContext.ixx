@@ -518,6 +518,26 @@ export namespace Noodles
 		friend struct Context;
 	};
 
+	template<AcceptableFilterType ...ComponentT>
+	struct AtomicUserModify
+	{
+
+		static_assert(!Potato::TMP::IsRepeat<ComponentT...>::Value);
+
+		void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const
+		{
+			static std::array<RWUniqueTypeID, sizeof...(ComponentT)> temp_buffer = {
+				RWUniqueTypeID::Create<ComponentT>()...
+			};
+			generator.RegisterUserModifyMutex(std::span(temp_buffer));
+		}
+		
+		AtomicUserModify(Context& context) {}
+		AtomicUserModify(AtomicUserModify const&) = default;
+		AtomicUserModify(AtomicUserModify&&) = default;
+	};  
+
+
 	template<typename Type>
 	concept IsContextWrapper = std::is_same_v<std::remove_cvref_t<Type>, ContextWrapper>;
 
