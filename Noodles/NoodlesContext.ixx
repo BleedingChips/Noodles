@@ -1,6 +1,7 @@
 module;
 
 #include <cassert>
+#include <OCIdl.h>
 
 export module NoodlesContext;
 
@@ -226,6 +227,21 @@ export namespace Noodles
 		friend struct SystemNode;
 	};
 
+	struct SystemTemplate
+	{
+		struct Wrapper
+		{
+			void AddRef(SystemTemplate const* ptr) { ptr->AddSystemTemplateRef(); }
+			void SubRef(SystemTemplate const* ptr) { ptr->SubSystemTemplateRef(); }
+		};
+
+		using Ptr = Potato::Pointer::IntrusivePtr<SystemTemplate, Wrapper>;
+		virtual SystemNode::Ptr CreateSystemNode(Context& context, SystemName name, std::pmr::memory_resource* resource = std::pmr::get_default_resource()) const = 0;
+	protected:
+		virtual void AddSystemTemplateRef() const = 0;
+		virtual void SubSystemTemplateRef() const = 0;
+	};
+
 	export struct Context : protected Potato::Task::TaskFlow
 	{
 
@@ -286,7 +302,16 @@ export namespace Noodles
 		bool RemoveSystemDeferByGroup(std::u8string_view group_name);
 
 		template<typename Func>
+		static SystemTemplate::Ptr CreateAutomaticSystemTemplate(Func&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+			requires(std::is_copy_constructible_v<Func>);
+
+		template<typename Func>
 		SystemNode::Ptr CreateAutomaticSystem(Func&& func, SystemName name, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+
+		SystemNode::Ptr CreateSystem(SystemTemplate const& system_template, SystemName name, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		{
+			return system_template.CreateSystemNode(*this, name, resource);
+		}
 
 		bool AddTickedSystemNode(SystemNode& node, SystemNodeProperty property);
 		bool AddTemporarySystemNodeDefer(SystemNode& node, std::int32_t layout, Potato::Task::TaskFilter property);
@@ -741,6 +766,31 @@ export namespace Noodles
 			return new (re.Get()) Type{*this, std::forward<Function>(func), re, new_name};
 		}
 		return {};
+	}
+
+	template<typename Func>
+	struct SystemTemplateHolder : public SystemTemplate, public Potato::IR::MemoryResourceRecordIntrusiveInterface
+	{
+		Func func;
+		virtual SystemNode::Ptr CreateSystemNode(Context& context, SystemName name, std::pmr::memory_resource* resource) const override
+		{
+			return context.CreateAutomaticSystem(func, name, resource);
+		}
+		SystemTemplateHolder(Potato::IR::MemoryResourceRecord record, Func&& func) : MemoryResourceRecordIntrusiveInterface(record), func(std::move(func)) {}
+	protected:
+		virtual void AddSystemTemplateRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
+		virtual void SubSystemTemplateRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
+	};
+
+	template<typename Func>
+	SystemTemplate::Ptr Context::CreateAutomaticSystemTemplate(Func&& func, std::pmr::memory_resource* resource)
+		requires(std::is_copy_constructible_v<Func>)
+	{
+		using Type = std::remove_cvref_t<Func>;
+		return Potato::IR::MemoryResourceRecord::AllocateAndConstruct<SystemTemplateHolder<Type>>(
+			resource,
+			std::forward<Func>(func)
+		);
 	}
 
 }
