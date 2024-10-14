@@ -297,6 +297,7 @@ export namespace Noodles
 		{
 			ComponentsWrapper wrapper;
 			std::size_t mount_point;
+			operator bool() const { return wrapper; }
 		};
 
 		ComponentsWrapper ReadComponents_AssumedLocked(ComponentFilter const& filter, std::size_t filter_ite, std::span<std::size_t> output_span) const;

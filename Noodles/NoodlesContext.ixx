@@ -244,7 +244,6 @@ export namespace Noodles
 
 	export struct Context : protected Potato::Task::TaskFlow
 	{
-
 		struct Config
 		{
 			std::chrono::milliseconds min_frame_time = std::chrono::milliseconds{ 13 };

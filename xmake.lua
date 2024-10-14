@@ -8,7 +8,7 @@ end
 target("Noodles")
     set_kind("static")
     add_files("Noodles/*.cpp")
-    add_files("Noodles/*.ixx")
+    add_files("Noodles/*.ixx", {public = true})
     add_deps("Potato")
 target_end()
 
