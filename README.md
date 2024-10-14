@@ -27,7 +27,7 @@
 	target_end()
 	```
 
-运行 `xmake_install.ps1` 安装 `xmake`，运行`xmake_generate_vs_project.ps1`将在`vsxmake2022`下产生Noodles的vs的项目文件，以方便对Noodles进行单独的定制化。
+运行 `xmake_install.ps1` 安装 `xmake`，运行`xmake_generate_vs_project.ps1`将在vsxmake2022下产生vs的项目文件。
 
 ## 原理
 
@@ -73,7 +73,7 @@
 	
 	```
 
-3. 创建`Entity`并添加`Component`
+3. 创建Entity并添加Component
 
 	```cpp
 	// 定义Component
@@ -95,11 +95,11 @@
 	context.AddEntityComponent(*ent, Tuple2{10086});
 	```
 
-	在任何时候，往`Entity`里边添加或删除`Component`都是安全的，但并不会立即生效，只有等到下一次循环后才会生效。要访问缓存，需要使用特定的访问器。添加或删除`Component`会导致其内存的位置发生变动。
+	在任何时候，往Entity里边添加或删除Component都是安全的，但并不会立即生效，只有等到下一次循环后才会生效。要访问缓存，需要使用特定的访问器。添加或删除Component会导致其内存的位置发生变动。
 
 4. 创建`System`并注册
 
-	`System`的创建有两种方式：
+	System的创建有两种方式：
 
 	1. 通过继承的方式创建
 
@@ -147,11 +147,11 @@
 		);
 		```
 
-	若两个`System`同时写一个或者一读一写相同类型的`Component`或者`Singleton`，那么就需要对其进行先后决议。
+	若两个System同时写一个或者一读一写相同类型的Component或者Singleton，那么就需要对其进行先后决议。
 	
-	一般每一个`System`都需要提供三个优先级：`Layer`，`Primary`，`Secondary`。其中，`Layer`会将两个没有任何读写冲突的`System`进行先后决议，只有当`Layer`相同，并且有读写冲突时，才会依次根据`Primary`和`Secondary`来进行先后决议。若三值相等，则需要提供额外的方法对此特例进行决议。
+	一般每一个System都需要提供三个优先级：`Layer`，`Primary`，`Secondary`。其中，Layer会将两个没有任何读写冲突的System进行先后决议，只有当Layer相同，并且有读写冲突时，才会依次根据Primary和Secondary来进行先后决议。若三值相等，则需要提供额外的方法对此特例进行决议。
 
-	一般的，`System`的注册方式有两种：
+	一般的，System的注册方式有两种：
 
 		```cpp
 		// 注册常驻 System
@@ -161,11 +161,11 @@
 		context.AddTemporarySystemNodeDefer(*system, 0);
 		```
 
-	其中，常驻只会在下一帧中执行，临时只会执行一次，并且优先级高于当前`layer`中的所有常驻`System`。
+	其中，常驻只会在下一帧中执行，临时只会执行一次，并且优先级高于当前Layer中的所有常驻System。
 
 5. `System`的内部并行
 
-	在一个`System`执行的时候，可以拉起任意数量的自己，并行执行（并行的最大个数取决于拉起的线程池个数）：
+	在一个System执行的时候，可以拉起任意数量的自己，并行执行（并行的最大个数取决于拉起的线程池个数）：
 
 	```cpp
 	auto system_node = context.CreateAutomaticSystem([](
@@ -212,7 +212,7 @@
 
 6. `Component`的访问：
 
-	对`Component`数据的访问方式有两种，一种是直接遍历所有的Component，一种是对单个Entity进行访问。
+	对Component数据的访问方式有两种，一种是直接遍历所有的Component，一种是对单个Entity进行访问。
 
 	```cpp
 
