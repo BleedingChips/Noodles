@@ -448,50 +448,62 @@ namespace Noodles
 
 	}
 
-	bool Context::AddTickedSystemNode(SystemNode& node, SystemNodeProperty property)
+	SubContextTaskFlow* Context::FindSubContextTaskFlow_AssumedLocked(std::int32_t layer)
 	{
-		std::lock_guard lg(preprocess_mutex);
-		for(auto& ite : preprocess_nodes)
+		for (auto& ite : preprocess_nodes)
 		{
 			auto ptr = static_cast<SubContextTaskFlow*>(ite.node.GetPointer());
 			assert(ptr != nullptr);
-			if(ptr->layout == property.priority.layout)
+			if (ptr->layout == layer)
 			{
-				if(ptr->AddTickedNode(node, property))
-				{
-					return true;
-				}else
-				{
-					return false;
-				}
+				return ptr;
 			}
 		}
-		auto re = Potato::IR::MemoryResourceRecord::Allocate<SubContextTaskFlow>(context_resource);
-		if(re)
+		return nullptr;
+	}
+
+	SubContextTaskFlow::Ptr Context::FindOrCreateContextTaskFlow_AssumedLocked(std::int32_t layer)
+	{
+		auto ptr = FindSubContextTaskFlow_AssumedLocked(layer);
+		if(ptr == nullptr)
 		{
-			auto ptr = new(re.Get()) SubContextTaskFlow{re, property.priority.layout};
-			assert(ptr);
-			if(ptr->AddTickedNode(node, property))
+			auto re = Potato::IR::MemoryResourceRecord::Allocate<SubContextTaskFlow>(context_resource);
+			if (re)
 			{
-				AddNode_AssumedLocked(*ptr, {u8"sub_task"});
-				for(auto& ite : preprocess_nodes)
+				SubContextTaskFlow::Ptr ptr = new(re.Get()) SubContextTaskFlow{ re, layer };
+				AddNode_AssumedLocked(*ptr, { u8"sub_task" });
+				for (auto& ite : preprocess_nodes)
 				{
 					auto tar = static_cast<SubContextTaskFlow*>(ite.node.GetPointer());
-					if(tar != ptr)
+					if (tar != ptr)
 					{
-						if (tar->layout > property.priority.layout)
+						if (tar->layout > layer)
 						{
-							AddDirectEdge_AssumedLocked(*tar, *ptr);
+							auto re = AddDirectEdge_AssumedLocked(*tar, *ptr);
+							assert(re);
 						}
 						else
 						{
-							assert(tar->layout != property.priority.layout);
-							AddDirectEdge_AssumedLocked(*ptr, *tar);
+							assert(tar->layout != layer);
+							auto re = AddDirectEdge_AssumedLocked(*ptr, *tar);
+							assert(re);
 						}
 					}
 				}
-				return true;
+				return ptr;
 			}
+		}
+		
+		return ptr;
+	}
+
+	bool Context::AddTickedSystemNode(SystemNode& node, SystemNodeProperty property)
+	{
+		std::lock_guard lg(preprocess_mutex);
+		auto ptr = FindOrCreateContextTaskFlow_AssumedLocked(property.priority.layout);
+		if(ptr)
+		{
+			return ptr->AddTickedNode(node, property);
 		}
 		return false;
 	}
@@ -499,17 +511,13 @@ namespace Noodles
 	bool Context::AddTemporarySystemNodeDefer(SystemNode& node, std::int32_t layout, Potato::Task::TaskFilter filter)
 	{
 		std::lock_guard lg(preprocess_mutex);
-		for(auto& ite : preprocess_nodes)
+		auto ptr = FindOrCreateContextTaskFlow_AssumedLocked(layout);
+		if (ptr)
 		{
-			auto task = static_cast<SubContextTaskFlow*>(ite.node.GetPointer());
-			if(task->layout == layout)
-			{
-				return task->AddTemporaryNodeDefer(node, filter);
-			}
+			return ptr->AddTemporaryNodeDefer(node, filter);
 		}
 		return false;
 	}
-
 
 	void Context::TaskFlowExecuteBegin(Potato::Task::TaskFlowContext& context)
 	{

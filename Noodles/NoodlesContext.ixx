@@ -315,7 +315,6 @@ export namespace Noodles
 		bool AddTickedSystemNode(SystemNode& node, SystemNodeProperty property);
 		bool AddTemporarySystemNodeDefer(SystemNode& node, std::int32_t layout, Potato::Task::TaskFilter property);
 
-
 		template<typename Function>
 		bool CreateAndAddTickedAutomaticSystem(Function&& func, SystemName name, SystemNodeProperty property = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 		{
@@ -353,6 +352,9 @@ export namespace Noodles
 		}
 
 	protected:
+
+		SubContextTaskFlow* FindSubContextTaskFlow_AssumedLocked(std::int32_t layer);
+		SubContextTaskFlow::Ptr FindOrCreateContextTaskFlow_AssumedLocked(std::int32_t layer);
 
 		virtual void TaskFlowExecuteBegin(Potato::Task::TaskFlowContext& context) override;
 		virtual void TaskFlowExecuteEnd(Potato::Task::TaskFlowContext& context) override;

@@ -114,9 +114,9 @@ export namespace Noodles
 			Potato::IR::Layout archetype_layout,
 			std::span<MemberView const> member_view,
 			std::size_t hash_code,
-			StructLayoutConstruction construction_property
+			OperateProperty ope_property
 			)
-				: record(record), single_layout(single_layout), archetype_layout(archetype_layout), member_view(member_view), hash_code(hash_code), construction_property(construction_property)
+				: record(record), single_layout(single_layout), archetype_layout(archetype_layout), member_view(member_view), hash_code(hash_code), ope_property(ope_property)
 		{
 			
 		}
@@ -127,7 +127,7 @@ export namespace Noodles
 		virtual void AddStructLayoutRef() const override { DefaultIntrusiveInterface::AddRef(); }
 		virtual void SubStructLayoutRef() const override { DefaultIntrusiveInterface::SubRef(); }
 		virtual std::u8string_view GetName() const override {return {};}
-		virtual StructLayoutConstruction GetConstructProperty() const override { return construction_property; }
+		virtual OperateProperty GetOperateProperty() const override { return ope_property; }
 		virtual void Release() override;
 
 		Potato::IR::MemoryResourceRecord record;
@@ -135,7 +135,7 @@ export namespace Noodles
 		Potato::IR::Layout archetype_layout;
 		std::span<MemberView const> member_view;
 		std::size_t hash_code;
-		StructLayoutConstruction construction_property;
+		OperateProperty ope_property;
 	};
 
 }

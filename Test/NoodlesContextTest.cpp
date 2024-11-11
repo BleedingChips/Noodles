@@ -106,23 +106,23 @@ int main()
 	};
 
 	auto Ker = context.MoveAndCreateSingleton<Tuple2>(Tuple2{std::u8string{u8"Fff"}});
-	context.CreateAndAddTickedAutomaticSystem(Lambda,
+	auto b1 = context.CreateAndAddTickedAutomaticSystem(Lambda,
 		{ u8"S133", u8"G11" },
 	{
 		{1, 1, 1},
 	});
-	context.CreateAndAddTickedAutomaticSystem(Lambda,
+	auto b2 = context.CreateAndAddTickedAutomaticSystem(Lambda,
 		{ u8"S233", u8"G11" },
 	{
 		{1, 2, 1},
 	});
-	context.CreateAndAddTickedAutomaticSystem(Lambda,
+	auto b3 = context.CreateAndAddTickedAutomaticSystem(Lambda,
 		{ u8"S144", u8"G22" },
 	{
 		{2, 1, 1},
 	});
 
-	context.CreateAndAddTickedAutomaticSystem([&](Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple> filter)
+	auto b4 = context.CreateAndAddTickedAutomaticSystem([&](Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple> filter)
 	{
 		PrintSystemProperty(context);
 		auto sys = context.CreateAutomaticSystem(Lambda, {u8"Temp", u8"Temp"});
@@ -147,22 +147,19 @@ int main()
 			Tuple* ref = filter.GetByIndex<0>(wrap);
 		}
 
-		
-
-
 	},
 		{ u8"TempTemp", u8"G22" },
 	{
 		{2, 1, 3},
 	});
-	context.CreateAndAddTickedAutomaticSystem(TestFunction,
+	auto b5 = context.CreateAndAddTickedAutomaticSystem(TestFunction,
 		{u8"S4", u8"G11"},
 		{1, 1, 3}
 		);
 
 	int index2 = 0;
 
-	context.CreateAndAddTickedAutomaticSystem([&](Noodles::ContextWrapper& wrapper)
+	auto b6 = context.CreateAndAddTickedAutomaticSystem([&](Noodles::ContextWrapper& wrapper)
 	{
 		auto info = wrapper.GetParrallelInfo();
 		if(info.status == Noodles::ParallelInfo::Status::None)

@@ -39,13 +39,13 @@ namespace Noodles
 		if(re)
 		{
 			std::span<MemberView> MV = std::span(reinterpret_cast<MemberView*>(re.GetByte() + offset), atomic_type.size());
-			StructLayoutConstruction construct;
+			OperateProperty property;
 			Potato::IR::Layout total_layout;
 			for(std::size_t i = 0; i < atomic_type.size(); ++i)
 			{
 				auto& ref = atomic_type[i];
 				assert(ref);
-				construct = construct && ref->GetConstructProperty();
+				property = property && ref->GetOperateProperty();
 				std::size_t offset = Potato::IR::InsertLayoutCPP(total_layout, ref->GetLayout());
 				new (&MV[i]) MemberView{
 					ref,
@@ -57,7 +57,7 @@ namespace Noodles
 			auto archetype_layout = total_layout;
 			Potato::IR::FixLayoutCPP(total_layout);
 			return new(re.Get()) Archetype {
-				re,  total_layout,archetype_layout, MV, *hash_code, construct};
+				re,  total_layout,archetype_layout, MV, *hash_code, property };
 		}
 		return {};
 	}
