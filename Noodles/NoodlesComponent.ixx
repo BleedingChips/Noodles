@@ -24,6 +24,20 @@ export namespace Noodles
 
 	using IgnoreMutexProperty = NoodlesTypeProperty<false>;
 
+	struct OptionalIndex
+	{
+		std::size_t real_index = std::numeric_limits<std::size_t>::max();
+		operator bool() const { return real_index != std::numeric_limits<std::size_t>::max(); }
+		operator std::size_t() const { assert(*this); return real_index; }
+		OptionalIndex& operator=(OptionalIndex const&) = default;
+		OptionalIndex& operator=(std::size_t input) { assert(input != std::numeric_limits<std::size_t>::max()); real_index = input; return *this; }
+		OptionalIndex() {};
+		OptionalIndex(OptionalIndex const&) = default;
+		OptionalIndex(std::size_t input) : real_index(input) {}
+		void Reset() { real_index = std::numeric_limits<std::size_t>::max(); }
+		std::size_t Get() const { return real_index; }
+	};
+
 
 	export struct ArchetypeComponentManager;
 	export struct EntityProperty;
@@ -107,33 +121,47 @@ export namespace Noodles
 
 
 
-	struct Entity : public Potato::Pointer::DefaultIntrusiveInterface
+	struct Entity : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
 
 		using Ptr = Potato::Pointer::IntrusivePtr<Entity>;
 		
+		static Ptr Create(AtomicTypeManager const& component_manager, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+
 
 	protected:
 
 		void SetFree();
 
-		Entity(Potato::IR::MemoryResourceRecord record);
-		static Ptr Create(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		Entity(
+			Potato::IR::MemoryResourceRecord record,
+			std::span<AtomicTypeMark> current_component_mask,
+			std::span<AtomicTypeMark> modify_component_mask
+			) : MemoryResourceRecordIntrusiveInterface(record),
+			current_component_mask(current_component_mask),
+			modify_component_mask(modify_component_mask)
+		{}
 
-		virtual void Release() override;
+		~Entity();
+		
 
 		Potato::IR::MemoryResourceRecord record;
 		mutable std::shared_mutex mutex;
 
-		EntityStatus status = EntityStatus::Free;
-		std::size_t owner_id = 0;
-		std::size_t archetype_index = std::numeric_limits<std::size_t>::max();
-		std::size_t mount_point_index = 0;
-		EntityModifer::Ptr modifer;
-		bool need_modifier = false;
+		EntityStatus status = EntityStatus::PreInit;
+
+		OptionalIndex archetype_index;
+		OptionalIndex mount_point_index;
+		OptionalIndex modify_index;
+
+		std::span<AtomicTypeMark> current_component_mask;
+		std::span<AtomicTypeMark> modify_component_mask;
+
 
 		friend struct ArchetypeComponentManager;
 		friend struct EntityProperty;
+
+		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 	};
 
 	using EntityPtr = Entity::Ptr;
@@ -158,117 +186,124 @@ export namespace Noodles
 		friend struct ArchetypeComponentManager;
 	};
 
-	struct ComponentFilter : public Potato::Pointer::DefaultControllerViewerInterface
+	struct ComponentFilter : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
+		using Ptr = Potato::Pointer::IntrusivePtr<ComponentFilter>;
 
-		using VPtr = Potato::Pointer::ViewerPtr<ComponentFilter>;
 
-		std::span<AtomicType::Ptr> GetAtomicType() const { return atomic_type; }
-		std::size_t GetHash() const { return hash_id; }
+		std::span<AtomicTypeMark const> GetRequiredAtomicMarkArray() const { return require_component; }
+		std::span<AtomicTypeMark const> GetRequiresWriteAtomicMarkArray() const { return require_write_component; }
+		std::span<AtomicTypeMark const> GetRefuseAtomicMarkArray() const { return refuse_component; }
+		std::span<AtomicTypeID const> GetAtomicID() const { return atomic_id; }
 
-	protected:
-
-		using CPtr = Potato::Pointer::ControllerPtr<ComponentFilter>;
-		void ControllerRelease() override;
-		void ViewerRelease() override {}
-
-		void OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype);
-
-		ComponentFilter(Potato::IR::MemoryResourceRecord record, std::size_t hash_id, std::span<AtomicType::Ptr> atomic_type)
-			: index(record.GetMemoryResource()), record(record), hash_id(hash_id), atomic_type(atomic_type) {}
-
-		std::optional<std::span<std::size_t>> EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index, std::span<std::size_t> output) const;
-		std::optional<std::span<std::size_t>> EnumMountPointIndexByIterator_AssumedLocked(std::size_t iterator, std::size_t& archetype_index, std::span<std::size_t> output) const;
-
-		Potato::IR::MemoryResourceRecord record;
-		std::size_t hash_id = 0;
-		std::span<AtomicType::Ptr> atomic_type;
-
-		mutable std::shared_mutex mutex;
-		std::pmr::vector<std::size_t> index;
-
-		friend struct ArchetypeComponentManager;
-	};
-
-	struct Singleton : public Potato::Pointer::DefaultIntrusiveInterface
-	{
-		struct Wrapper
+		struct Info
 		{
-			template<typename T>
-			void AddRef(T* ref) { ref->AddSingletonRef(); }
-			template<typename T>
-			void SubRef(T* ref) { ref->SubSingletonRef(); }
+			bool need_write = false;
+			AtomicType::Ptr atomic_type;
 		};
 
-		using Ptr = Potato::Pointer::IntrusivePtr<Singleton, Wrapper>;
+		static ComponentFilter::Ptr Create(
+			AtomicTypeManager& manager,
+			std::span<Info const> require_component_type,
+			std::span<AtomicType::Ptr const> refuse_component_type,
+			std::pmr::memory_resource* storage_resource = std::pmr::get_default_resource(),
+			std::pmr::memory_resource* archetype_info_resource = std::pmr::get_default_resource()
+		);
 
-		virtual void* Get() const { return data; }
-		virtual AtomicType::Ptr GetAtomicType() const { return atomic_type; }
-		virtual ~Singleton() = default;
-
-		static auto MoveCreate(std::pmr::memory_resource* resource, AtomicType::Ptr atomic_type, void* reference_data)
-			->Ptr;
-
-		bool IsSameAtomicType(AtomicType const& atomic_type) const { return (*this->atomic_type) == atomic_type; }  
-
-	protected:
-
-		Singleton(Potato::IR::MemoryResourceRecord record, AtomicType::Ptr atomic_type, void* data)
-			: record(record), atomic_type(std::move(atomic_type)), data(data) {}
-
-		virtual void AddSingletonRef() const { DefaultIntrusiveInterface::AddRef(); }
-		virtual void SubSingletonRef() const { DefaultIntrusiveInterface::SubRef(); }
-		virtual void Release();
-
-		Potato::IR::MemoryResourceRecord record;
-		AtomicType::Ptr atomic_type;
-		void* data;
-	};
-
-	struct SingletonFilter : public Potato::Pointer::DefaultControllerViewerInterface
-	{
-		using VPtr = Potato::Pointer::ViewerPtr<SingletonFilter>;
-
-		AtomicType::Ptr GetAtomicType() const { return atomic_type; }
-		bool IsSameAtomicType(AtomicType const& atomic_type) const { return (*this->atomic_type) == atomic_type; }  
-		void* Get() const;
+		bool OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype);
+		std::optional<std::span<std::size_t const>> EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index) const;
+		std::optional<std::span<std::size_t const>> EnumMountPointIndexByIterator_AssumedLocked(std::size_t iterator, std::size_t& archetype_index) const;
 
 	protected:
 
-		using CPtr = Potato::Pointer::ControllerPtr<SingletonFilter>;
-		void ControllerRelease() override;
-		void ViewerRelease() override {}
+		ComponentFilter(
+			Potato::IR::MemoryResourceRecord record, 
+			std::span<AtomicTypeMark> require_component,
+			std::span<AtomicTypeMark> require_write_component,
+			std::span<AtomicTypeMark> refuse_component,
+			std::span<AtomicTypeID> atomic_id,
+			std::pmr::memory_resource* resource
+		)
+			:MemoryResourceRecordIntrusiveInterface(record), require_component(require_component),
+			require_write_component(require_write_component),
+			refuse_component(refuse_component),
+			atomic_id(atomic_id),
+			archetype_offset(resource)
+		{
+			
+		}
 
-		void OnCreatedArchetype(Singleton& ref);
-
-		SingletonFilter(Potato::IR::MemoryResourceRecord record, AtomicType::Ptr atomic_type)
-			: record(record), atomic_type(std::move(atomic_type)) {}
-
-		Potato::IR::MemoryResourceRecord record;
-		AtomicType::Ptr atomic_type;
+		std::span<AtomicTypeMark> require_component;
+		std::span<AtomicTypeMark> require_write_component;
+		std::span<AtomicTypeMark> refuse_component;
+		std::span<AtomicTypeID> atomic_id;
 
 		mutable std::shared_mutex mutex;
-		Singleton::Ptr reference_singleton;
+		std::pmr::vector<std::size_t> archetype_offset;
 
 		friend struct ArchetypeComponentManager;
+		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
+	};
+
+	struct SingletonFilter : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
+	{
+		using Info = ComponentFilter::Info;
+		using Ptr = Potato::Pointer::IntrusivePtr<SingletonFilter>;
+
+		std::span<AtomicTypeMark const> GetRequiredAtomicMarkArray() const { return require_singleton; }
+		std::span<AtomicTypeMark const> GetRequiresWriteAtomicMarkArray() const { return require_write_singleton; }
+		std::span<AtomicTypeID const> GetAtomicID() const { return atomic_id; }
+
+		bool OnSingletonModify(Archetype const& archetype);
+
+		static SingletonFilter::Ptr Create(
+			AtomicTypeManager& manager,
+			std::span<Info const> require_singleton,
+			std::pmr::memory_resource* storage_resource = std::pmr::get_default_resource()
+		);
+
+		std::span<std::size_t const> EnumSingleton_AssumedLocked() const { return archetype_offset; }
+
+	protected:
+
+		SingletonFilter(
+			Potato::IR::MemoryResourceRecord record,
+			std::span<AtomicTypeMark> require_singleton,
+			std::span<AtomicTypeMark> require_write_singleton,
+			std::span<AtomicTypeID> atomic_id,
+			std::span<std::size_t> archetype_offset
+		)
+			:MemoryResourceRecordIntrusiveInterface(record), require_singleton(require_singleton),
+			require_write_singleton(require_write_singleton),
+			atomic_id(atomic_id),
+			archetype_offset(archetype_offset)
+		{
+		}
+
+		std::span<AtomicTypeMark> require_singleton;
+		std::span<AtomicTypeMark> require_write_singleton;
+		std::span<AtomicTypeID> atomic_id;
+
+		mutable std::shared_mutex mutex;
+		std::span<std::size_t> archetype_offset;
+
+		friend struct ArchetypeComponentManager;
+		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 	};
 
 	export struct ArchetypeComponentManager
 	{
-		struct SyncResource
+
+		struct Setting
 		{
-			std::pmr::memory_resource* manager_resource = std::pmr::get_default_resource();
-			std::pmr::memory_resource* archetype_resource = std::pmr::get_default_resource();
-			std::pmr::memory_resource* component_resource = std::pmr::get_default_resource();
-			std::pmr::memory_resource* singleton_resource = std::pmr::get_default_resource();
-			std::pmr::memory_resource* filter_resource = std::pmr::get_default_resource();
-			std::pmr::memory_resource* temporary_resource = std::pmr::get_default_resource();
+			std::size_t max_component_atomic_type_count = 128;
+			std::size_t max_singleton_atomic_type_count = 128;
 		};
 
-		ArchetypeComponentManager(SyncResource resource = {});
+		ArchetypeComponentManager(Setting setting, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 		~ArchetypeComponentManager();
 
-		EntityPtr CreateEntity(std::pmr::memory_resource* entity_resource = std::pmr::get_default_resource());
+		EntityPtr CreateEntity(std::pmr::memory_resource* entity_resource = std::pmr::get_default_resource(), std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 
 		template<typename Type>
 		bool AddEntityComponent(Entity& target_entity, Type&& type) requires(std::is_rvalue_reference_v<decltype(type)>) { return AddEntityComponent(target_entity, *GetAtomicType<Type>(), &type); }
@@ -278,42 +313,53 @@ export namespace Noodles
 		template<typename Type>
 		bool RemoveEntityComponent(Entity& target_entity) { return RemoveEntityComponent(target_entity,  *GetAtomicType<Type>()); }
 
-		bool RemoveEntityComponent(Entity& target_entity, AtomicType const& atomic_type);
+		bool RemoveEntityComponent(Entity& target_entity, AtomicType const& atomic_type, bool accept_build_in_component = false, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
-		bool ForceUpdateState();
-		ComponentFilter::VPtr CreateComponentFilter(std::span<AtomicType::Ptr const> require_component);
-		SingletonFilter::VPtr CreateSingletonFilter(AtomicType const& atomic_type);
+		bool ForceUpdateState(
+			std::pmr::memory_resource* archetype_resource = std::pmr::get_default_resource(),
+			std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource()
+			);
 
-		struct ComponentsWrapper
+		ComponentFilter::Ptr CreateComponentFilter(
+			std::span<ComponentFilter::Info const> require_component, 
+			std::span<AtomicType::Ptr const> refuse_component, 
+			std::size_t identity, 
+			std::pmr::memory_resource* filter_resource = std::pmr::get_default_resource(),
+			std::pmr::memory_resource* offset_resource = std::pmr::get_default_resource()
+			);
+
+		SingletonFilter::Ptr CreateSingletonFilter(
+			std::span<SingletonFilter::Info const> require_singleton, 
+			std::size_t identity, 
+			std::pmr::memory_resource* filter_resource = std::pmr::get_default_resource()
+			);
+
+		struct DataWrapper
 		{
 			Archetype::OPtr archetype;
-			Archetype::ArrayMountPoint array_mount_point;
-			std::span<std::size_t> output_archetype_locate;
+			std::size_t data_array_count;
+			std::pmr::vector<void*> elements;
 			operator bool() const { return archetype; }
-			Archetype::RawArray GetRawArray(std::size_t index) const { return archetype->Get(output_archetype_locate[index], array_mount_point); }
 		};
 
-		struct EntityWrapper
-		{
-			ComponentsWrapper wrapper;
-			std::size_t mount_point;
-			operator bool() const { return wrapper; }
-		};
+		std::optional<DataWrapper> ReadComponents_AssumedLocked(ComponentFilter const& filter, std::size_t filter_ite, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
+		std::optional<DataWrapper> ReadEntityComponents_AssumedLocked(Entity const& ent, ComponentFilter const& filter, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
+		//std::optional<std::span<void*>> ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output_ptr, bool prefer_modify = true) const;
 
-		ComponentsWrapper ReadComponents_AssumedLocked(ComponentFilter const& filter, std::size_t filter_ite, std::span<std::size_t> output_span) const;
-		EntityWrapper ReadEntityComponents_AssumedLocked(Entity const& ent, ComponentFilter const& filter, std::span<std::size_t> output_span) const;
-		std::optional<std::span<void*>> ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output_ptr, bool prefer_modify = true) const;
+		DataWrapper ReadSingleton_AssumedLocked(SingletonFilter const& filter, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
 
-		void* ReadSingleton_AssumedLocked(SingletonFilter const& filter);
-
-		bool MoveAndCreateSingleton(AtomicType const& atomic_type, void* move_reference);
+		bool MoveAndCreateSingleton(AtomicType::Ptr atomic_type, void* move_reference, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		template<typename Type>
-		bool MoveAndCreateSingleton(Type && reference) { return MoveAndCreateSingleton(*GetAtomicType<Type>(), &reference); }
+		bool MoveAndCreateSingleton(Type && reference, std::pmr::memory_resource* resource = std::pmr::get_default_resource()) { return this->MoveAndCreateSingleton(GetAtomicType<Type>(), &reference, resource); }
 
-		bool ReleaseEntity(Entity& entity);
+		bool ReleaseEntity(Entity& entity, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 
 	protected:
+
+		bool AddEntityComponent_AssumedLocked(Entity& target_entity, AtomicType const& archetype_id, void* reference_buffer, bool accept_build_in_component, std::pmr::memory_resource* resource);
+
+		AtomicTypeID GetEntityPropertyAtomicTypeID() const { return AtomicTypeID{0}; }
 
 		std::tuple<Archetype::OPtr, Archetype::ArrayMountPoint> GetComponentPage(std::size_t archetype_index) const;
 
@@ -338,46 +384,68 @@ export namespace Noodles
 		{
 			Archetype::Ptr archetype;
 			ComponentPage::Ptr memory_page;
-			std::size_t entity_property_locate;
+			Archetype::Index entity_property_locate;
 			std::size_t total_count;
 		};
 
-		struct SingletonElement
-		{
-			AtomicType::Ptr atomic_type;
-			Singleton::Ptr singleton;
-		};
+		AtomicTypeManager component_manager;
+		AtomicTypeManager singleton_manager;
 
 		mutable std::shared_mutex component_mutex;
 		std::pmr::vector<Element> components;
-		std::pmr::vector<SingletonElement> singleton_element;
-		std::pmr::unsynchronized_pool_resource components_resource;
-		std::pmr::unsynchronized_pool_resource archetype_resource;
-		std::pmr::unsynchronized_pool_resource singleton_resource;
+		Archetype::Ptr singleton_archetype;
+		Potato::IR::MemoryResourceRecord singleton_record;
 
 		std::optional<std::size_t> AllocateMountPoint(Element& tar);
 		void CopyMountPointFormLast(Element& tar, std::size_t mp_index);
 
 		std::mutex entity_modifier_mutex;
-		std::pmr::vector<Entity::Ptr> modified_entity;
+
+		struct EntityModifierEvent
+		{
+
+			enum class Operation
+			{
+				Ignore,
+				AddComponent,
+				RemoveComponent,
+			};
+
+			Operation operation = Operation::Ignore;
+			AtomicTypeID index;
+			AtomicType::Ptr atomic_type;
+			Potato::IR::MemoryResourceRecord resource;
+			~EntityModifierEvent();
+			EntityModifierEvent(Operation operation, AtomicTypeID index, AtomicType::Ptr atomic_type, Potato::IR::MemoryResourceRecord resource)
+				: operation(operation), index(index), atomic_type(std::move(atomic_type)), resource(std::move(resource)) {}
+			EntityModifierEvent(EntityModifierEvent&& event);
+		};
+
+		struct EntityModifier
+		{
+			Entity::Ptr reference_entity;
+			bool need_remove = false;
+			std::pmr::vector<EntityModifierEvent> modifier_event;
+		};
+
+		std::pmr::vector<EntityModifier> modified_entity;
 
 		struct SingletonModifier
 		{
-			bool require_destroy = false;
-			std::size_t fast_reference = 0;
+			AtomicTypeID index;
 			AtomicType::Ptr atomic_type;
-			Singleton::Ptr singleton;
+			Potato::IR::MemoryResourceRecord resource;
+			~SingletonModifier();
 		};
 
 		std::mutex singleton_modifier_mutex;
 		std::pmr::vector<SingletonModifier> singleton_modifier;
 
 		std::shared_mutex filter_mutex;
-		std::pmr::vector<ComponentFilter::CPtr> component_filter;
-		std::pmr::vector<SingletonFilter::CPtr> singleton_filters;
-
-		std::pmr::memory_resource* filter_resource;
-		std::pmr::memory_resource* temp_resource;
+		std::pmr::vector<std::tuple<ComponentFilter::Ptr, OptionalIndex>> component_filter;
+		bool component_filter_need_remove = false;
+		std::pmr::vector< std::tuple<SingletonFilter::Ptr, OptionalIndex>> singleton_filters;
+		bool singleton_filter_need_remove = false;
 	};
 
 	template<typename ...AT>

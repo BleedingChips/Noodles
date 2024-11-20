@@ -34,7 +34,9 @@ int main()
 		GetAtomicType<C>()
 	};
 
-	auto ptr = Archetype::Create(std::span(ids));
+	AtomicTypeManager manager;
+
+	auto ptr = Archetype::Create(manager, std::span(ids));
 
 	Tot temp;
 
@@ -47,7 +49,7 @@ int main()
 	auto re_ad3 = ptr->Get((*ptr)[2], { &temp, 1, 1 }, 0);
 	static_cast<C*>(re_ad3)->i = 86;
 
-	auto re_ad4 = ptr->LocateTypeID(*GetAtomicType<D>());
+	auto re_ad4 = ptr->LocateAtomicTypeID(*manager.LocateOrAddAtomicType(GetAtomicType<D>()));
 
 	{
 		std::vector<AtomicType::Ptr> ids{
@@ -55,7 +57,7 @@ int main()
 			GetAtomicType<E>()
 		};
 
-		auto ptr2 = Archetype::Create(std::span(ids));
+		auto ptr2 = Archetype::Create(manager, std::span(ids));
 
 		volatile int i = 0;
 	}
@@ -67,7 +69,7 @@ int main()
 			GetAtomicType<D>()
 		};
 
-		auto ptr2 = Archetype::Create(std::span(ids));
+		auto ptr2 = Archetype::Create(manager, std::span(ids));
 
 		volatile int i = 0;
 	}

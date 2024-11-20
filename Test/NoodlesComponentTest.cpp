@@ -39,6 +39,70 @@ struct E
 
 int main()
 {
+
+	{
+		AtomicTypeManager manager;
+
+		auto init_list = std::array{
+			Potato::IR::StaticAtomicStructLayout<B>::Create(),
+			Potato::IR::StaticAtomicStructLayout<A>::Create(),
+			Potato::IR::StaticAtomicStructLayout<C>::Create(),
+			Potato::IR::StaticAtomicStructLayout<D>::Create(),
+			Potato::IR::StaticAtomicStructLayout<E>::Create()
+		};
+
+		auto archetype = Archetype::Create(manager,init_list);
+
+		auto init_list2 = std::array<ComponentFilter::Info, 2>
+		{
+			ComponentFilter::Info{true, Potato::IR::StaticAtomicStructLayout<A>::Create()},
+			ComponentFilter::Info{false, Potato::IR::StaticAtomicStructLayout<B>::Create()}
+		};
+
+		auto filter = ComponentFilter::Create(manager, init_list2, {});
+
+		filter->OnCreatedArchetype(0, *archetype);
+
+		auto init_list3 = std::array<ComponentFilter::Info, 2>
+		{
+			ComponentFilter::Info{true, Potato::IR::StaticAtomicStructLayout<D>::Create()},
+			ComponentFilter::Info{false, Potato::IR::StaticAtomicStructLayout<E>::Create()}
+		};
+
+		auto filter2 = SingletonFilter::Create(manager, init_list3);
+
+		filter2->OnSingletonModify(*archetype);
+
+		volatile std::size_t k2 = 0;
+	}
+	
+	{
+		AtomicTypeManager manager;
+
+		auto init_list = std::array{
+			Potato::IR::StaticAtomicStructLayout<B>::Create(),
+			Potato::IR::StaticAtomicStructLayout<A>::Create(),
+			Potato::IR::StaticAtomicStructLayout<C>::Create()
+		};
+
+		auto archetype = Archetype::Create(manager, init_list);
+
+		auto init_list2 = std::array<ComponentFilter::Info, 2>
+		{
+			ComponentFilter::Info{true, Potato::IR::StaticAtomicStructLayout<A>::Create()},
+			ComponentFilter::Info{false, Potato::IR::StaticAtomicStructLayout<B>::Create()}
+		};
+
+		auto filter = ComponentFilter::Create(manager, init_list2, {});
+
+		filter->OnCreatedArchetype(0, *archetype);
+
+		volatile std::size_t k2 = 0;
+	}
+
+
+
+	/*
 	{
 		TemporaryComponentFilterStorage<Report, A, EntityProperty, std::u8string> TF;
 		//TestComponentFilter<Report, A, EntityProperty, std::u8string> TF;
@@ -130,6 +194,7 @@ int main()
 			volatile int i = 0;
 		}
 	}
+	*/
 
 
 	volatile int i = 0;

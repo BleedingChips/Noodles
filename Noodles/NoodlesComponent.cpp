@@ -22,15 +22,15 @@ namespace Noodles
 		{
 			auto self_size = sizeof(ComponentPage);
 			auto fix_size = 0;
-			if (component_layout.Align > alignof(ComponentPage))
+			if (component_layout.align > alignof(ComponentPage))
 			{
-				fix_size = component_layout.Align - alignof(ComponentPage);
+				fix_size = component_layout.align - alignof(ComponentPage);
 			}
 			std::size_t element_count = 0;
 			while (true)
 			{
 				auto buffer_size = (min_page_size - fix_size - self_size);
-				element_count = buffer_size / component_layout.Size;
+				element_count = buffer_size / component_layout.size;
 				if (element_count >= min_element_count)
 				{
 					break;
@@ -44,11 +44,11 @@ namespace Noodles
 			if(adress != nullptr)
 			{
 				void* buffer = reinterpret_cast<ComponentPage*>(adress) + 1;
-				std::size_t require_size = component_layout.Align * 2;
-				if(std::align(component_layout.Align, component_layout.Align, buffer, require_size) != nullptr)
+				std::size_t require_size = component_layout.align * 2;
+				if(std::align(component_layout.align, component_layout.align, buffer, require_size) != nullptr)
 				{
 					auto start = static_cast<std::byte*>(buffer);
-					assert(static_cast<std::byte*>(adress) + min_page_size >= start + component_layout.Size * min_element_count);
+					assert(static_cast<std::byte*>(adress) + min_page_size >= start + component_layout.size * min_element_count);
 					std::span<std::byte> real_buffer{
 						start,
 						reinterpret_cast<std::byte*>(adress) + min_page_size
@@ -126,168 +126,294 @@ namespace Noodles
 	void Entity::SetFree()
 	{
 		status = EntityStatus::Free;
-		archetype_index = std::numeric_limits<std::size_t>::max();
-		mount_point_index = 0;
-		owner_id = 0;
-		archetype_index = std::numeric_limits<std::size_t>::max();
-		modifer = {};
-		need_modifier = false;
+		archetype_index.Reset();
+		mount_point_index.Reset();
+		modify_index.Reset();
+		AtomicTypeMark::Reset(current_component_mask);
+		AtomicTypeMark::Reset(modify_component_mask);
 	}
 
-	auto Entity::Create(std::pmr::memory_resource* resource)
+	auto Entity::Create(AtomicTypeManager const& manager, std::pmr::memory_resource* resource)
 		-> Ptr
 	{
-		auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, Potato::IR::Layout::Get<Entity>());
+		auto layout = Potato::MemLayout::MemLayoutCPP::Get<Entity>();
+		auto offset_current_mask = layout.Insert(Potato::MemLayout::Layout::GetArray<AtomicTypeMark>(manager.GetStorageCount()));
+		auto offset_modify_component = layout.Insert(Potato::MemLayout::Layout::GetArray<AtomicTypeMark>(manager.GetStorageCount()));
+
+		auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
 		if (record)
 		{
-			Ptr TPtr{ new (record.Get()) Entity{record } };
-			return TPtr;
+			auto current_mask = std::span{
+				new (record.GetByte(offset_current_mask)) AtomicTypeMark[manager.GetStorageCount()],
+				manager.GetStorageCount()
+			};
+			auto modify_component = std::span{
+				new (record.GetByte(offset_modify_component)) AtomicTypeMark[manager.GetStorageCount()],
+				manager.GetStorageCount()
+			};
+			return new (record.Get()) Entity{
+				record,
+				current_mask,
+				modify_component
+			};
 		}
 		
 		return {};
 	}
 
-	void Entity::Release()
+	Entity::~Entity()
 	{
-		auto orecord = record;
-		this->~Entity();
-		orecord.Deallocate();
+		AtomicTypeMark::Destruction(current_component_mask);
+		AtomicTypeMark::Destruction(modify_component_mask);
 	}
 
-	Entity::Entity(Potato::IR::MemoryResourceRecord record)
-		: record(record)
+	ComponentFilter::Ptr ComponentFilter::Create(
+		AtomicTypeManager& manager,
+		std::span<Info const> require_component_type,
+		std::span<AtomicType::Ptr const> refuse_component_type,
+		std::pmr::memory_resource* storage_resource,
+		std::pmr::memory_resource* archetype_info_resource
+	)
 	{
-		
+		auto layout = Potato::MemLayout::MemLayoutCPP::Get<ComponentFilter>();
+		auto require_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<AtomicTypeMark>(manager.GetStorageCount()));
+		auto require_write_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<AtomicTypeMark>(manager.GetStorageCount()));
+		auto refuse_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<AtomicTypeMark>(manager.GetStorageCount()));
+		auto atomic_index_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<AtomicTypeID>(require_component_type.size()));
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(storage_resource, layout.Get());
+		if(re)
+		{
+			std::span<AtomicTypeMark> require_mask { new (re.GetByte(require_offset)) AtomicTypeMark[manager.GetStorageCount()], manager.GetStorageCount() };
+			std::span<AtomicTypeMark> require_write_mask{ new (re.GetByte(require_write_offset)) AtomicTypeMark[manager.GetStorageCount()], manager.GetStorageCount() };
+			std::span<AtomicTypeID> require_index { new (re.GetByte(atomic_index_offset)) AtomicTypeID[require_component_type.size()], require_component_type.size() };
+
+			auto ite_span = require_index;
+
+			for(auto& Ite : require_component_type)
+			{
+				auto loc = manager.LocateOrAddAtomicType(Ite.atomic_type);
+				if(loc.has_value())
+				{
+					AtomicTypeMark::Mark(require_mask, *loc);
+					ite_span[0] = *loc;
+					ite_span = ite_span.subspan(1);
+					if(Ite.need_write)
+					{
+						AtomicTypeMark::Mark(require_write_mask, *loc);
+					}
+				}else
+				{
+					assert(false);
+					AtomicTypeMark::Destruction(require_mask);
+					AtomicTypeMark::Destruction(require_write_mask);
+					AtomicTypeID::Destruction(require_index);
+				}
+			}
+
+			std::span<AtomicTypeMark> refuse_mask{ new (re.GetByte(refuse_offset)) AtomicTypeMark[manager.GetStorageCount()], manager.GetStorageCount() };
+
+			for(auto& Ite : refuse_component_type)
+			{
+				auto loc = manager.LocateOrAddAtomicType(Ite);
+				if (loc.has_value())
+				{
+					AtomicTypeMark::Mark(refuse_mask, *loc);
+				}
+				else
+				{
+					assert(false);
+					AtomicTypeMark::Destruction(require_mask);
+					AtomicTypeMark::Destruction(require_write_mask);
+					AtomicTypeID::Destruction(require_index);
+					AtomicTypeMark::Destruction(refuse_mask);
+				}
+			}
+
+			return new (re.Get()) ComponentFilter { re, require_mask, require_write_mask, refuse_mask, require_index, archetype_info_resource };
+ 		}
+		return {};
 	}
 
-	void ComponentFilter::OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype)
+	bool ComponentFilter::OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype)
 	{
 		std::lock_guard lg(mutex);
-		auto aspan = GetAtomicType();
-		assert(aspan.size() > 0);
-		auto old_size = index.size();
-		index.resize(old_size + aspan.size() + 1);
-		auto out_span = std::span(index).subspan(old_size);
-		out_span[0] = archetype_index;
-		out_span = out_span.subspan(1);
-		for (auto& ite : aspan)
+		auto archetype_atomic_id = archetype.GetAtomicTypeMark();
+		if(AtomicTypeMark::Inclusion(archetype_atomic_id, GetRequiredAtomicMarkArray()) && !AtomicTypeMark::IsOverlapping(archetype_atomic_id, GetRefuseAtomicMarkArray()))
 		{
-			auto ind = archetype.LocateTypeID(*ite);
-			if (ind.has_value())
+			auto old_size = archetype_offset.size();
+			auto atomic_span = GetAtomicID();
+			auto atomic_size = atomic_span.size();
+			archetype_offset.resize(old_size + 1 + atomic_size);
+			auto span = std::span(archetype_offset).subspan(old_size);
+			span[0] = archetype_index;
+			for(std::size_t i = 0; i < atomic_size; ++i)
 			{
-				out_span[0] = *ind;
-				out_span = out_span.subspan(1);
+				auto index = archetype.LocateAtomicTypeID(atomic_span[i]);
+				assert(index.has_value());
+				span[i + 1] = archetype.GetMemberView()[index->index].offset;
+			}
+			return true;
+		}
+		return false;
+	}
+
+	std::optional<std::span<std::size_t const>> ComponentFilter::EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index) const
+	{
+		auto size = GetAtomicID().size();
+		auto span = std::span(archetype_offset);
+		assert((span.size() % (size + 1)) == 0);
+		while (!span.empty())
+		{
+			if (span[0] == archetype_index)
+			{
+				span = span.subspan(1, size);
+				return span;
 			}
 			else
 			{
-				index.resize(old_size);
-				return;
-			}
-		}
-	}
-
-	std::optional<std::span<std::size_t>> ComponentFilter::EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index, std::span<std::size_t> output) const
-	{
-		auto size = GetAtomicType().size();
-		if(output.size() >= size)
-		{
-			auto span = std::span(index);
-			assert((span.size() % (size + 1)) == 0);
-			while(!span.empty())
-			{
-				if(span[0] == archetype_index)
-				{
-					span = span.subspan(1, size);
-					std::memcpy(output.data(), span.data(), span.size() * sizeof(std::size_t));
-					return output.subspan(0, size);
-				}else
-				{
-					span = span.subspan(size + 1);
-				}
+				span = span.subspan(size + 1);
 			}
 		}
 		return std::nullopt;
 	}
 
-	std::optional<std::span<std::size_t>> ComponentFilter::EnumMountPointIndexByIterator_AssumedLocked(std::size_t ite_index, std::size_t& archetype_index, std::span<std::size_t> output) const
+	std::optional<std::span<std::size_t const>> ComponentFilter::EnumMountPointIndexByIterator_AssumedLocked(std::size_t ite_index, std::size_t& archetype_index) const
 	{
-		auto size = GetAtomicType().size();
-		if(output.size() >= size)
-		{
-			auto span = std::span(index);
-			assert((span.size() % (size + 1)) == 0);
+		auto size = GetAtomicID().size();
+		auto span = std::span(archetype_offset);
+		assert((span.size() % (size + 1)) == 0);
 
-			auto offset = ite_index * (size + 1);
-			if(offset < span.size())
-			{
-				span = span.subspan(offset);
-				archetype_index = span[0];
-				span = span.subspan(1, size);
-				std::memcpy(output.data(), span.data(), span.size() * sizeof(std::size_t));
-				return output.subspan(0, size);
-			}
+		auto offset = ite_index * (size + 1);
+		if (offset < span.size())
+		{
+			span = span.subspan(offset);
+			archetype_index = span[0];
+			span = span.subspan(1, size);
+			return span;
 		}
 		
 		return std::nullopt;
 	}
 
-	void ComponentFilter::ControllerRelease()
+	SingletonFilter::Ptr SingletonFilter::Create(
+		AtomicTypeManager& manager,
+		std::span<Info const> require_singleton,
+		std::pmr::memory_resource* storage_resource
+	)
 	{
-		auto re = record;
-		this->~ComponentFilter();
-		re.Deallocate();
-	}
-
-	void Singleton::Release()
-	{
-		auto re = record;
-		auto type = atomic_type;
-		auto temp_data = data;
-		this->~Singleton();
-		type->Destruction(temp_data);
-		re.Deallocate();
-	}
-
-	auto Singleton::MoveCreate(std::pmr::memory_resource* resource, AtomicType::Ptr atomic_type, void* reference_data)
-		->Ptr
-	{
-		auto layout = Potato::IR::Layout::Get<Singleton>();
-		auto offset = Potato::IR::InsertLayoutCPP(layout, atomic_type->GetLayout());
-		Potato::IR::FixLayoutCPP(layout);
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout);
-		if(re)
+		auto layout = Potato::MemLayout::MemLayoutCPP::Get<SingletonFilter>();
+		auto require_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<AtomicTypeMark>(manager.GetStorageCount()));
+		auto require_write_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<AtomicTypeMark>(manager.GetStorageCount()));
+		auto atomic_index_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<AtomicTypeID>(require_singleton.size()));
+		auto reference_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<std::size_t>(require_singleton.size()));
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(storage_resource, layout.Get());
+		if (re)
 		{
-			auto res = atomic_type->MoveConstruction(re.GetByte() + offset, reference_data);
-			if(!res)
+			std::span<AtomicTypeMark> require_mask{ new (re.GetByte(require_offset)) AtomicTypeMark[manager.GetStorageCount()], manager.GetStorageCount() };
+			std::span<AtomicTypeMark> require_write_mask{ new (re.GetByte(require_write_offset)) AtomicTypeMark[manager.GetStorageCount()], manager.GetStorageCount() };
+			std::span<AtomicTypeID> require_index{ new (re.GetByte(atomic_index_offset)) AtomicTypeID[require_singleton.size()], require_singleton.size() };
+			std::span<std::size_t> reference_span{ new (re.GetByte(reference_offset)) std::size_t[require_singleton.size()], require_singleton.size() };
+
+			for(auto& ite : reference_span)
 			{
-				re.Deallocate();
-				return {};
+				ite = std::numeric_limits<std::size_t>::max();
 			}
-			return new (re.Get()) Singleton{re, atomic_type, re.GetByte() + offset};
+
+			auto ite_span = require_index;
+
+			for (auto& Ite : require_singleton)
+			{
+				auto loc = manager.LocateOrAddAtomicType(Ite.atomic_type);
+				if (loc.has_value())
+				{
+					AtomicTypeMark::Mark(require_mask, *loc);
+					ite_span[0] = *loc;
+					ite_span = ite_span.subspan(1);
+					if (Ite.need_write)
+					{
+						AtomicTypeMark::Mark(require_write_mask, *loc);
+					}
+				}
+				else
+				{
+					assert(false);
+					AtomicTypeMark::Destruction(require_mask);
+					AtomicTypeMark::Destruction(require_write_mask);
+					AtomicTypeID::Destruction(require_index);
+				}
+			}
+
+			return new (re.Get()) SingletonFilter{ re, require_mask, require_write_mask, require_index, reference_span };
 		}
 		return {};
 	}
 
-	void* SingletonFilter::Get() const {
-		std::shared_lock sl(mutex);
-		if(reference_singleton)
-		{
-			return reference_singleton->Get();
-		}
-		return nullptr;
-	}
-
-	void SingletonFilter::ControllerRelease()
+	bool SingletonFilter::OnSingletonModify(Archetype const& archetype)
 	{
-		auto re = record;
-		this->~SingletonFilter();
-		re.Deallocate();
+		std::lock_guard lg(mutex);
+		auto span = GetAtomicID();
+		auto ref = archetype_offset;
+		for(auto& ite : span)
+		{
+			auto loc = archetype.LocateAtomicTypeID(ite);
+			if(loc.has_value())
+			{
+				ref[0] = archetype[loc->index].offset;
+			}else
+			{
+				ref[0] = std::numeric_limits<std::size_t>::max();
+			}
+			ref = ref.subspan(1);
+		}
+		return true;
 	}
 
+	/*
 	std::optional<std::span<void*>> ArchetypeComponentManager::ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output_ptr, bool prefer_modify) const
 	{
 		std::shared_lock lg(entity.mutex);
 		std::shared_lock lg2(filter.mutex);
+		
+		prefer_modify = (entity.modify_index != std::numeric_limits<std::size_t>::max()) && prefer_modify;
+		auto offset = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(entity.archetype_index);
+		if(offset.has_value() && output_ptr.size() >= offset->size())
+		{
+			auto [mp, index] = GetComponentPage(entity.archetype_index);
+			for (auto& ite : span)
+			{
+				bool find = false;
+				void* data = nullptr;
+				if (prefer_modify)
+				{
+					for (auto& ite2 : entity.modifer->datas)
+					{
+						if (ite2.available && *ite2.atomic_type == *ite)
+						{
+							find = true;
+							if (ite2.record)
+							{
+								data = ite2.record.Get();
+							}
+							break;
+						}
+					}
+				}
+				if (data == nullptr && find)
+				{
+					if (mp)
+					{
+						auto loc = mp->LocateTypeID(*ite);
+						if (loc)
+						{
+							data = mp->Get(*loc, index, entity.mount_point_index);
+						}
+					}
+				}
+				output_ptr[span_index++] = data;
+			}
+		}
+
+
 		if(entity.owner_id == reinterpret_cast<std::size_t>(this))
 		{
 			auto span = filter.GetAtomicType();
@@ -333,11 +459,129 @@ namespace Noodles
 		}
 		return std::nullopt;
 	}
+	*/
 
-	void* ArchetypeComponentManager::ReadSingleton_AssumedLocked(SingletonFilter const& filter)
+	auto ArchetypeComponentManager::ReadComponents_AssumedLocked(ComponentFilter const& filter, std::size_t filter_ite, std::pmr::memory_resource* wrapper_resource) const
+		->std::optional<DataWrapper>
 	{
 		std::shared_lock sl(filter.mutex);
-		return filter.Get();
+		std::size_t archetype_index = 0;
+		auto re = filter.EnumMountPointIndexByIterator_AssumedLocked(filter_ite, archetype_index);
+		if(re.has_value())
+		{
+			assert(components.size() > archetype_index);
+			auto& ref = components[archetype_index];
+			Archetype::OPtr archetype = ref.archetype;
+			auto page = ref.memory_page;
+			if(page)
+			{
+				std::pmr::vector<void*> temp_elements{ wrapper_resource };
+				temp_elements.resize(re->size());
+
+				for(std::size_t i = 0; i < temp_elements.size(); ++i)
+				{
+					temp_elements[i] = static_cast<std::byte*>(page->GetMountPoint().GetBuffer()) + (*re)[i];
+				}
+
+				return DataWrapper
+				{
+					std::move(archetype),
+					page->available_count,
+					std::move(temp_elements)
+				};
+			}else
+			{
+				DataWrapper wrapper
+				{
+					std::move(archetype),
+					0,
+					{}
+				};
+				return wrapper;
+			}
+		}
+		return std::nullopt;
+	}
+
+	auto ArchetypeComponentManager::ReadEntityComponents_AssumedLocked(Entity const& ent, ComponentFilter const& filter, std::pmr::memory_resource* wrapper_resource) const
+		->std::optional<DataWrapper>
+	{
+		std::shared_lock sl(ent.mutex);
+		if(ent.status == EntityStatus::Normal)
+		{
+			std::shared_lock sl(filter.mutex);
+			std::size_t archetype_index = 0;
+			auto re = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(ent.archetype_index);
+			if (re.has_value())
+			{
+				assert(components.size() > archetype_index);
+				auto& ref = components[archetype_index];
+				Archetype::OPtr archetype = ref.archetype;
+				auto page = ref.memory_page;
+				if (page)
+				{
+					std::pmr::vector<void*> temp_elements{ wrapper_resource };
+					temp_elements.resize(re->size());
+
+					for (std::size_t i = 0; i < temp_elements.size(); ++i)
+					{
+						temp_elements[i] = static_cast<std::byte*>(page->GetMountPoint().GetBuffer()) + (*re)[i];
+					}
+
+					return DataWrapper
+					{
+						std::move(archetype),
+						page->available_count,
+						std::move(temp_elements)
+					};
+				}
+				else
+				{
+					DataWrapper wrapper
+					{
+						std::move(archetype),
+						0,
+						{}
+					};
+					return wrapper;
+				}
+			}
+			return std::nullopt;
+		}
+		
+	}
+
+	auto ArchetypeComponentManager::ReadSingleton_AssumedLocked(SingletonFilter const& filter, std::pmr::memory_resource* wrapper_resource) const
+		-> DataWrapper
+	{
+		std::shared_lock sl(filter.mutex);
+		auto type_id = filter.GetAtomicID();
+		auto span = filter.EnumSingleton_AssumedLocked();
+		Archetype::OPtr archetype = singleton_archetype;
+		std::pmr::vector<void*> elements{ wrapper_resource };
+		if(archetype)
+		{
+			elements.resize(span.size());
+			for (std::size_t i = 0; i < span.size(); ++i)
+			{
+				auto& ref = elements[i];
+				if (span[i] == std::numeric_limits<std::size_t>::max())
+				{
+					elements[i] = nullptr;
+				}
+				else
+				{
+					elements[i] = singleton_record.GetByte(span[i]);
+				}
+			}
+			return DataWrapper
+			{
+				std::move(archetype),
+				1,
+				std::move(elements)
+			};
+		}
+		return DataWrapper{};
 	}
 
 	std::tuple<Archetype::OPtr, Archetype::ArrayMountPoint> ArchetypeComponentManager::GetComponentPage(std::size_t archetype_index) const
@@ -357,172 +601,164 @@ namespace Noodles
 		return {{}, {}};
 	}
 
-	bool ArchetypeComponentManager::MoveAndCreateSingleton(AtomicType const& atomic_type, void* move_reference)
+	bool ArchetypeComponentManager::MoveAndCreateSingleton(AtomicType::Ptr atomic_type, void* move_reference, std::pmr::memory_resource* wrapper_resource)
 	{
 		std::lock_guard lg(singleton_modifier_mutex);
-		bool enable = true;
-		bool need_search_original = false;
-		for(auto& ite : singleton_modifier)
+		auto loc = singleton_manager.LocateOrAddAtomicType(atomic_type);
+		if (loc.has_value())
 		{
-			if(ite.singleton->IsSameAtomicType(atomic_type))
+			auto record = Potato::IR::MemoryResourceRecord::Allocate(wrapper_resource, atomic_type->GetLayout());
+			if(record)
 			{
-				need_search_original = false;
-				if(!ite.require_destroy)
-				{
-					enable = false;
-				}else
-				{
-					enable = true;
-				}
-			}
-		}
-		if(need_search_original)
-		{
-			std::shared_lock sl(component_mutex);
-			for(auto& ite : singleton_modifier)
-			{
-				if(*ite.atomic_type == atomic_type)
-				{
-					enable = false;
-				}
-			}
-		}
-		if(enable)
-		{
-			auto ptr = Singleton::MoveCreate(&singleton_resource, &atomic_type, move_reference);
-			if(ptr)
-			{
-				singleton_modifier.emplace_back(false, 0, &atomic_type, std::move(ptr));
+				auto re = atomic_type->MoveConstruction(record.Get(), move_reference);
+				assert(re);
+				singleton_modifier.emplace_back(
+					*loc,
+					std::move(atomic_type),
+					record
+				);
 				return true;
 			}
 		}
 		return false;
 	}
 
-	ComponentFilter::VPtr ArchetypeComponentManager::CreateComponentFilter(std::span<AtomicType::Ptr const> require_component)
+	ComponentFilter::Ptr ArchetypeComponentManager::CreateComponentFilter(
+		std::span<ComponentFilter::Info const> require_component,
+		std::span<AtomicType::Ptr const> refuse_component,
+		std::size_t identity,
+		std::pmr::memory_resource* filter_resource,
+		std::pmr::memory_resource* offset_resource
+	)
 	{
-		std::size_t require_hash = 0;
-		for(std::size_t i = 0; i < require_component.size(); ++i)
+		auto filter = ComponentFilter::Create(
+			component_manager,
+			require_component,
+			refuse_component,
+			filter_resource,
+			offset_resource
+		);
+		if(filter)
 		{
-			assert(require_component[i]);
-			require_hash += require_component[i]->GetHashCode() + i * i;
-		}
-		std::lock_guard lg(filter_mutex);
-		for(auto& ite : component_filter)
-		{
-			assert(ite);
-			if(ite->GetHash() == require_hash)
 			{
-				auto span = ite->GetAtomicType();
-				if(span.size() == require_component.size())
+				std::shared_lock sl(component_mutex);
+				for(std::size_t i = 0; i < components.size(); ++i)
 				{
-					bool Equal = true;
-					for(std::size_t i = 0; i < require_component.size(); ++i)
-					{
-						if(span[i] != require_component[i])
-						{
-							Equal = false;
-							break;
-						}
-					}
-					if(Equal)
-						return ite.Isomer();
+					filter->OnCreatedArchetype(i, *components[i].archetype);
 				}
 			}
-		}
-		auto layout = Potato::IR::Layout::Get<ComponentFilter>();
-		auto offset = Potato::IR::InsertLayoutCPP(layout, Potato::IR::Layout::GetArray<AtomicType::Ptr>(require_component.size()));
-		Potato::IR::FixLayoutCPP(layout);
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(filter_resource, layout);
-		if(re)
-		{
-			auto span =	std::span(reinterpret_cast<AtomicType::Ptr*>(re.GetByte() + offset), require_component.size());
-			for(std::size_t i = 0; i < require_component.size(); ++i)
-			{
-				new (&span[i]) AtomicType::Ptr{require_component[i]};
-			}
-			ComponentFilter::CPtr ptr = new(re.Get()) ComponentFilter{
-				re, require_hash, span
-			};
-			std::shared_lock sl(component_mutex);
-			for(std::size_t i = 0; i < components.size(); ++i)
-			{
-				ptr->OnCreatedArchetype(i, *components[i].archetype);
-			}
-			component_filter.emplace_back(ptr);
-			return ptr.Isomer();
+
+			std::lock_guard lg(filter_mutex);
+			component_filter.emplace_back(
+				std::move(filter),
+				OptionalIndex{identity}
+			);
+			return filter;
 		}
 		return {};
 	}
 
-	SingletonFilter::VPtr ArchetypeComponentManager::CreateSingletonFilter(AtomicType const& atomic_type)
+	SingletonFilter::Ptr ArchetypeComponentManager::CreateSingletonFilter(
+		std::span<ComponentFilter::Info const> require_singleton,
+		std::size_t identity,
+		std::pmr::memory_resource* filter_resource
+	)
 	{
-		std::lock_guard lg(filter_mutex);
-		bool need_destroy = false;
-		for(auto& ite : singleton_filters)
+		auto filter = SingletonFilter::Create(
+			component_manager,
+			require_singleton,
+			filter_resource
+		);
+		if (filter)
 		{
-			if(ite->IsSameAtomicType(atomic_type))
 			{
-				return ite.Isomer();
+				std::shared_lock sl(component_mutex);
+				if(singleton_archetype)
+					filter->OnSingletonModify(*singleton_archetype);
 			}
+
+			std::lock_guard lg(filter_mutex);
+			singleton_filters.emplace_back(
+				std::move(filter),
+				OptionalIndex{ identity }
+			);
+			return filter;
 		}
-		auto re = Potato::IR::MemoryResourceRecord::Allocate<SingletonFilter>(filter_resource);
-		SingletonFilter::CPtr sptr = new (re.Get()) SingletonFilter{re, &atomic_type};
-		singleton_filters.emplace_back(sptr);
-		std::shared_lock sl(component_mutex);
-		for(auto& ite : singleton_element)
-		{
-			if((*ite.atomic_type) == atomic_type)
-			{
-				sptr->reference_singleton = ite.singleton;
-				break;
-			}
-		}
-		return sptr.Isomer();
+		return {};
 	}
 
-	ArchetypeComponentManager::ArchetypeComponentManager(SyncResource resource)
-		:components(resource.manager_resource), modified_entity(resource.manager_resource), temp_resource(resource.temporary_resource),
-		archetype_resource(resource.archetype_resource),components_resource(resource.component_resource), /*singletons(resource.manager_resource),*/
-
-		filter_resource(resource.filter_resource),component_filter(resource.manager_resource), singleton_resource(resource.singleton_resource)
+	ArchetypeComponentManager::ArchetypeComponentManager(Setting setting, std::pmr::memory_resource* resource)
+		:
+		component_manager(setting.max_component_atomic_type_count, resource),
+		singleton_manager(setting.max_singleton_atomic_type_count, resource),
+		components(resource),
+		modified_entity(resource),
+		singleton_modifier(resource),
+		component_filter(resource),
+		singleton_filters(resource)
 	{
-		
+		auto loc = component_manager.LocateOrAddAtomicType(GetAtomicType<EntityProperty>());
+		assert(loc && loc->index == 0);
+	}
+
+	ArchetypeComponentManager::EntityModifierEvent::~EntityModifierEvent()
+	{
+		if(resource)
+		{
+			if(atomic_type)
+			{
+				auto re = atomic_type->Destruction(resource.Get());
+				assert(re);
+				resource.Deallocate();
+			}
+		}
+	}
+
+	ArchetypeComponentManager::EntityModifierEvent::EntityModifierEvent(EntityModifierEvent&& event)
+		: operation(event.operation), index(event.index), atomic_type(std::move(event.atomic_type)), resource(event.resource)
+	{
+		event.resource = {};
+	}
+
+	ArchetypeComponentManager::SingletonModifier::~SingletonModifier()
+	{
+		if (resource)
+		{
+			if (atomic_type)
+			{
+				auto re = atomic_type->Destruction(resource.Get());
+				assert(re);
+				resource.Deallocate();
+			}
+		}
 	}
 
 	
 	ArchetypeComponentManager::~ArchetypeComponentManager()
 	{
+
 		{
-			std::lock_guard lg(filter_mutex);
-			for(auto& ite : component_filter)
-			{
-				std::lock_guard lg(ite->mutex);
-				ite->index.clear();
-			}
-			component_filter.clear();
-			for(auto& ite : singleton_filters)
-			{
-				std::lock_guard lg(ite->mutex);
-				ite->reference_singleton.Reset();
-			}
+			std::lock_guard lg(singleton_modifier_mutex);
+			singleton_modifier.clear();
 		}
 
 		{
 			std::lock_guard lg(entity_modifier_mutex);
-			for(auto& ite : modified_entity)
-			{
-				if(ite)
-				{
-					std::lock_guard lg(ite->mutex);
-					ite->SetFree();
-				}
-			}
 			modified_entity.clear();
 		}
 
 		{
 			std::lock_guard lg2(component_mutex);
+			if(singleton_record && singleton_archetype)
+			{
+				for(auto& ite : singleton_archetype->GetMemberView())
+				{
+					ite.layout->Destruction(
+						singleton_record.GetByte(ite.offset)
+					);
+				}
+				singleton_record.Deallocate();
+			}
 			for(auto& ite : components)
 			{
 				auto ite2 = ite.memory_page;
@@ -530,7 +766,7 @@ namespace Noodles
 				{
 					auto mp = ite.memory_page->GetMountPoint();
 					auto index = ite.memory_page->available_count;
-					auto entity_property = ite.archetype->Get(ite.entity_property_locate, mp).Translate<EntityProperty>();
+					auto entity_property = ite.archetype->Get(ite.entity_property_locate.index, mp).Translate<EntityProperty>();
 					for(auto& ite : entity_property)
 					{
 						auto entity = ite.GetEntity();
@@ -555,100 +791,29 @@ namespace Noodles
 		
 	}
 
-	bool ArchetypeComponentManager::CheckIsSameArchetype(Archetype const& target, std::size_t hash_code, std::span<AtomicType::Ptr const> ids)
-	{
-		if(target.GetHashCode() == hash_code)
-		{
-			auto mv = target.GetMemberView();
-			if(mv.size() == ids.size())
-			{
-				for (auto& ite2 : ids)
-				{
-					auto loc = target.LocateTypeID(*ite2);
-					if (!loc.has_value())
-					{
-						return false;
-					}
-				}
-			}
-			return true;
-		}
-		return false;
-	}
 
-	EntityPtr ArchetypeComponentManager::CreateEntity(std::pmr::memory_resource* entity_resource)
+
+	EntityPtr ArchetypeComponentManager::CreateEntity(std::pmr::memory_resource* entity_resource, std::pmr::memory_resource* temp_resource)
 	{
-		auto ent = Entity::Create(entity_resource);
+		auto ent = Entity::Create(component_manager, entity_resource);
 		if(ent)
 		{
-			ent->modifer = EntityModifer::Create(temp_resource);
-			if(ent->modifer)
+			EntityProperty entity_property
 			{
-				auto re2 = Potato::IR::MemoryResourceRecord::Allocate<EntityProperty>(temp_resource);
-				if(re2)
-				{
-					new (re2.Get()) EntityProperty {ent};
-					ent->modifer->datas.emplace_back(
-						true,
-						GetAtomicType<EntityProperty>(),
-						re2
-					);
-					ent->owner_id = reinterpret_cast<std::size_t>(this);
-					ent->status = EntityStatus::PreInit;
-					ent->need_modifier = true;
-					std::lock_guard lg(entity_modifier_mutex);
-					modified_entity.emplace_back(ent);
-					return ent;
-				}
-			}
+				ent
+			};
+
+			auto re = AddEntityComponent_AssumedLocked(*ent, *GetAtomicType<EntityProperty>(), &entity_property, true, temp_resource);
+			assert(re);
+			return ent;
 		}
 		return {};
 	}
 
-
-	ArchetypeComponentManager::ComponentsWrapper ArchetypeComponentManager::ReadComponents_AssumedLocked(ComponentFilter const& filter, std::size_t ite_index, std::span<std::size_t> output) const
+	bool ArchetypeComponentManager::ReleaseEntity(Entity& ptr, std::pmr::memory_resource* temp_resource)
 	{
-		std::shared_lock sl(filter.mutex);
-		std::size_t archetype_index = std::numeric_limits<std::size_t>::max();
-		auto re = filter.EnumMountPointIndexByIterator_AssumedLocked(ite_index, archetype_index, output);
-		if(re)
-		{
-			auto [re2, mp] = GetComponentPage(archetype_index);
-			if(re2)
-			{
-				return {re2.GetPointer(), mp, *re };
-			}
-		}
-		return {{}, {}, {}};
-	}
-
-	
-	ArchetypeComponentManager::EntityWrapper ArchetypeComponentManager::ReadEntityComponents_AssumedLocked(Entity const& ent, ComponentFilter const& filter, std::span<std::size_t> output_span) const
-	{
-		std::shared_lock sl2(ent.mutex);
-		std::shared_lock sl(filter.mutex);
-		if(ent.owner_id == reinterpret_cast<std::size_t>(this))
-		{
-			auto re = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(ent.archetype_index, output_span);
-			if(re.has_value())
-			{
-				auto [re2, mp] = GetComponentPage(ent.archetype_index);
-				if(re2)
-				{
-					return {{re2.GetPointer(), mp, *re }, ent.mount_point_index};
-				}
-			}
-		}
-		return {{}, 0};
-	}
-
-	bool ArchetypeComponentManager::ReleaseEntity(Entity& ptr)
-	{
-		bool need_insert_modifer = false;
 		{
 			std::lock_guard lg(ptr.mutex);
-			if (ptr.owner_id != reinterpret_cast<std::size_t>(this))
-				return false;
 			switch(ptr.status)
 			{
 			case EntityStatus::PreInit:
@@ -665,169 +830,151 @@ namespace Noodles
 				return false;
 				break;
 			}
-			if(!ptr.need_modifier)
+			std::lock_guard lg2(entity_modifier_mutex);
+			if(ptr.modify_index)
 			{
-				ptr.need_modifier = true;
-				need_insert_modifer = true;
-			}
-		}
-		if(need_insert_modifer)
-		{
-			std::lock_guard lg(entity_modifier_mutex);
-			modified_entity.emplace_back(&ptr);
-		}
-		return true;
-	}
-
-	/*
-	Potato::Pointer::ObserverPtr<void> ArchetypeComponentManager::ReadSingleton(SingletonFilterInterface const& filter) const
-	{
-		return filter.GetSingleton(reinterpret_cast<std::size_t>(this));
-	}
-	*/
-
-	bool ArchetypeComponentManager::AddEntityComponent(Entity& target_entity, AtomicType const& atomic_type, void* reference_buffer)
-	{
-		if(atomic_type != *GetAtomicType<EntityProperty>())
-		{
-			bool need_modifer = false;
+				auto& ref = modified_entity[ptr.modify_index];
+				ref.need_remove = true;
+				ref.modifier_event.clear();
+			}else
 			{
-				std::lock_guard lg(target_entity.mutex);
-				if(target_entity.owner_id != reinterpret_cast<std::size_t>(this))
-					return false;
-				bool has_modifier = target_entity.modifer;
-				if(!has_modifier)
+				ptr.modify_index = modified_entity.size();
+				std::pmr::vector<EntityModifierEvent> temp_modifier{ temp_resource };
+				EntityModifier modifer
 				{
-					std::shared_lock sl(component_mutex);
-					auto& ref = components[target_entity.archetype_index];
-					auto lo = ref.archetype->LocateTypeID(atomic_type);
-					if(lo)
-					{
-						return false;
-					}
-					target_entity.modifer = EntityModifer::Create(temp_resource);
-					if(!target_entity.modifer)
-						return false;
-					for(auto& ite : *ref.archetype)
-					{
-						target_entity.modifer->datas.emplace_back(
-							true,
-							ite.struct_layout,
-							Potato::IR::MemoryResourceRecord{}
-						);
-					}
-					if(!target_entity.need_modifier)
-					{
-						target_entity.need_modifier = true;
-						need_modifer = true;
-					}
-				}
-
-				assert(target_entity.modifer);
-
-				if(has_modifier)
-				{
-					for(auto& ite : target_entity.modifer->datas)
-					{
-						if(*ite.atomic_type == atomic_type && ite.available)
-						{
-							return false;
-						}
-					}
-				}
-				
-				auto re = Potato::IR::MemoryResourceRecord::Allocate(temp_resource, atomic_type.GetLayout());
-				if(re)
-				{
-					atomic_type.MoveConstruction(re.Get(), reference_buffer);
-					target_entity.modifer->datas.emplace_back(
-						true,
-						&atomic_type,
-					re
-					);
-				}else
-				{
-					if(need_modifer)
-					{
-						std::lock_guard lg(entity_modifier_mutex);
-						modified_entity.emplace_back(&target_entity);
-					}
-					return false;
-				}
-			}
-			if(need_modifer)
-			{
-				std::lock_guard lg(entity_modifier_mutex);
-				modified_entity.emplace_back(&target_entity);
+					&ptr,
+					true,
+					std::move(temp_modifier)
+				};
+				modified_entity.emplace_back(
+					std::move(modifer)
+				);
 			}
 			return true;
 		}
-		return false;
-	}
+		return true;
+	} 
 
-	bool ArchetypeComponentManager::RemoveEntityComponent(Entity& target_entity, AtomicType const& atomic_type)
+	bool ArchetypeComponentManager::AddEntityComponent_AssumedLocked(Entity& target_entity, AtomicType const& atomic_type, void* reference_buffer, bool accept_build_in_component, std::pmr::memory_resource* resource)
 	{
-		if(atomic_type != *GetAtomicType<EntityProperty>())
+		auto ope = atomic_type.GetOperateProperty();
+		if(!ope.move_construct && !ope.copy_construct)
+			return false;
+		auto loc = component_manager.LocateOrAddAtomicType(&atomic_type);
+		if(loc.has_value() && (accept_build_in_component || *loc != GetEntityPropertyAtomicTypeID()))
 		{
-			bool need_modifer = false;
-
+			std::lock_guard lg(target_entity.mutex);
+			if(target_entity.status == EntityStatus::Normal || target_entity.status == EntityStatus::PreInit)
 			{
-				std::lock_guard lg(target_entity.mutex);
-				if(target_entity.owner_id == reinterpret_cast<std::size_t>(this))
+				auto re = AtomicTypeMark::CheckIsMark(target_entity.modify_component_mask, *loc);
+				if(re && !re)
 				{
-					if(!target_entity.modifer)
+					auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, atomic_type.GetLayout());
+					if(record)
 					{
-						std::shared_lock sl(component_mutex);
-						auto& ref = components[target_entity.archetype_index];
-						auto lo = ref.archetype->LocateTypeID(atomic_type);
-						if(!lo)
+						if (!atomic_type.MoveConstruction(record.Get(), reference_buffer))
 						{
-							return false;
+							auto re = atomic_type.CopyConstruction(record.Get(), reference_buffer);
+							assert(re);
 						}
-						auto mv = ref.archetype->GetMemberView();
-						for(auto& ite : mv)
+
+						if(!target_entity.modify_index)
 						{
-							target_entity.modifer->datas.emplace_back(
-								*ite.struct_layout != atomic_type,
-								ite.struct_layout,
-								Potato::IR::MemoryResourceRecord{}
+							target_entity.modify_index = modified_entity.size();
+							std::pmr::vector<EntityModifierEvent> temp{ resource };
+							temp.emplace_back(
+								EntityModifierEvent::Operation::AddComponent,
+								*loc,
+								&atomic_type,
+								record
+							);
+							modified_entity.emplace_back(
+								&target_entity,
+								false,
+								std::move(temp)
+							);
+						}else
+						{
+							auto& ref = modified_entity[target_entity.modify_index];
+							ref.modifier_event.emplace_back(
+								EntityModifierEvent::Operation::AddComponent,
+								*loc,
+								&atomic_type,
+								record
 							);
 						}
 
-						if(!target_entity.need_modifier)
-						{
-							target_entity.need_modifier = true;
-							need_modifer = true;
-						}
-					}else
-					{
-						for(auto& ite : target_entity.modifer->datas)
-						{
-							if(*ite.atomic_type == atomic_type && ite.available)
-							{
-								ite.available = false;
-								return true;
-							}
-						}
-						return false;
+						auto re = AtomicTypeMark::Mark(target_entity.modify_component_mask, *loc);
+						assert(re);
+						return true;
 					}
-				}else
-				{
-					return false;
 				}
 			}
-
-			if(need_modifer)
-			{
-				std::lock_guard lg(entity_modifier_mutex);
-				modified_entity.emplace_back(&target_entity);
-			}
-			return true;
 		}
 		return false;
 	}
 
-	bool ArchetypeComponentManager::ForceUpdateState()
+	bool ArchetypeComponentManager::RemoveEntityComponent(Entity& target_entity, AtomicType const& atomic_type, bool accept_build_in_component, std::pmr::memory_resource* resource)
+	{
+		auto loc = component_manager.LocateOrAddAtomicType(&atomic_type);
+		if (loc.has_value() && (accept_build_in_component || *loc != GetEntityPropertyAtomicTypeID()))
+		{
+			std::lock_guard lg(target_entity.mutex);
+			if(target_entity.status == EntityStatus::Normal || target_entity.status == EntityStatus::PreInit)
+			{
+				auto marked = AtomicTypeMark::CheckIsMark(target_entity.modify_component_mask, *loc);
+				if (marked && *marked)
+				{
+					if(!target_entity.modify_index)
+					{
+						target_entity.modify_index = modified_entity.size();
+						std::pmr::vector<EntityModifierEvent> temp{resource};
+						temp.emplace_back(
+							EntityModifierEvent::Operation::RemoveComponent,
+							*loc,
+							&atomic_type,
+							Potato::IR::MemoryResourceRecord{}
+						);
+						modified_entity.emplace_back(
+							&target_entity,
+							false,
+							std::move(temp)
+						);
+					}else
+					{
+						auto& ref = modified_entity[target_entity.modify_index];
+						for(auto ite = ref.modifier_event.rbegin(); ite != ref.modifier_event.rend(); ++ite)
+						{
+							if(ite->index == *loc)
+							{
+								ite->~EntityModifierEvent();
+								new (&(*ite))  EntityModifierEvent{
+									EntityModifierEvent::Operation::Ignore,
+									*loc, {}, {}
+								};
+								auto re = AtomicTypeMark::Mark(target_entity.modify_component_mask, *loc, false);
+								assert(re);
+								return true;
+							}
+						}
+						ref.modifier_event.emplace_back(
+							EntityModifierEvent::Operation::RemoveComponent,
+							*loc, AtomicType::Ptr{}, Potato::IR::MemoryResourceRecord{}
+						);
+						auto re = AtomicTypeMark::Mark(target_entity.modify_component_mask, *loc, false);
+						assert(re);
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	bool ArchetypeComponentManager::ForceUpdateState(
+		std::pmr::memory_resource* archetype_resource,
+		std::pmr::memory_resource* temp_resource
+		)
 	{
 		bool Updated = false;
 
@@ -840,165 +987,246 @@ namespace Noodles
 				std::size_t mount_point_index;
 			};
 			std::pmr::vector<RemoveEntity> remove_list(temp_resource);
-			std::pmr::vector<AtomicType::Ptr> new_archetype_index(temp_resource);
-			while(true)
+			
+			for(auto& ite : modified_entity)
 			{
-				Entity::Ptr top;
+				if(ite.reference_entity && ite.need_remove)
 				{
-					std::lock_guard lg(entity_modifier_mutex);
-					if(!modified_entity.empty())
+					auto& entity = *ite.reference_entity;
+					std::lock_guard lg(entity.mutex);
+					assert(entity.status == EntityStatus::PendingDestroy);
+					entity.status = EntityStatus::Free;
+					if(entity.archetype_index)
 					{
-						top = std::move(*modified_entity.rbegin());
-						modified_entity.pop_back();
+						auto& ref = components[entity.archetype_index];
+						auto mount_point = ref.memory_page->GetMountPoint();
+						ref.archetype->Destruct(mount_point, entity.mount_point_index);
+
+						remove_list.emplace_back(
+							entity.archetype_index,
+							entity.mount_point_index
+						);
+
 					}
-				}
-				if(!top)
-					break;
-				Updated = true;
-				top->need_modifier = false;
-				std::lock_guard lg(top->mutex);
-				switch(top->status)
-				{
-				case EntityStatus::PendingDestroy:
-					{
-						top->modifer.Reset();
-						if(top->archetype_index != std::numeric_limits<std::size_t>::max())
-						{
-							auto& ref = components[top->archetype_index];
-							ref.archetype->Destruct(ref.memory_page->GetMountPoint(), top->mount_point_index);
-							remove_list.emplace_back(top->archetype_index, top->mount_point_index);
-						}
-						top->SetFree();
-						break;
-					}
-				case EntityStatus::Normal:
-				case EntityStatus::PreInit:
-					{
-						assert(top->modifer);
-						new_archetype_index.clear();
-						std::size_t hash_code = 0;
-						for(auto& ite : top->modifer->datas)
-						{
-							if(ite.available)
-							{
-								new_archetype_index.emplace_back(ite.atomic_type);
-								hash_code += ite.atomic_type->GetHashCode();
-							}
-						}
-						Archetype::OPtr archetype_ptr;
-						std::size_t archetype_index = 0;
-						for(auto& ite : components)
-						{
-							if(CheckIsSameArchetype(*ite.archetype, hash_code, std::span(new_archetype_index)))
-							{
-								archetype_ptr = ite.archetype;
-								break;
-							}
-							++archetype_index;
-						}
-						if(!archetype_ptr)
-						{
-							std::sort(new_archetype_index.begin(), new_archetype_index.end(), [](AtomicType::Ptr a1, AtomicType::Ptr a2)
-								{
-									auto L1 = a1->GetLayout();
-									auto L2 = a2->GetLayout();
-									auto re = Potato::Misc::PriorityCompareStrongOrdering(
-										L1.Align, L2.Align,
-										L1.Size, L2.Size,
-										*a1, *a2
-									);
-									return re == std::strong_ordering::greater;
-								});
-
-							auto temp_ptr = Archetype::Create(new_archetype_index, &archetype_resource);
-
-							if (temp_ptr)
-							{
-								archetype_ptr = temp_ptr;
-								auto loc = temp_ptr->LocateTypeID(*GetAtomicType<EntityProperty>());
-								assert(loc);
-								components.emplace_back(
-									temp_ptr,
-									ComponentPage::Ptr{},
-									*loc,
-									0
-								);
-							}
-						}
-						if(archetype_ptr)
-						{
-							auto& ref = components[archetype_index];
-
-							auto find = std::find_if(remove_list.begin(), remove_list.end(), [=](RemoveEntity const& ent)
-							{
-								return ent.archetype_index == archetype_index;
-							});
-
-							std::optional<std::size_t> re;
-
-							if(find != remove_list.end())
-							{
-								re = find->mount_point_index;
-								remove_list.erase(find);
-							}else
-							{
-								re = AllocateMountPoint(ref);
-							}
-
-							if(re)
-							{
-								auto mp = ref.memory_page->GetMountPoint();
-								for(auto& ite : top->modifer->datas)
-								{
-									if(ite.available)
-									{
-										auto lo = archetype_ptr->LocateTypeID(*ite.atomic_type);
-										assert(lo);
-										if(ite.record)
-										{
-											auto& ref2 = archetype_ptr->GetMemberView()[*lo];
-											archetype_ptr->MoveConstruct(
-												ref2, archetype_ptr->Get(ref2, mp, *re), ite.record.Get()
-											);
-										}else
-										{
-											auto& ref2 = archetype_ptr->GetMemberView()[*lo];
-											auto& ref3 = components[top->archetype_index];
-											auto lo2 = ref3.archetype->LocateTypeID(*ite.atomic_type);
-											auto mp2 = ref3.memory_page->GetMountPoint();
-											archetype_ptr->MoveConstruct(
-												ref2, archetype_ptr->Get(ref2, mp, *re),
-												ref3.archetype->Get(*lo2, mp2, top->mount_point_index)
-											);
-										}
-									}
-								}
-								if(top->status == EntityStatus::PreInit)
-								{
-									top->status = EntityStatus::Normal;
-									
-								}else
-								{
-									auto& ref = components[top->archetype_index];
-									ref.archetype->Destruct(ref.memory_page->GetMountPoint(), top->mount_point_index);
-									remove_list.emplace_back(archetype_index, *re);
-								}
-								top->archetype_index = archetype_index;
-								top->mount_point_index = *re;
-								top->modifer.Reset();
-							}
-
-						}
-
-						break;
-					}
-				default:
-					assert(false);
-					break;
+					entity.SetFree();
+					ite.reference_entity.Reset();
 				}
 			}
 
-			for(auto& ite : remove_list)
+			struct AtomicElement
+			{
+				AtomicTypeID index;
+				Potato::IR::Layout layout;
+				AtomicType::Ptr atomic_type;
+			};
+
+			std::pmr::vector<AtomicType::Ptr> reference_atomic{ temp_resource };
+			std::pmr::vector<AtomicTypeMark> marks{ temp_resource };
+			marks.resize(component_manager.GetStorageCount());
+
+			for(auto& ite : modified_entity)
+			{
+				if(ite.reference_entity)
+				{
+					auto& entity = *ite.reference_entity;
+					std::lock_guard lg(entity.mutex);
+					if(AtomicTypeMark::IsSame(entity.modify_component_mask, entity.current_component_mask))
+					{
+						reference_atomic.clear();
+					
+						auto& element = components[entity.archetype_index];
+						for(auto& ite2 : ite.modifier_event)
+						{
+							if(ite2.operation == EntityModifierEvent::Operation::AddComponent)
+							{
+								auto index = element.archetype->LocateAtomicTypeID(ite2.index);
+								assert(index);
+								auto& mm = element.archetype->GetMemberView(*index);
+								element.archetype->Destruct(
+									mm,
+									element.memory_page->GetMountPoint(),
+									entity.mount_point_index
+								);
+								element.archetype->MoveConstruct(
+									mm,
+									element.archetype->Get(mm, element.memory_page->GetMountPoint(), entity.mount_point_index),
+									ite2.resource.Get()
+								);
+							}
+						}
+					}else
+					{
+						OptionalIndex new_archetype_index;
+						std::size_t new_mount_point_index = 0;
+						for (std::size_t i = 0; i < components.size(); ++i)
+						{
+							if (AtomicTypeMark::IsSame(entity.modify_component_mask, components[i].archetype->GetAtomicTypeMark()))
+							{
+								new_archetype_index = i;
+								break;
+							}
+						}
+
+						if(!new_archetype_index)
+						{
+							new_archetype_index = components.size();
+							reference_atomic.clear();
+							AtomicTypeMark::Reset(marks);
+
+							for (auto& ite2 : ite.modifier_event)
+							{
+								if(ite2.operation == EntityModifierEvent::Operation::AddComponent)
+								{
+									reference_atomic.emplace_back(
+										ite2.atomic_type
+									);
+									auto re = AtomicTypeMark::Mark(marks, ite2.index);
+									assert(re && !*re);
+								}
+							}
+
+							auto& element = components[entity.archetype_index];
+
+							auto mm = element.archetype->GetMemberView();
+
+							for(auto& ite2 : mm)
+							{
+								auto re = AtomicTypeMark::CheckIsMark(entity.modify_component_mask, ite2.atomic_type_id);
+								
+								if(re && *re)
+								{
+									re = AtomicTypeMark::CheckIsMark(marks, ite2.atomic_type_id);
+									if(re && !re)
+									{
+										reference_atomic.emplace_back(
+											ite2.layout
+										);
+										re = AtomicTypeMark::Mark(marks, ite2.atomic_type_id);
+										assert(re && !*re);
+									}
+								}
+							}
+
+							std::sort(
+								reference_atomic.begin(), reference_atomic.end(),
+								[](AtomicType::Ptr const& i1, AtomicType::Ptr const& i2)
+								{
+									auto order = Potato::Misc::PriorityCompareStrongOrdering(
+										i1->GetLayout().align, i2->GetLayout().align,
+										i1->GetLayout().size, i2->GetLayout().size
+									);
+									if(order == std::strong_ordering::greater)
+									{
+										return true;
+									}
+									return false;
+								}
+							);
+
+							auto ptr = Archetype::Create(
+								component_manager, reference_atomic, archetype_resource
+							);
+							assert(ptr);
+							components.emplace_back(
+								std::move(ptr),
+								ComponentPage::Ptr{},
+								*ptr->LocateAtomicTypeID(GetEntityPropertyAtomicTypeID()),
+								0
+							);
+							new_mount_point_index = *AllocateMountPoint(*components.rbegin());
+						}else
+						{
+							auto find = std::find_if(
+								remove_list.begin(), remove_list.end(),
+								[=](RemoveEntity i1)
+								{
+									return i1.archetype_index == new_archetype_index.Get();
+								}
+							);
+							if(find == remove_list.end())
+							{
+								new_mount_point_index = *AllocateMountPoint(components[new_archetype_index]);
+							}else
+							{
+								new_mount_point_index = find->mount_point_index;
+								remove_list.erase(find);
+							}
+						}
+
+						assert(new_archetype_index);
+
+						AtomicTypeMark::Reset(marks);
+
+						auto& old_ref = components[entity.archetype_index];
+						auto old_mount_point = old_ref.memory_page->GetMountPoint();
+						auto& ref = components[new_archetype_index];
+						auto new_mount_point = ref.memory_page->GetMountPoint();
+
+						for(auto& ite2 : ite.modifier_event)
+						{
+							if(ite2.operation == EntityModifierEvent::Operation::AddComponent)
+							{
+								auto index = ref.archetype->LocateAtomicTypeID(ite2.index);
+								assert(index);
+								auto& mm = ref.archetype->GetMemberView(*index);
+								ref.archetype->MoveConstruct(
+									mm,
+									ref.archetype->Get(mm, new_mount_point, new_mount_point_index),
+									ite2.resource.Get()
+								);
+								auto re = AtomicTypeMark::Mark(marks, ite2.index);
+								assert(re && !*re);
+							}
+						}
+
+						auto mm = old_ref.archetype->GetMemberView();
+
+						for (auto& ite2 : mm)
+						{
+							auto re = AtomicTypeMark::CheckIsMark(entity.modify_component_mask, ite2.atomic_type_id);
+
+							if (re && *re)
+							{
+								re = AtomicTypeMark::CheckIsMark(marks, ite2.atomic_type_id);
+								if (re && !re)
+								{
+									auto index = ref.archetype->LocateAtomicTypeID(ite2.atomic_type_id);
+									assert(index);
+									auto& mm = ref.archetype->GetMemberView(*index);
+
+									ref.archetype->MoveConstruct(
+										mm,
+										ref.archetype->Get(mm, new_mount_point, new_mount_point_index),
+										old_ref.archetype->Get(ite2, old_mount_point, entity.mount_point_index)
+									);
+									re = AtomicTypeMark::Mark(marks, ite2.atomic_type_id);
+									assert(re && !*re);
+								}
+							}
+						}
+
+						old_ref.archetype->Destruct(
+							old_mount_point,
+							entity.mount_point_index
+						);
+
+						remove_list.emplace_back(
+							entity.archetype_index,
+							entity.mount_point_index
+						);
+
+						entity.status = EntityStatus::Normal;
+						entity.modify_index.Reset();
+						entity.mount_point_index = new_mount_point_index;
+						entity.archetype_index = new_archetype_index;
+					}
+				}
+			}
+
+			modified_entity.clear();
+
+
+			for (auto& ite : remove_list)
 			{
 				auto& ref = components[ite.archetype_index];
 				CopyMountPointFormLast(ref, ite.mount_point_index);
@@ -1007,106 +1235,42 @@ namespace Noodles
 
 			remove_list.clear();
 
-			if(old_component_size != components.size())
 			{
 				std::lock_guard lg2(filter_mutex);
 
-				component_filter.erase(
-					std::remove_if(component_filter.begin(), component_filter.end(), [&](ComponentFilter::CPtr& ptr)->bool
-					{
-						if(ptr->GetViewerRef() != 0)
-						{
-							for(std::size_t i = old_component_size; i < components.size(); ++i)
-							{
-								ptr->OnCreatedArchetype(i, *components[i].archetype);
-							}
-							return false;
-						}else
-						{
-							{
-								std::lock_guard lg(ptr->mutex);
-								ptr->index.clear();
-							}
-							return true;
-						}
-					}),
-					component_filter.end()
-				);
-				Updated = true;
-			}
-
-			{
-				std::lock(singleton_modifier_mutex, filter_mutex);
-				std::lock_guard lg(singleton_modifier_mutex, std::adopt_lock);
-				std::lock_guard lg2(filter_mutex, std::adopt_lock);
-				if(!singleton_modifier.empty())
+				if (component_filter_need_remove)
 				{
-					bool require_remove = false;
-					for(auto& ite : singleton_filters)
-					{
-						if(ite->GetViewerRef() != 0)
-						{
-							std::lock_guard lg(ite->mutex);
-							for(auto& ite2 : singleton_modifier)
+					component_filter_need_remove = false;
+					component_filter.erase(
+						std::remove_if(component_filter.begin(), component_filter.end(), [&](auto& ite)->bool
 							{
-								if((*ite2.atomic_type) == (*ite->atomic_type))
-								{
-									if(ite2.require_destroy)
-									{
-										ite->reference_singleton.Reset();
-									}else
-									{
-										ite->reference_singleton = ite2.singleton;
-									}
-								}
-							}
-						}else
-						{
-							{
-								std::lock_guard lg(ite->mutex);
-								ite->reference_singleton.Reset();
-								require_remove = true;
-							}
-							ite.Reset();
-						}
-					}
-					if(require_remove)
-					{
-						singleton_filters.erase(
-							std::remove_if(singleton_filters.begin(), singleton_filters.end(), [](SingletonFilter::CPtr& ptr)
-							{
-								return !ptr;
+								return !std::get<1>(ite);
 							}),
-							singleton_filters.end()
-						);
-					}
-					bool need_destroy = false;
-					for(auto& ite : singleton_modifier)
+						component_filter.end()
+					);
+				}
+
+				if (old_component_size != components.size())
+				{
+					for(auto i = old_component_size; i < components.size(); ++i)
 					{
-						if(ite.require_destroy)
+						for(auto& ite : component_filter)
 						{
-							need_destroy = true;
-							singleton_element[ite.fast_reference].singleton.Reset();
-						}else
-						{
-							singleton_element.emplace_back(
-								ite.atomic_type,
-								ite.singleton
-							);
+							std::get<0>(ite)->OnCreatedArchetype(i, *components[i].archetype);
 						}
 					}
-					if(need_destroy)
-					{
-						singleton_element.erase(
-							std::remove_if(singleton_element.begin(), singleton_element.end(), 
-								[](SingletonElement const& m)
-								{
-									return m.singleton;
-								}),
-							singleton_element.end()
-						);
-					}
+				}
 
+				if (singleton_filter_need_remove)
+				{
+					singleton_filter_need_remove = false;
+					singleton_filters.erase(
+						std::remove_if(singleton_filters.begin(), singleton_filters.end(), [&](auto& ite)->bool
+							{
+								return !std::get<1>(ite);
+							}),
+						singleton_filters.end()
+					);
 				}
 			}
 		}

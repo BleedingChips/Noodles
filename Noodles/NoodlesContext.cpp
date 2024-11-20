@@ -8,7 +8,7 @@ import PotatoFormat;
 
 namespace Noodles
 {
-
+	/*
 	bool DetectConflict(std::span<RWUniqueTypeID const> t1, std::span<RWUniqueTypeID const> t2)
 	{
 		for(auto& ite : t1)
@@ -180,123 +180,131 @@ namespace Noodles
 		};
 	}
 
-	bool SubContextTaskFlow::AddTickedNode(SystemNode& node, SystemNodeProperty property)
+	bool SubContextTaskFlow::AddTickedNode(SystemNode::Ptr node, SystemNodeProperty property)
 	{
-		std::lock_guard lg(preprocess_mutex);
-		ReadWriteMutexGenerator gener{preprocess_rw_id};
-		node.FlushMutexGenerator(gener);
-		auto mutex = gener.GetMutex();
-
-		Potato::Task::TaskFlowNodeProperty nproperty
+		if(node)
 		{
-			node.GetDisplayName().name,
-			property.filter
-		};
+			std::lock_guard lg(preprocess_mutex);
+			ReadWriteMutexGenerator gener{ preprocess_rw_id };
+			node->FlushMutexGenerator(gener);
+			auto mutex = gener.GetMutex();
 
-		if(AddNode_AssumedLocked(static_cast<Potato::Task::TaskFlowNode&>(node), nproperty))
-		{
-			std::size_t index = 0;
-			auto disname = node.GetDisplayName();
-			for(auto& ite : preprocess_system_infos)
+			Potato::Task::TaskFlowNodeProperty nproperty
 			{
-				ReadWriteMutex ite_mutex{std::span(preprocess_rw_id), ite.read_write_mutex};
-				if(ite_mutex.IsConflict(mutex))
+				node->GetDisplayName().name,
+				property.filter
+			};
+
+			if (AddNode_AssumedLocked(static_cast<Potato::Task::TaskFlowNode*>(node.GetPointer()), nproperty))
+			{
+				std::size_t index = 0;
+				auto disname = node.GetDisplayName();
+				for (auto& ite : preprocess_system_infos)
 				{
-					auto num_order = property.priority <=> ite.priority;
-					if(num_order == std::strong_ordering::greater)
+					ReadWriteMutex ite_mutex{ std::span(preprocess_rw_id), ite.read_write_mutex };
+					if (ite_mutex.IsConflict(mutex))
 					{
-						auto re = AddDirectEdge_AssumedLocked(node, *preprocess_nodes[index].node);
-						if(!re)
-						{
-							gener.RecoverModify();
-							Remove_AssumedLocked(node);
-							return false;
-						}
-					}else if(num_order == std::strong_ordering::less)
-					{
-						auto re = AddDirectEdge_AssumedLocked(*preprocess_nodes[index].node, node);
-						if(!re)
-						{
-							gener.RecoverModify();
-							Remove_AssumedLocked(node);
-							return false;
-						}
-					}else
-					{
-						Order o1 = Order::UNDEFINE;
-						Order o2 = Order::UNDEFINE;
-						if(property.order_function != nullptr)
-						{
-							o1 = (*property.order_function)(disname, ite.name);
-						}
-						if(ite.order_func != nullptr && ite.order_func != property.order_function)
-						{
-							o2 = (*ite.order_func)(ite.name, disname);
-						}
-						if(
-							o1 == Order::BIGGER && o2 == Order::SMALLER 
-							|| o1 == Order::SMALLER && o2 == Order::BIGGER 
-							|| o1 == Order::UNDEFINE && o2 == Order::UNDEFINE
-							)
-						{
-							gener.RecoverModify();
-							Remove_AssumedLocked(node);
-							return false;
-						}else if(o1 == Order::UNDEFINE)
-						{
-							o1 = o2;
-						}
-						if(o1 == Order::SMALLER)
-						{
-							auto re = AddDirectEdge_AssumedLocked(*preprocess_nodes[index].node, node);
-							if(!re)
-							{
-								gener.RecoverModify();
-								Remove_AssumedLocked(node);
-								return false;
-							}
-						}else if(o1 == Order::BIGGER)
+						auto num_order = property.priority <=> ite.priority;
+						if (num_order == std::strong_ordering::greater)
 						{
 							auto re = AddDirectEdge_AssumedLocked(node, *preprocess_nodes[index].node);
-							if(!re)
+							if (!re)
 							{
 								gener.RecoverModify();
 								Remove_AssumedLocked(node);
 								return false;
 							}
-						}else if(o1 == Order::MUTEX)
+						}
+						else if (num_order == std::strong_ordering::less)
 						{
-							auto re = AddMutexEdge_AssumedLocked(node, *preprocess_nodes[index].node);
-							if(!re)
+							auto re = AddDirectEdge_AssumedLocked(*preprocess_nodes[index].node, node);
+							if (!re)
 							{
 								gener.RecoverModify();
 								Remove_AssumedLocked(node);
 								return false;
+							}
+						}
+						else
+						{
+							Order o1 = Order::UNDEFINE;
+							Order o2 = Order::UNDEFINE;
+							if (property.order_function != nullptr)
+							{
+								o1 = (*property.order_function)(disname, ite.name);
+							}
+							if (ite.order_func != nullptr && ite.order_func != property.order_function)
+							{
+								o2 = (*ite.order_func)(ite.name, disname);
+							}
+							if (
+								o1 == Order::BIGGER && o2 == Order::SMALLER
+								|| o1 == Order::SMALLER && o2 == Order::BIGGER
+								|| o1 == Order::UNDEFINE && o2 == Order::UNDEFINE
+								)
+							{
+								gener.RecoverModify();
+								Remove_AssumedLocked(node);
+								return false;
+							}
+							else if (o1 == Order::UNDEFINE)
+							{
+								o1 = o2;
+							}
+							if (o1 == Order::SMALLER)
+							{
+								auto re = AddDirectEdge_AssumedLocked(*preprocess_nodes[index].node, node);
+								if (!re)
+								{
+									gener.RecoverModify();
+									Remove_AssumedLocked(node);
+									return false;
+								}
+							}
+							else if (o1 == Order::BIGGER)
+							{
+								auto re = AddDirectEdge_AssumedLocked(node, *preprocess_nodes[index].node);
+								if (!re)
+								{
+									gener.RecoverModify();
+									Remove_AssumedLocked(node);
+									return false;
+								}
+							}
+							else if (o1 == Order::MUTEX)
+							{
+								auto re = AddMutexEdge_AssumedLocked(node, *preprocess_nodes[index].node);
+								if (!re)
+								{
+									gener.RecoverModify();
+									Remove_AssumedLocked(node);
+									return false;
+								}
 							}
 						}
 					}
+					++index;
 				}
-				++index;
+				preprocess_system_infos.emplace_back(
+					mutex.index,
+					property.priority,
+					property.order_function,
+					disname
+				);
+				return true;
 			}
-			preprocess_system_infos.emplace_back(
-				mutex.index,
-				property.priority,
-				property.order_function,
-				disname
-			);
-			return true;
+			gener.RecoverModify();
 		}
-		gener.RecoverModify();
 		return false;
 	}
 
-	bool SubContextTaskFlow::AddTemporaryNodeImmediately(SystemNode& node, Potato::Task::TaskFilter filter)
+	bool SubContextTaskFlow::AddTemporaryNodeImmediately(SystemNode::Ptr node, Potato::Task::TaskFilter filter)
 	{
 		std::lock_guard lg(process_mutex);
 		return AddTemporaryNodeImmediately_AssumedLocked(node, filter);
 	}
 
-	bool SubContextTaskFlow::AddTemporaryNodeImmediately_AssumedLocked(SystemNode& node, Potato::Task::TaskFilter filter)
+	bool SubContextTaskFlow::AddTemporaryNodeImmediately_AssumedLocked(SystemNode::Ptr node, Potato::Task::TaskFilter filter)
 	{
 		if(finished_task >= process_nodes.size())
 			return false;
@@ -334,7 +342,7 @@ namespace Noodles
 		return true;
 	}
 
-	bool SubContextTaskFlow::Update_AssumedLocked()
+	bool SubContextTaskFlow::Update_AssumedLocked(std::pmr::memory_resource* resource)
 	{
 		bool par = need_update;
 		if(TaskFlow::Update_AssumedLocked())
@@ -630,4 +638,5 @@ namespace Noodles
 		}
 		return false;
 	}
+	*/
 }

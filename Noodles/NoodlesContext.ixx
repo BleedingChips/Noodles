@@ -22,6 +22,7 @@ import NoodlesComponent;
 export namespace Noodles
 {
 
+	/*
 	template<typename Type>
 	concept IsFilterWriteType = std::is_same_v<Type, std::remove_cvref_t<Type>>;
 
@@ -172,14 +173,14 @@ export namespace Noodles
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<SubContextTaskFlow, Potato::Task::TaskFlow::Wrapper>;
 
-		bool AddTemporaryNodeImmediately(SystemNode& node, Potato::Task::TaskFilter filter);
-		bool AddTemporaryNodeDefer(SystemNode& node, Potato::Task::TaskFilter filter);
+		bool AddTemporaryNodeImmediately(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
+		bool AddTemporaryNodeDefer(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
 	
 	protected:
 
-		bool AddTickedNode(SystemNode& node, SystemNodeProperty property);
-		virtual bool Update_AssumedLocked() override;
-		bool AddTemporaryNodeImmediately_AssumedLocked(SystemNode& node, Potato::Task::TaskFilter filter);
+		bool AddTickedNode(SystemNode::Ptr node, SystemNodeProperty property);
+		virtual bool Update_AssumedLocked(std::pmr::memory_resource* resource) override;
+		bool AddTemporaryNodeImmediately_AssumedLocked(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
 
 		SubContextTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
 			: record(record), layout(layout),
@@ -247,6 +248,9 @@ export namespace Noodles
 		struct Config
 		{
 			std::chrono::milliseconds min_frame_time = std::chrono::milliseconds{ 13 };
+			std::size_t max_component_count = 256;
+			std::size_t max_archetype_count = 128;
+			std::size_t max_singleton_count = 64;
 		};
 
 		struct SyncResource
@@ -793,5 +797,5 @@ export namespace Noodles
 			std::forward<Func>(func)
 		);
 	}
-
+	*/
 }
