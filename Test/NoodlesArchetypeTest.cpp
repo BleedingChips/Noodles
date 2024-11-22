@@ -1,5 +1,6 @@
 import std;
 import NoodlesArchetype;
+import PotatoIR;
 
 using namespace Noodles;
 
@@ -28,51 +29,39 @@ struct E
 int main()
 {
 
-	std::vector<Noodles::AtomicType::Ptr> ids{
-		GetAtomicType<A>(),
-		GetAtomicType<B>(),
-		GetAtomicType<C>()
+	StructLayoutMarkIndexManager manager;
+
+	auto init_list = std::array{
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<A>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<B>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<C>())}
 	};
 
-	AtomicTypeManager manager;
+	
 
-	auto ptr = Archetype::Create(manager, std::span(ids));
+	auto ptr = Archetype::Create(manager, std::span(init_list));
 
 	Tot temp;
 
-	auto re_ad1 = ptr->Get((*ptr)[0], {&temp, 1, 1}, 0);
-	static_cast<A*>(re_ad1)->i = 10086;
+	auto a = reinterpret_cast<A*>(
+		reinterpret_cast<std::byte*>(&temp) +
+		ptr->GetMemberView({0}).offset
+	);
+	a->i = 10086;
 
-	auto re_ad2 = ptr->Get((*ptr)[1], { &temp, 1, 1 }, 0);
-	static_cast<B*>(re_ad2)->i = 100;
+	auto b = reinterpret_cast<B*>(
+		reinterpret_cast<std::byte*>(&temp) +
+		ptr->GetMemberView({ 1 }).offset
+		);
+	b->i = 100;
 
-	auto re_ad3 = ptr->Get((*ptr)[2], { &temp, 1, 1 }, 0);
-	static_cast<C*>(re_ad3)->i = 86;
+	auto c = reinterpret_cast<C*>(
+		reinterpret_cast<std::byte*>(&temp) +
+		ptr->GetMemberView({ 2 }).offset
+		);
+	c->i = 86;
 
-	auto re_ad4 = ptr->LocateAtomicTypeID(*manager.LocateOrAddAtomicType(GetAtomicType<D>()));
-
-	{
-		std::vector<AtomicType::Ptr> ids{
-			GetAtomicType<E>(),
-			GetAtomicType<E>()
-		};
-
-		auto ptr2 = Archetype::Create(manager, std::span(ids));
-
-		volatile int i = 0;
-	}
-
-
-	{
-		std::vector<AtomicType::Ptr> ids{
-			GetAtomicType<D>(),
-			GetAtomicType<D>()
-		};
-
-		auto ptr2 = Archetype::Create(manager, std::span(ids));
-
-		volatile int i = 0;
-	}
+	auto re_ad4 = ptr->Locate(*manager.LocateOrAdd(StructLayout::GetStatic<D>()));
 
 	return 0;
 }

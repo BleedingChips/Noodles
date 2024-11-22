@@ -40,60 +40,40 @@ struct E
 int main()
 {
 
+	StructLayoutMarkIndexManager manager;
+
+
+	auto init_list = std::array{
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<A>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<B>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<C>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<D>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<D>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<E>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<E>())},
+	};
+
+	auto init_list2 = std::array<ComponentFilter::Info, 2>
 	{
-		AtomicTypeManager manager;
+		ComponentFilter::Info{true, Potato::IR::StaticAtomicStructLayout<A>::Create()},
+		ComponentFilter::Info{false, Potato::IR::StaticAtomicStructLayout<B>::Create()}
+	};
 
-		auto init_list = std::array{
-			Potato::IR::StaticAtomicStructLayout<B>::Create(),
-			Potato::IR::StaticAtomicStructLayout<A>::Create(),
-			Potato::IR::StaticAtomicStructLayout<C>::Create(),
-			Potato::IR::StaticAtomicStructLayout<D>::Create(),
-			Potato::IR::StaticAtomicStructLayout<E>::Create()
-		};
-
-		auto archetype = Archetype::Create(manager,init_list);
-
-		auto init_list2 = std::array<ComponentFilter::Info, 2>
-		{
-			ComponentFilter::Info{true, Potato::IR::StaticAtomicStructLayout<A>::Create()},
-			ComponentFilter::Info{false, Potato::IR::StaticAtomicStructLayout<B>::Create()}
-		};
-
-		auto filter = ComponentFilter::Create(manager, init_list2, {});
-
-		filter->OnCreatedArchetype(0, *archetype);
-
-		auto init_list3 = std::array<ComponentFilter::Info, 2>
-		{
-			ComponentFilter::Info{true, Potato::IR::StaticAtomicStructLayout<D>::Create()},
-			ComponentFilter::Info{false, Potato::IR::StaticAtomicStructLayout<E>::Create()}
-		};
-
-		auto filter2 = SingletonFilter::Create(manager, init_list3);
-
-		filter2->OnSingletonModify(*archetype);
-
-		volatile std::size_t k2 = 0;
-	}
-	
+	auto refuse_component = std::array<StructLayout::Ptr, 1>
 	{
-		AtomicTypeManager manager;
+		StructLayout::GetStatic<E>()
+	};
 
-		auto init_list = std::array{
-			Potato::IR::StaticAtomicStructLayout<B>::Create(),
-			Potato::IR::StaticAtomicStructLayout<A>::Create(),
-			Potato::IR::StaticAtomicStructLayout<C>::Create()
-		};
+
+	{
+		
+
+		
 
 		auto archetype = Archetype::Create(manager, init_list);
 
-		auto init_list2 = std::array<ComponentFilter::Info, 2>
-		{
-			ComponentFilter::Info{true, Potato::IR::StaticAtomicStructLayout<A>::Create()},
-			ComponentFilter::Info{false, Potato::IR::StaticAtomicStructLayout<B>::Create()}
-		};
+		
+		
 
-		auto filter = ComponentFilter::Create(manager, init_list2, {});
+		auto filter = ComponentFilter::Create(manager, init_list2, refuse_component);
 
 		filter->OnCreatedArchetype(0, *archetype);
 
@@ -101,100 +81,32 @@ int main()
 	}
 
 
-
-	/*
 	{
-		TemporaryComponentFilterStorage<Report, A, EntityProperty, std::u8string> TF;
-		//TestComponentFilter<Report, A, EntityProperty, std::u8string> TF;
-		//TestSingletonFilter<A> ATF;
 
-		ArchetypeComponentManager manager;
 
-		auto e1 = manager.CreateEntity();
 
-		manager.AddEntityComponent(*e1, Report{});
-		manager.AddEntityComponent(*e1, A{ 10086 });
-		manager.AddEntityComponent(*e1, std::u8string{u8"Fuck You"});
-
-		for(std::size_t i = 0; i < 1000; ++i)
-		{
-			auto ite_e2 = manager.CreateEntity();
-			manager.AddEntityComponent(*ite_e2, Report{});
-			manager.AddEntityComponent(*ite_e2, A{ i });
-			manager.AddEntityComponent(*ite_e2, std::u8string{u8"Fuck You"});
-		}
+		ComponentManager manager;
 
 		{
-			A a{100};
-			auto K = manager.MoveAndCreateSingleton(a);
+
+			auto ptr = manager.CreateComponentFilter(
+				init_list2,
+				refuse_component,
+				0
+			);
+
+			ComponentManager::ArchetypeBuilderRef buildref{manager};
+			buildref.Insert(StructLayout::GetStatic<A>(), *manager.LocateStructLayout(StructLayout::GetStatic<A>()));
+			buildref.Insert(StructLayout::GetStatic<B>(), *manager.LocateStructLayout(StructLayout::GetStatic<B>()));
+			buildref.Insert(StructLayout::GetStatic<C>(), *manager.LocateStructLayout(StructLayout::GetStatic<C>()));
+			buildref.Insert(StructLayout::GetStatic<D>(), *manager.LocateStructLayout(StructLayout::GetStatic<D>()));
+
+			auto [aptr, index] = manager.FindOrCreateArchetype(buildref);
+
+			auto [aptr2, index2] = manager.FindOrCreateArchetype(buildref);
 		}
-		
 
-		manager.ForceUpdateState();
-
-		auto e2 = manager.CreateEntity();
-
-		auto kcc = manager.CreateSingletonFilter(*GetAtomicType<A>());
-		auto ui = reinterpret_cast<A*>(kcc->Get());
-
-		manager.AddEntityComponent(*e2, Report{});
-		manager.AddEntityComponent(*e2, A{ 1008611 });
-		manager.AddEntityComponent(*e2, std::u8string{u8"Fuck You"});
-
-		manager.ReleaseEntity(*e2);
-
-		manager.ForceUpdateState();
-
-		auto F1 = manager.CreateComponentFilter(TF);
-		
-		auto P = manager.ReadComponents_AssumedLocked(*F1, 0, TF);
-		if(P)
-		{
-			auto k = P.GetRawArray(1).Translate<A>();
-			auto k2 = P.GetRawArray(3).Translate<std::u8string>();
-
-			auto K333 = std::move(k2[3]);
-
-			auto k4 = P.GetRawArray(2).Translate<EntityProperty>();
-
-			auto k5 = k4[0].GetEntity();
-
-
-			manager.ReleaseEntity(*k5);
-
-			manager.ForceUpdateState();
-
-			auto P2 = manager.ReadComponents_AssumedLocked(*F1, 0, TF);
-			if(P2)
-			{
-				auto k = P2.GetRawArray(1).Translate<A>();
-				auto k55 = P2.GetRawArray(2).Translate<EntityProperty>();
-
-				manager.ReleaseEntity(*k55[1].GetEntity());
-
-				auto ec2 = manager.CreateEntity();
-
-				manager.AddEntityComponent(*ec2, Report{});
-				manager.AddEntityComponent(*ec2, A{ 187888 });
-				manager.AddEntityComponent(*ec2, std::u8string{u8"Fuck You"});
-
-				manager.ForceUpdateState();
-
-				auto P3 = manager.ReadComponents_AssumedLocked(*F1, 0, TF);
-
-				if(P3)
-				{
-					auto k = P3.GetRawArray(1).Translate<A>();
-					auto k55 = P3.GetRawArray(2).Translate<EntityProperty>();
-					volatile int op = 0;
-				}
-
-				volatile int op = 0;
-			}
-			volatile int i = 0;
-		}
 	}
-	*/
 
 
 	volatile int i = 0;
