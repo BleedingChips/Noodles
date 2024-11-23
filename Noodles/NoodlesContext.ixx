@@ -1,7 +1,6 @@
 module;
 
 #include <cassert>
-#include <OCIdl.h>
 
 export module NoodlesContext;
 
@@ -14,15 +13,16 @@ import PotatoTaskSystem;
 import PotatoTaskFlow;
 import PotatoTMP;
 
-
+import NoodlesMisc;
 import NoodlesArchetype;
 import NoodlesComponent;
+import NoodlesSingleton;
+import NoodlesEntity;
 
 
 export namespace Noodles
 {
-
-	/*
+	
 	template<typename Type>
 	concept IsFilterWriteType = std::is_same_v<Type, std::remove_cvref_t<Type>>;
 
@@ -31,32 +31,6 @@ export namespace Noodles
 
 	template<typename Type>
 	concept AcceptableFilterType = IsFilterWriteType<Type> || IsFilterReadType<Type>;
-
-	template<typename Type>
-	concept IgnoreMutexComponentType = requires(Type)
-	{
-		requires(Type::NoodlesProperty::ignore_mutex);
-	};
-
-
-
-	struct RWUniqueTypeID
-	{
-		bool is_write = false;
-		bool ignore_mutex = false;
-		AtomicType::Ptr atomic_type;
-
-
-		template<AcceptableFilterType Type>
-		static RWUniqueTypeID Create()
-		{
-			return RWUniqueTypeID{
-				IsFilterWriteType<Type>,
-				IgnoreMutexComponentType<Type>,
-				GetAtomicType<Type>()
-			};
-		}
-	};
 
 	struct Priority
 	{
@@ -76,6 +50,147 @@ export namespace Noodles
 		void SerializeTo(std::span<std::byte> output) const;
 		SystemName ReMap(std::span<std::byte> input) const;
 	};
+
+	export struct Context;
+	export struct SubContextTaskFlow;
+	export struct ParallelExecutor;
+
+	struct SystemNode : protected Potato::Task::TaskFlowNode
+	{
+
+		struct Wrapper
+		{
+			void AddRef(SystemNode const* ptr) { ptr->AddSystemNodeRef(); }
+			void SubRef(SystemNode const* ptr) { ptr->SubSystemNodeRef(); }
+		};
+
+		using Ptr = Potato::Pointer::IntrusivePtr<SystemNode, Wrapper>;
+
+		virtual SystemName GetDisplayName() const = 0;
+		virtual std::span<MarkElement const> GetComponentMark() const = 0;
+		virtual std::span<MarkElement const> GetSingletonMark() const = 0;
+		virtual std::span<MarkElement const> GetThreadOrderMark() const = 0;
+
+	protected:
+
+		virtual void TaskFlowNodeExecute(Potato::Task::TaskFlowContext& status) override final;
+
+		virtual void AddTaskFlowNodeRef() const override { AddSystemNodeRef(); }
+		virtual void SubTaskFlowNodeRef() const override { SubSystemNodeRef(); }
+
+
+		virtual void AddSystemNodeRef() const = 0;
+		virtual void SubSystemNodeRef() const = 0;
+
+		friend struct Context;
+		friend struct SubContextTaskFlow;
+		friend struct ParallelExecutor;
+	};
+
+	enum class Order
+	{
+		MUTEX,
+		SMALLER,
+		BIGGER,
+		UNDEFINE
+	};
+
+	using OrderFunction = Order(*)(SystemName p1, SystemName p2);
+
+	struct SystemNodeProperty
+	{
+		Priority priority;
+		OrderFunction order_function = nullptr;
+		Potato::Task::TaskFilter filter;
+	};
+
+	/*
+	export struct SubContextTaskFlow : public Potato::Task::TaskFlow, protected Potato::IR::MemoryResourceRecordIntrusiveInterface
+	{
+		using Ptr = Potato::Pointer::IntrusivePtr<SubContextTaskFlow, Potato::Task::TaskFlow::Wrapper>;
+
+		bool AddTemporaryNodeImmediately(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
+		bool AddTemporaryNodeDefer(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
+
+	protected:
+
+		bool AddTickedNode(SystemNode::Ptr node, SystemNodeProperty property);
+		virtual bool Update_AssumedLocked(std::pmr::memory_resource* resource) override;
+		bool AddTemporaryNodeImmediately_AssumedLocked(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
+
+		SubContextTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
+			: MemoryResourceRecordIntrusiveInterface(record), layout(layout),
+				preprocess_rw_id(record.GetMemoryResource()), preprocess_system_infos(record.GetMemoryResource())
+			, process_rw_id(record.GetMemoryResource()), process_system_infos(record.GetMemoryResource())
+		{
+		}
+
+		virtual void AddTaskFlowRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
+		virtual void SubTaskFlowRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
+
+		std::int32_t layout;
+		
+		struct SystemNodeInfo
+		{
+			SystemNode::Ptr node;
+			Priority priority;
+			OrderFunction order_func = nullptr;
+			SystemName name;
+		};
+
+		std::pmr::vector<SystemNodeInfo> preprocess_system_infos;
+
+		struct DeferInfo
+		{
+			SystemNode::Ptr ptr;
+			Potato::Task::TaskFilter filter;
+		};
+
+		std::pmr::vector<DeferInfo> defer_temporary_system_node;
+
+		struct ProcessSystemInfo
+		{
+			ReadWriteMutexIndex read_write_mutex;
+		};
+
+		std::size_t temporary_rw_id_offset = 0;
+		std::pmr::vector<RWUniqueTypeID> process_rw_id;
+		std::pmr::vector<ProcessSystemInfo> process_system_infos;
+
+		friend struct TaskFlow::Wrapper;
+		friend struct Context;
+		friend struct SystemNode;
+	};
+	*/
+
+	/*
+	template<typename Type>
+	concept IgnoreMutexComponentType = requires(Type)
+	{
+		requires(Type::NoodlesProperty::ignore_mutex);
+	};
+
+	struct RWUniqueTypeID
+	{
+		bool is_write = false;
+		bool ignore_mutex = false;
+		AtomicType::Ptr atomic_type;
+
+
+		template<AcceptableFilterType Type>
+		static RWUniqueTypeID Create()
+		{
+			return RWUniqueTypeID{
+				IsFilterWriteType<Type>,
+				IgnoreMutexComponentType<Type>,
+				GetAtomicType<Type>()
+			};
+		}
+	};
+
+	
+
+	
 
 	struct ReadWriteMutexIndex
 	{
@@ -121,36 +236,7 @@ export namespace Noodles
 
 	export struct ContextWrapper;
 
-	struct SystemNode : protected Potato::Task::TaskFlowNode
-	{
-
-		struct Wrapper
-		{
-			void AddRef(SystemNode const* ptr) { ptr->AddSystemNodeRef(); }
-			void SubRef(SystemNode const* ptr) { ptr->SubSystemNodeRef(); }
-		};
-
-		using Ptr = Potato::Pointer::IntrusivePtr<SystemNode, Wrapper>;
-
-		virtual SystemName GetDisplayName() const = 0;
-
-	protected:
-
-		virtual void FlushMutexGenerator(ReadWriteMutexGenerator& generator) const = 0;
-		virtual void TaskFlowNodeExecute(Potato::Task::TaskFlowContext& status) override final;
-		virtual void SystemNodeExecute(ContextWrapper& context) = 0;
-
-		virtual void AddTaskFlowNodeRef() const override { AddSystemNodeRef(); }
-		virtual void SubTaskFlowNodeRef() const override { SubSystemNodeRef(); }
-
-
-		virtual void AddSystemNodeRef() const = 0;
-		virtual void SubSystemNodeRef() const = 0;
-
-		friend struct Context;
-		friend struct SubContextTaskFlow;
-		friend struct ParallelExecutor;
-	};
+	
 
 	enum class Order
 	{

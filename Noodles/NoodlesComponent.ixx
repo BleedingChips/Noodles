@@ -26,7 +26,7 @@ export namespace Noodles
 		std::size_t current_count = 0;
 		std::size_t max_count = 0;
 		std::size_t column_size = 0;
-		operator bool() const { return buffer != nullptr; }
+		operator bool() const { return archetype; }
 		std::byte* GetComponent(
 			Archetype::MemberView const& view,
 			std::size_t column_index
@@ -96,6 +96,7 @@ export namespace Noodles
 		std::span<MarkElement const> GetRequiredAtomicMarkArray() const { return require_component; }
 		std::span<MarkElement const> GetRequiresWriteAtomicMarkArray() const { return require_write_component; }
 		std::span<MarkElement const> GetRefuseAtomicMarkArray() const { return refuse_component; }
+		std::span<MarkElement const> GetArchetypeMarkArray() const { return archetype_usable; }
 		std::span<MarkIndex const> GetMarkIndex() const { return mark_index; }
 
 		struct Info
@@ -106,6 +107,7 @@ export namespace Noodles
 
 		static ComponentFilter::Ptr Create(
 			StructLayoutMarkIndexManager& manager,
+			std::size_t archetype_storage_count,
 			std::span<Info const> require_component_type,
 			std::span<StructLayout::Ptr const> refuse_component_type,
 			std::pmr::memory_resource* storage_resource = std::pmr::get_default_resource(),
@@ -123,6 +125,7 @@ export namespace Noodles
 			std::span<MarkElement> require_component,
 			std::span<MarkElement> require_write_component,
 			std::span<MarkElement> refuse_component,
+			std::span<MarkElement> archetype_usable,
 			std::span<MarkIndex> mark_index,
 			std::pmr::memory_resource* resource
 		)
@@ -130,7 +133,8 @@ export namespace Noodles
 			require_write_component(require_write_component),
 			refuse_component(refuse_component),
 			mark_index(mark_index),
-			archetype_member(resource)
+			archetype_member(resource),
+			archetype_usable(archetype_usable)
 		{
 			
 		}
@@ -138,6 +142,7 @@ export namespace Noodles
 		std::span<MarkElement> require_component;
 		std::span<MarkElement> require_write_component;
 		std::span<MarkElement> refuse_component;
+		std::span<MarkElement> archetype_usable;
 		std::span<MarkIndex> mark_index;
 
 		mutable std::shared_mutex mutex;
@@ -151,8 +156,8 @@ export namespace Noodles
 	{
 		struct Config
 		{
-			std::size_t component_atomic_type_count = 128;
-			std::size_t archetype_count = 128;
+			std::size_t component_max_count = 128;
+			std::size_t archetype_max_count = 128;
 			std::pmr::memory_resource* component_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* archetype_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* resource = std::pmr::get_default_resource();
@@ -232,14 +237,13 @@ export namespace Noodles
 		std::tuple<Archetype::OPtr, OptionalIndex> CreateArchetype_AssumedLocked(ArchetypeBuilderRef const& ref);
 
 		StructLayoutMarkIndexManager manager;
-
+		std::size_t const archetype_max_count;
+		std::size_t const archetype_storage_count;
 		struct FilterElement
 		{
 			ComponentFilter::Ptr filter;
 			OptionalIndex identity;
 		};
-
-		std::size_t archetype_count;
 
 		mutable std::shared_mutex chunk_mutex;
 		std::pmr::vector<ChunkInfo> chunk_infos;

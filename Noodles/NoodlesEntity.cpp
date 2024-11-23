@@ -370,9 +370,8 @@ namespace Noodles
 								auto mm = manager.GetChunk_AssumedLocked(entity.archetype_index);
 								for (auto& ite2 : mm.archetype->GetMemberView())
 								{
-									if (
-										MarkElement::CheckIsMark(entity.modify_component_mask, ite2.index)
-										)
+									auto re = MarkElement::CheckIsMark(entity.modify_component_mask, ite2.index);
+									if (re && *re)
 									{
 										builder.Insert(ite2.layout, ite2.index);
 									}

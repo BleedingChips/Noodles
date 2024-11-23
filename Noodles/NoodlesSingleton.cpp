@@ -352,7 +352,8 @@ namespace Noodles
 			{
 				for (auto& ite : singleton_archetype->GetMemberView())
 				{
-					if(MarkElement::CheckIsMark(modify_mask, ite.index))
+					auto re = MarkElement::CheckIsMark(modify_mask, ite.index);
+					if(re && *re)
 					{
 						auto re = MarkElement::Mark(marks, ite.index);
 						if(re && !*re)
@@ -405,9 +406,10 @@ namespace Noodles
 						for (auto& ite : singleton_archetype->GetMemberView())
 						{
 							auto source = old_view.GetSingleton(ite);
-							if (MarkElement::CheckIsMark(modify_mask, ite.index))
+							auto re = MarkElement::CheckIsMark(modify_mask, ite.index);
+							if (re && *re)
 							{
-								auto re = MarkElement::Mark(marks, ite.index);
+								re = MarkElement::Mark(marks, ite.index);
 								if (re && !*re)
 								{
 									auto mindex = new_archetype->Locate(ite.index);

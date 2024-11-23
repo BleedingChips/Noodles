@@ -47,7 +47,10 @@ namespace Noodles
 		{
 			auto mark_value = (std::size_t{ 1 } << moffset);
 			auto old_value = marks[mindex].mark;
-			marks[mindex].mark |= mark_value;
+			if(mark)
+				marks[mindex].mark |= mark_value;
+			else
+				marks[mindex].mark &= (~mark_value);
 			return (old_value & mark_value) == mark_value;
 		}
 		return std::nullopt;

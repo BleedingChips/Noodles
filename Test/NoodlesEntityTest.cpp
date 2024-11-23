@@ -76,6 +76,23 @@ int main()
 
 	entity_manager.Flush(component_manager);
 
+	entity_manager.RemoveEntityComponent(
+		component_manager,
+		entity, StructLayout::GetStatic<B>()
+	);
+
+	auto re3 = entity_manager.AddEntityComponent(
+		component_manager,
+		entity, C{ 10086 }
+	);
+
+	auto re4 = entity_manager.AddEntityComponent(
+		component_manager,
+		entity, D{ 10076 }
+	);
+
+	entity_manager.Flush(component_manager);
+
 	auto k = component_manager.ReadComponentRow_AssumedLocked(*filter, 0);
 
 	auto span_a = k->AsSpan<A>(0);

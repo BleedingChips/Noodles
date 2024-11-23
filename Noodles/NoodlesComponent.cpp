@@ -40,9 +40,13 @@ namespace Noodles
 		std::size_t column_index
 	) const
 	{
-		return
-			buffer +
-			view.offset * max_count + view.layout->GetLayout().size * column_index;
+		if(buffer != nullptr)
+		{
+			return
+				buffer +
+				view.offset * max_count + view.layout->GetLayout().size * column_index;
+		}
+		return nullptr;
 	}
 
 	std::byte* ChunkView::GetComponent(
@@ -118,6 +122,7 @@ namespace Noodles
 
 	ComponentFilter::Ptr ComponentFilter::Create(
 		StructLayoutMarkIndexManager& manager,
+		std::size_t archetype_storage_count,
 		std::span<Info const> require_component_type,
 		std::span<StructLayout::Ptr const> refuse_component_type,
 		std::pmr::memory_resource* storage_resource,
@@ -128,12 +133,14 @@ namespace Noodles
 		auto require_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetStorageCount()));
 		auto require_write_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetStorageCount()));
 		auto refuse_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetStorageCount()));
+		auto archetype_usable_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(archetype_storage_count));
 		auto atomic_index_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkIndex>(require_component_type.size()));
 		auto re = Potato::IR::MemoryResourceRecord::Allocate(storage_resource, layout.Get());
 		if(re)
 		{
 			std::span<MarkElement> require_mask { new (re.GetByte(require_offset)) MarkElement[manager.GetStorageCount()], manager.GetStorageCount() };
 			std::span<MarkElement> require_write_mask{ new (re.GetByte(require_write_offset)) MarkElement[manager.GetStorageCount()], manager.GetStorageCount() };
+			std::span<MarkElement> archetype_usable{ new (re.GetByte(archetype_usable_offset)) MarkElement[archetype_storage_count], archetype_storage_count };
 			std::span<MarkIndex> require_index { new (re.GetByte(atomic_index_offset)) MarkIndex[require_component_type.size()], require_component_type.size() };
 
 			auto ite_span = require_index;
@@ -171,7 +178,7 @@ namespace Noodles
 				}
 			}
 
-			return new (re.Get()) ComponentFilter { re, require_mask, require_write_mask, refuse_mask, require_index, archetype_info_resource };
+			return new (re.Get()) ComponentFilter { re, require_mask, require_write_mask, refuse_mask, archetype_usable, require_index, archetype_info_resource };
  		}
 		return {};
 	}
@@ -194,6 +201,8 @@ namespace Noodles
 				assert(index.has_value());
 				span[i + 1] = index->index;
 			}
+			auto re = MarkElement::Mark(archetype_usable, MarkIndex{ archetype_index });
+			assert(re && !*re);
 			return true;
 		}
 		return false;
@@ -373,6 +382,7 @@ namespace Noodles
 	{
 		auto filter = ComponentFilter::Create(
 			manager,
+			archetype_storage_count,
 			require_component,
 			refuse_component,
 			filter_resource,
@@ -400,14 +410,15 @@ namespace Noodles
 
 	ComponentManager::ComponentManager(Config config)
 		:
-		archetype_count(config.archetype_count),
-		manager(config.component_atomic_type_count, config.resource),
+		archetype_max_count(MarkElement::GetMaxMarkIndexCount(config.archetype_max_count)),
+		archetype_storage_count(MarkElement::GetMarkElementStorageCalculate(config.archetype_max_count)),
+		manager(config.component_max_count, config.resource),
 		archetype_resource(config.archetype_resource),
 		component_resource(config.component_resource),
 		archetype_mask(config.resource),
 		filters(config.resource)
 	{
-		archetype_mask.resize(archetype_count);
+		archetype_mask.resize(archetype_storage_count);
 	}
 
 	
@@ -472,6 +483,10 @@ namespace Noodles
 
 	std::tuple<Archetype::OPtr, OptionalIndex> ComponentManager::CreateArchetype_AssumedLocked(ArchetypeBuilderRef const& ref)
 	{
+		if(chunk_infos.size() + 1 >= archetype_max_count)
+			return {{}, {}};
+
+
 		auto ptr = Archetype::Create(
 			manager, ref.atomic_type, &archetype_resource
 		);
@@ -513,6 +528,7 @@ namespace Noodles
 				archetype_index,
 				column_index
 			);
+			return true;
 		}
 		return false;
 	}
@@ -557,6 +573,7 @@ namespace Noodles
 						ref.max_count = count;
 						ref.column_size = archetype_layout.size;
 						ref.current_count = 1;
+						MarkElement::Mark(archetype_mask, MarkIndex{ archetype_index });
 						return 0;
 					}
 				}else
@@ -594,16 +611,18 @@ namespace Noodles
 		for(auto& ite : holes)
 		{
 			auto& chunk = chunk_infos[ite.archetype_index];
-			if(ite.column_index == chunk.current_count)
+			if(ite.column_index + 1 == chunk.current_count)
 			{
 				chunk.current_count -= 1;
 				if(chunk.current_count == 0)
 				{
 					chunk.record.Deallocate();
+					auto re = MarkElement::Mark(archetype_mask, MarkIndex{ite.archetype_index}, false);
+					assert(re && *re);
 				}
 			}else
 			{
-				assert(ite.column_index < chunk.current_count);
+				assert(ite.column_index + 1 < chunk.current_count);
 				auto mm = chunk.GetView();
 				chunk.current_count -= 1;
 				for(auto& ite2 : mm.archetype->GetMemberView())
@@ -620,5 +639,6 @@ namespace Noodles
 				}
 			}
 		}
+		holes.clear();
 	}
 }
