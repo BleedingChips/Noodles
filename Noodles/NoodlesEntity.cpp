@@ -6,7 +6,11 @@ module NoodlesEntity;
 
 namespace Noodles
 {
-	void Entity::SetFree()
+
+	
+
+
+	void Entity::SetFree_AssumedLocked()
 	{
 		state = State::Free;
 		archetype_index.Reset();
@@ -45,6 +49,15 @@ namespace Noodles
 
 	Entity::~Entity()
 	{
+	}
+
+	EntityProperty::~EntityProperty()
+	{
+		if (entity)
+		{
+			std::lock_guard lg(entity->mutex);
+			entity->SetFree_AssumedLocked();
+		}
 	}
 
 	auto EntityManager::ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentFilter const& filter, std::pmr::memory_resource* wrapper_resource) const
@@ -133,7 +146,7 @@ namespace Noodles
 			if (target_entity->state == Entity::State::Normal || target_entity->state == Entity::State::PreInit)
 			{
 				auto re = MarkElement::Mark(target_entity->modify_component_mask, *loc);
-				if (re && !*re)
+				if (!re)
 				{
 					auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, atomic_type->GetLayout());
 					if (record)
@@ -242,7 +255,7 @@ namespace Noodles
 			{
 
 				auto re = MarkElement::Mark(target_entity->modify_component_mask, *loc, false);
-				if(re && *re)
+				if(re)
 				{
 					Potato::Misc::IndexSpan<> event_span;
 
@@ -308,7 +321,6 @@ namespace Noodles
 							remove_list
 						);
 					}
-					entity.SetFree();
 					ite.entity.Reset();
 				}
 			}
@@ -371,7 +383,7 @@ namespace Noodles
 								for (auto& ite2 : mm.archetype->GetMemberView())
 								{
 									auto re = MarkElement::CheckIsMark(entity.modify_component_mask, ite2.index);
-									if (re && *re)
+									if (re)
 									{
 										builder.Insert(ite2.layout, ite2.index);
 									}
@@ -404,7 +416,7 @@ namespace Noodles
 								);
 								assert(re);
 								auto re2 = MarkElement::Mark(builder.GetMarks(), ite2.index);
-								assert(re2 && !*re2);
+								assert(!re2);
 								ite2.Release();
 							}
 						}
@@ -416,10 +428,10 @@ namespace Noodles
 							for (auto& ite2 : old_mm.archetype->GetMemberView())
 							{
 								auto re = MarkElement::CheckIsMark(entity.modify_component_mask, ite2.index);
-								if (re && *re)
+								if (re)
 								{
 									re = MarkElement::Mark(builder.GetMarks(), ite2.index);
-									if (re && !*re)
+									if (!re)
 									{
 										auto target_buffer = old_mm.GetComponent(
 											ite2.index,

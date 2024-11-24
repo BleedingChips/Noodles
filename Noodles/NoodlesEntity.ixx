@@ -17,6 +17,7 @@ export namespace Noodles
 {
 
 	export struct EntityManager;
+	export struct EntityProperty;
 	
 
 	struct Entity : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
@@ -36,7 +37,7 @@ export namespace Noodles
 
 	protected:
 
-		void SetFree();
+		void SetFree_AssumedLocked();
 
 		Entity(
 			Potato::IR::MemoryResourceRecord record,
@@ -65,6 +66,7 @@ export namespace Noodles
 
 
 		friend struct EntityManager;
+		friend struct EntityProperty;
 
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 	};
@@ -78,6 +80,7 @@ export namespace Noodles
 		EntityProperty(EntityProperty&&) = default;
 		EntityProperty(Entity::Ptr entity) : entity(std::move(entity)) {}
 		EntityProperty() = default;
+		~EntityProperty();
 
 	protected:
 

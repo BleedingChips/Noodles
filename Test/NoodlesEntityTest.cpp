@@ -62,6 +62,12 @@ int main()
 		0
 	);
 
+	auto filter2 = component_manager.CreateComponentFilter(
+		init_list2,
+		{},
+		0
+	);
+
 	auto entity = entity_manager.CreateEntity(component_manager);
 
 	auto re1 = entity_manager.AddEntityComponent(
@@ -75,6 +81,8 @@ int main()
 	);
 
 	entity_manager.Flush(component_manager);
+
+	auto b1 = filter->IsIsOverlappingRunTime(*filter2, component_manager.GetArchetypeUsage_AssumedLocked());
 
 	entity_manager.RemoveEntityComponent(
 		component_manager,
@@ -92,6 +100,8 @@ int main()
 	);
 
 	entity_manager.Flush(component_manager);
+
+	auto b2 = filter->IsIsOverlappingRunTime(*filter2, component_manager.GetArchetypeUsage_AssumedLocked());
 
 	auto k = component_manager.ReadComponentRow_AssumedLocked(*filter, 0);
 

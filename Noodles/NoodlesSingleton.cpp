@@ -211,7 +211,7 @@ namespace Noodles
 		{
 			std::lock_guard lg(modifier_mutex);
 			auto re = MarkElement::CheckIsMark(modify_mask, *loc);
-			if(re && !*re)
+			if(!re)
 			{
 				auto record = Potato::IR::MemoryResourceRecord::Allocate(temp_resource, struct_layout->GetLayout());
 				if(record)
@@ -237,7 +237,7 @@ namespace Noodles
 						std::move(struct_layout)
 					);
 					re = MarkElement::Mark(modify_mask, *loc);
-					assert(re && !*re);
+					assert(!re);
 					return true;
 				}
 				
@@ -253,7 +253,7 @@ namespace Noodles
 		{
 			std::lock_guard lg(modifier_mutex);
 			auto re = MarkElement::Mark(modify_mask, *loc, false);
-			if(re && *re)
+			if(re)
 			{
 				for(auto& ite : modifier)
 				{
@@ -345,7 +345,7 @@ namespace Noodles
 				{
 					init_list.emplace_back(ite.struct_layout, ite.mark_index);
 					auto re = MarkElement::Mark(marks, ite.mark_index);
-					assert(re && !*re);
+					assert(!re);
 				}
 			}
 			if(singleton_archetype)
@@ -353,10 +353,10 @@ namespace Noodles
 				for (auto& ite : singleton_archetype->GetMemberView())
 				{
 					auto re = MarkElement::CheckIsMark(modify_mask, ite.index);
-					if(re && *re)
+					if(re)
 					{
 						auto re = MarkElement::Mark(marks, ite.index);
-						if(re && !*re)
+						if(!re)
 						{
 							init_list.emplace_back(ite.layout, ite.index);
 						}
@@ -397,7 +397,7 @@ namespace Noodles
 							);
 							ite.Release();
 							auto re = MarkElement::Mark(marks, ite.mark_index);
-							assert(re && !*re);
+							assert(!re);
 						}
 					}
 					if(singleton_archetype)
@@ -407,10 +407,10 @@ namespace Noodles
 						{
 							auto source = old_view.GetSingleton(ite);
 							auto re = MarkElement::CheckIsMark(modify_mask, ite.index);
-							if (re && *re)
+							if (re)
 							{
 								re = MarkElement::Mark(marks, ite.index);
-								if (re && !*re)
+								if (!re)
 								{
 									auto mindex = new_archetype->Locate(ite.index);
 									assert(mindex);

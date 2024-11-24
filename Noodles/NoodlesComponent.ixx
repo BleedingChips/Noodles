@@ -118,6 +118,8 @@ export namespace Noodles
 		std::optional<std::span<std::size_t const>> EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index) const;
 		std::optional<std::span<std::size_t const>> EnumMountPointIndexByIterator_AssumedLocked(std::size_t iterator, std::size_t& archetype_index) const;
 
+		bool IsIsOverlappingRunTime(ComponentFilter const& other, std::span<MarkElement const> archetype_usage) const;
+
 	protected:
 
 		ComponentFilter(
@@ -231,6 +233,8 @@ export namespace Noodles
 		OptionalIndex AllocateComponentColumn_AssumedLocked(std::size_t archetype_index, std::pmr::vector<RemovedColumn>& removed_list);
 		void FixComponentChunkHole_AssumedLocked(std::pmr::vector<RemovedColumn>& holes, void(*func)(ChunkView const& view, std::size_t, std::size_t));
 		ChunkView GetChunk_AssumedLocked(std::size_t archetype_index) const;
+		std::span<MarkElement const> GetArchetypeUsage_AssumedLocked() const { return archetype_mask; }
+		std::size_t GetComponentMarkElementStorageCount() const { return manager.GetStorageCount(); }
 
 	protected:
 

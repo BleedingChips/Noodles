@@ -40,31 +40,25 @@ namespace Noodles
 		return storage * size;
 	}
 
-	std::optional<bool> MarkElement::Mark(std::span<MarkElement> marks, MarkIndex index, bool mark)
+	bool MarkElement::Mark(std::span<MarkElement> marks, MarkIndex index, bool mark)
 	{
 		auto [mindex, moffset] = Locate(index);
-		if (mindex < marks.size())
-		{
-			auto mark_value = (std::size_t{ 1 } << moffset);
-			auto old_value = marks[mindex].mark;
-			if(mark)
-				marks[mindex].mark |= mark_value;
-			else
-				marks[mindex].mark &= (~mark_value);
-			return (old_value & mark_value) == mark_value;
-		}
-		return std::nullopt;
+		assert(mindex < marks.size());
+		auto mark_value = (std::size_t{ 1 } << moffset);
+		auto old_value = marks[mindex].mark;
+		if (mark)
+			marks[mindex].mark |= mark_value;
+		else
+			marks[mindex].mark &= (~mark_value);
+		return (old_value & mark_value) == mark_value;
 	}
 
-	std::optional<bool> MarkElement::CheckIsMark(std::span<MarkElement const> marks, MarkIndex index)
+	bool MarkElement::CheckIsMark(std::span<MarkElement const> marks, MarkIndex index)
 	{
 		auto [mindex, moffset] = Locate(index);
-		if (mindex < marks.size())
-		{
-			auto mark_value = (std::size_t{ 1 } << moffset);
-			return (marks[mindex].mark & mark_value) == mark_value;
-		}
-		return std::nullopt;
+		assert(mindex < marks.size());
+		auto mark_value = (std::size_t{ 1 } << moffset);
+		return (marks[mindex].mark & mark_value) == mark_value;
 	}
 
 	bool MarkElement::Inclusion(std::span<MarkElement const> source, std::span<MarkElement const> target)
@@ -86,6 +80,19 @@ namespace Noodles
 		for (std::size_t i = 0; i < target.size(); ++i)
 		{
 			if ((source[i].mark & target[i].mark) != 0)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool MarkElement::IsOverlappingWithMask(std::span<MarkElement const> source, std::span<MarkElement const> target, std::span<MarkElement const> mask)
+	{
+		assert(source.size() == target.size() && source.size() == mask.size());
+		for (std::size_t i = 0; i < source.size(); ++i)
+		{
+			if ((source[i].mark & target[i].mark & mask[i].mark) != 0)
 			{
 				return true;
 			}

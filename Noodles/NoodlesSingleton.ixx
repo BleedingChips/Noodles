@@ -121,6 +121,7 @@ export namespace Noodles
 		{
 			return { singleton_archetype, singleton_record.GetByte() };
 		}
+		std::size_t GetSingletonMarkElementStorageCount() const { return manager.GetStorageCount(); }
 
 	protected:
 

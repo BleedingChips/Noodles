@@ -202,7 +202,7 @@ namespace Noodles
 				span[i + 1] = index->index;
 			}
 			auto re = MarkElement::Mark(archetype_usable, MarkIndex{ archetype_index });
-			assert(re && !*re);
+			assert(!re);
 			return true;
 		}
 		return false;
@@ -244,6 +244,16 @@ namespace Noodles
 		}
 		
 		return std::nullopt;
+	}
+
+	bool ComponentFilter::IsIsOverlappingRunTime(ComponentFilter const& other, std::span<MarkElement const> archetype_usage) const
+	{
+		std::shared_lock sl(mutex);
+		return
+			MarkElement::IsOverlappingWithMask(archetype_usable, other.archetype_usable, archetype_usage) && (
+			MarkElement::IsOverlapping(require_component, other.require_write_component)
+			|| MarkElement::IsOverlapping(require_write_component, other.require_component)
+			);
 	}
 
 	auto ComponentManager::ReadComponentRow_AssumedLocked(ComponentFilter const& filter, std::size_t filter_ite, std::pmr::memory_resource* wrapper_resource) const
@@ -457,7 +467,7 @@ namespace Noodles
 	bool ComponentManager::ArchetypeBuilderRef::Insert(StructLayout::Ptr ref, MarkIndex index)
 	{
 		auto re = MarkElement::Mark(mark, index);
-		if (re.has_value() && !(*re))
+		if (!re)
 		{
 			auto layout = ref->GetLayout();
 			auto find = std::find_if(
@@ -618,7 +628,7 @@ namespace Noodles
 				{
 					chunk.record.Deallocate();
 					auto re = MarkElement::Mark(archetype_mask, MarkIndex{ite.archetype_index}, false);
-					assert(re && *re);
+					assert(re);
 				}
 			}else
 			{

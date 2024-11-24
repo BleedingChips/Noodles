@@ -25,10 +25,11 @@ export namespace Noodles
 	{
 		std::size_t mark = 0;
 
-		static std::optional<bool> Mark(std::span<MarkElement> marks, MarkIndex index, bool mark = true);
-		static std::optional<bool> CheckIsMark(std::span<MarkElement const> marks, MarkIndex index);
+		static bool Mark(std::span<MarkElement> marks, MarkIndex index, bool mark = true);
+		static bool CheckIsMark(std::span<MarkElement const> marks, MarkIndex index);
 		static bool Inclusion(std::span<MarkElement const> source, std::span<MarkElement const> target);
 		static bool IsOverlapping(std::span<MarkElement const> source, std::span<MarkElement const> target);
+		static bool IsOverlappingWithMask(std::span<MarkElement const> source, std::span<MarkElement const> target, std::span<MarkElement const> mask);
 		static void Reset(std::span<MarkElement> target);
 		static bool IsReset(std::span<MarkElement const> target);
 		static bool IsSame(std::span<MarkElement const> source, std::span<MarkElement const> target);
