@@ -138,9 +138,11 @@ namespace Noodles
 		singleton_resource(config.singleton_resource),
 		filter(config.resource),
 		modify_mask(config.resource),
-		modifier(config.resource)
+		modifier(config.resource),
+		singleton_mark(config.resource)
 	{
 		modify_mask.resize(manager.GetStorageCount());
+		singleton_mark.resize(manager.GetStorageCount());
 	}
 
 	SingletonManager::~SingletonManager()
@@ -162,11 +164,13 @@ namespace Noodles
 		);
 		if(ptr)
 		{
+			
+
 			if(singleton_archetype)
 			{
 				ptr->OnSingletonModify(*singleton_archetype);
 			}
-			
+
 			std::lock_guard lg(filter_mutex);
 			filter.emplace_back(
 				ptr,
@@ -441,6 +445,7 @@ namespace Noodles
 					}
 				}
 			}
+			MarkElement::CopyTo(modify_mask, singleton_mark);
 		}
 		return update;
 	}

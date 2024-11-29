@@ -81,8 +81,8 @@ export namespace Noodles
 		};
 
 		virtual Mutex GetMutex() const = 0;
-		virtual bool IsComponentOverlapping(SystemNode const& target_node) const = 0;
-		virtual bool IsComponentOverlapping(ComponentFilter const& target_component_filter) = 0;
+		virtual bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> component_usage) const = 0;
+		virtual bool IsComponentOverlapping(ComponentFilter const& target_component_filter, std::span<MarkElement const> component_usage) = 0;
 
 	protected:
 
@@ -128,13 +128,12 @@ export namespace Noodles
 
 	protected:
 
-		bool AddTickedNode(SystemNode::Ptr node, SystemNodeProperty property);
+		bool AddTickedNode(SystemNode::Ptr node, SystemNodeProperty property, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 		virtual bool Update_AssumedLocked(std::pmr::memory_resource* resource) override;
 		bool AddTemporaryNodeImmediately_AssumedLocked(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
 
-		LayerTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
-			: MemoryResourceRecordIntrusiveInterface(record), layout(layout),
-				preprocess_system_infos(record.GetMemoryResource())
+		LayerTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout, Potato::Pointer::ObserverPtr<Context> context_ptr)
+			: MemoryResourceRecordIntrusiveInterface(record), layout(layout), context_ptr(context_ptr)
 		{
 		}
 
@@ -143,7 +142,7 @@ export namespace Noodles
 
 		std::int32_t layout;
 
-		Potato::Graph::DirectedAcyclicGraph pre_test_graph;
+		Potato::Graph::DirectedAcyclicGraphImmediately worst_graph;
 		
 		struct SystemNodeInfo
 		{
@@ -151,20 +150,21 @@ export namespace Noodles
 			Priority priority;
 			OrderFunction order_func = nullptr;
 			SystemName name;
-			Potato::Graph::GraphNode process_graph_node;
-			Potato::Graph::GraphNode pre_test_graph_node;
+			Potato::Graph::GraphNode worst_graph_node;
+			Potato::Graph::GraphNode task_node;
 		};
 
-		struct EdgeProperty
+		struct DynamicEdge
 		{
-			Potato::Graph::GraphNode pre_process_from;
-			Potato::Graph::GraphNode pre_process_to;
+			bool is_mutex = false;
 			bool component_overlapping = false;
 			bool singleton_overlapping = false;
+			Potato::Graph::GraphNode pre_process_from;
+			Potato::Graph::GraphNode pre_process_to;
 		};
 
-		std::pmr::vector<SystemNodeInfo> preprocess_system_infos;
-		std::pmr::vector<EdgeProperty> edge_property;
+		std::pmr::vector<SystemNodeInfo> system_infos;
+		std::pmr::vector<DynamicEdge> dynamic_edges;
 
 		struct DeferInfo
 		{
@@ -174,9 +174,13 @@ export namespace Noodles
 
 		std::pmr::vector<DeferInfo> defer_temporary_system_node;
 
+		Potato::Pointer::ObserverPtr<Context> context_ptr;
+
 		friend struct TaskFlow::Wrapper;
 		friend struct Context;
 		friend struct SystemNode;
+		friend struct ContextWrapper;
+		friend struct ParallelExecutor;
 	};
 
 	struct SystemTemplate
@@ -256,8 +260,8 @@ export namespace Noodles
 			return system_template.CreateSystemNode(*this, name, resource);
 		}
 
-		bool AddTickedSystemNode(SystemNode& node, SystemNodeProperty property);
-		bool AddTemporarySystemNodeDefer(SystemNode& node, std::int32_t layout, Potato::Task::TaskFilter property);
+		bool AddTickedSystemNode(SystemNode::Ptr node, SystemNodeProperty property);
+		bool AddTemporarySystemNodeDefer(SystemNode::Ptr node, std::int32_t layout, Potato::Task::TaskFilter property);
 
 		template<typename Function>
 		bool CreateAndAddTickedAutomaticSystem(Function&& func, SystemName name, SystemNodeProperty property = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
@@ -320,12 +324,15 @@ export namespace Noodles
 		virtual void SubContextRef() const = 0;
 		virtual void AddTaskFlowRef() const override { AddContextRef(); }
 		virtual void SubTaskFlowRef() const override { SubContextRef(); }
+		virtual bool Update_AssumedLocked(std::pmr::memory_resource* resource = std::pmr::get_default_resource()) override;
 
 		std::atomic<std::chrono::steady_clock::duration> framed_duration;
 
 		std::mutex mutex;
 		Config config;
 		bool require_quit = false;
+		bool this_frame_component_update = false;
+		bool this_frame_singleton_update = false;
 		std::chrono::steady_clock::time_point start_up_tick_lock;
 
 		ComponentManager component_manager;
@@ -340,6 +347,7 @@ export namespace Noodles
 		friend struct TaskFlow::Wrapper;
 		friend struct SystemNode;
 		friend struct ParallelExecutor;
+		friend struct LayerTaskFlow;
 	};
 
 	struct ParallelInfo

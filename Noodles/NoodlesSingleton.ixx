@@ -121,6 +121,8 @@ export namespace Noodles
 		{
 			return { singleton_archetype, singleton_record.GetByte() };
 		}
+		std::span<MarkElement const> GetSingletonUsageMark_AssumedLocked() const { return singleton_mark; }
+		std::shared_mutex& GetMutex() { return mutex; }
 		std::size_t GetSingletonMarkElementStorageCount() const { return manager.GetStorageCount(); }
 
 	protected:
@@ -133,6 +135,7 @@ export namespace Noodles
 		Archetype::Ptr singleton_archetype;
 		Potato::IR::MemoryResourceRecord singleton_record;
 		std::pmr::unsynchronized_pool_resource singleton_resource;
+		std::pmr::vector<MarkElement> singleton_mark;
 
 		struct FilterTuple
 		{

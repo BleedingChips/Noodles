@@ -59,7 +59,7 @@ namespace Noodles
 		};
 	}
 
-	bool LayerTaskFlow::AddTickedNode(SystemNode::Ptr node, SystemNodeProperty property)
+	bool LayerTaskFlow::AddTickedNode(SystemNode::Ptr node, SystemNodeProperty property, std::pmr::memory_resource* temp_resource)
 	{
 		if(node)
 		{
@@ -67,34 +67,36 @@ namespace Noodles
 
 			std::size_t index = 0;
 
-			for(;index < preprocess_system_infos.size(); ++index)
+			for(;index < system_infos.size(); ++index)
 			{
-				if(!preprocess_system_infos[index].node)
+				if(!system_infos[index].node)
 					break;
 			}
 
-			if(index == preprocess_system_infos.size())
-				preprocess_system_infos.emplace_back();
+			if(index == system_infos.size())
+				system_infos.emplace_back();
 
-			auto cur_node = pre_test_graph.Add(index);
-			assert(cur_node);
+			auto worst_node = worst_graph.Add(index);
+			assert(worst_node);
+
 			Potato::Task::TaskFlowNodeProperty nproperty
 			{
 				node->GetDisplayName().name,
 				property.filter
 			};
-			auto pre_process_node = TaskFlow::AddNode_AssumedLocked(node.GetPointer(), nproperty, index);
-			assert(pre_process_node);
+			auto task_node = TaskFlow::AddNode_AssumedLocked(node.GetPointer(), nproperty, index);
+			assert(task_node);
 
 			auto cur_mutex = node->GetMutex();
 
 			bool accept = true;
 
-			for(auto& ite : preprocess_system_infos)
+			for(auto& ite : system_infos)
 			{
 				if(ite.node)
 				{
-					EdgeProperty e_property;
+					bool component_overlapping = false;
+					bool singleton_overlapping = false;
 					auto ite_mutex = ite.node->GetMutex();
 
 					bool thread_order_overlapping =
@@ -109,7 +111,7 @@ namespace Noodles
 
 					if(!thread_order_overlapping)
 					{
-						e_property.component_overlapping =
+						component_overlapping =
 							MarkElement::IsOverlapping(
 								cur_mutex.component_mark, ite_mutex.component_write_mark
 							)
@@ -118,7 +120,7 @@ namespace Noodles
 								cur_mutex.component_write_mark, ite_mutex.component_mark
 							)
 							;
-						e_property.singleton_overlapping =
+						singleton_overlapping =
 							MarkElement::IsOverlapping(
 								cur_mutex.singleton_mark, ite_mutex.singleton_write_mark
 							)
@@ -129,32 +131,21 @@ namespace Noodles
 							;
 					}
 
-					if(thread_order_overlapping)
-					{
-						auto re = AddDirectEdge_AssumedLocked(
-							pre_process_node, ite.process_graph_node, {false, true}
-						);
-						if(!re)
-						{
-							accept = false;
-							break;
-						}
-					}else if(e_property.component_overlapping || e_property.singleton_overlapping)
+					if (thread_order_overlapping || component_overlapping || singleton_overlapping)
 					{
 						auto num_order = property.priority <=> ite.priority;
-						bool is_mutex = false;
 						if (num_order == std::strong_ordering::equal)
 						{
-							auto disname = node->GetDisplayName();
+							auto display_name = node->GetDisplayName();
 							Order o1 = Order::UNDEFINE;
 							Order o2 = Order::UNDEFINE;
 							if (property.order_function != nullptr)
 							{
-								o1 = (*property.order_function)(disname, ite.name);
+								o1 = (*property.order_function)(display_name, ite.name);
 							}
 							if (ite.order_func != nullptr && ite.order_func != property.order_function)
 							{
-								o2 = (*ite.order_func)(ite.name, disname);
+								o2 = (*ite.order_func)(ite.name, display_name);
 							}
 							if (
 								o1 == Order::BIGGER && o2 == Order::SMALLER
@@ -179,143 +170,108 @@ namespace Noodles
 							}
 							else if (o1 == Order::MUTEX)
 							{
-								is_mutex = true;
-							}
-						}
-
-
-						if (num_order == std::strong_ordering::greater)
-						{
-							auto re = pre_test_graph.AddEdge(cur_node, ite.pre_test_graph_node, { false, true });
-							if (!re)
-							{
-								accept = false;
-								break;
-							}
-						}
-						else if (num_order == std::strong_ordering::less)
-						{
-							auto re = pre_test_graph.AddEdge(ite.pre_test_graph_node, cur_node, { false, true });
-							if (!re)
-							{
-								accept = false;
-								break;
-							}
-						}
-						else
-						{
-							assert(is_mutex);
-							TaskFlow::AddMutexEdge_AssumedLocked(pre_process_node, ite.process_graph_node, EdgeOptimize{ false, false });
-						}
-					}
-				}
-			}
-
-			Potato::Task::TaskFlowNodeProperty nproperty
-			{
-				node->GetDisplayName().name,
-				property.filter
-			};
-
-			if (AddNode_AssumedLocked(static_cast<Potato::Task::TaskFlowNode*>(node.GetPointer()), nproperty))
-			{
-				std::size_t index = 0;
-				auto disname = node.GetDisplayName();
-				for (auto& ite : preprocess_system_infos)
-				{
-					ReadWriteMutex ite_mutex{ std::span(preprocess_rw_id), ite.read_write_mutex };
-					if (ite_mutex.IsConflict(mutex))
-					{
-						auto num_order = property.priority <=> ite.priority;
-						if (num_order == std::strong_ordering::greater)
-						{
-							auto re = AddDirectEdge_AssumedLocked(node, *preprocess_nodes[index].node);
-							if (!re)
-							{
-								gener.RecoverModify();
-								Remove_AssumedLocked(node);
-								return false;
-							}
-						}
-						else if (num_order == std::strong_ordering::less)
-						{
-							auto re = AddDirectEdge_AssumedLocked(*preprocess_nodes[index].node, node);
-							if (!re)
-							{
-								gener.RecoverModify();
-								Remove_AssumedLocked(node);
-								return false;
-							}
-						}
-						else
-						{
-							Order o1 = Order::UNDEFINE;
-							Order o2 = Order::UNDEFINE;
-							if (property.order_function != nullptr)
-							{
-								o1 = (*property.order_function)(disname, ite.name);
-							}
-							if (ite.order_func != nullptr && ite.order_func != property.order_function)
-							{
-								o2 = (*ite.order_func)(ite.name, disname);
-							}
-							if (
-								o1 == Order::BIGGER && o2 == Order::SMALLER
-								|| o1 == Order::SMALLER && o2 == Order::BIGGER
-								|| o1 == Order::UNDEFINE && o2 == Order::UNDEFINE
-								)
-							{
-								gener.RecoverModify();
-								Remove_AssumedLocked(node);
-								return false;
 							}
 							else if (o1 == Order::UNDEFINE)
 							{
-								o1 = o2;
+								accept = false;
+								break;
 							}
-							if (o1 == Order::SMALLER)
+						}
+
+						if (num_order == std::strong_ordering::greater)
+						{
+							if (!worst_graph.AddEdge(worst_node, ite.worst_graph_node, { false }, temp_resource))
 							{
-								auto re = AddDirectEdge_AssumedLocked(*preprocess_nodes[index].node, node);
-								if (!re)
+								accept = false;
+								break;
+							}
+						}
+						else if (num_order == std::strong_ordering::less)
+						{
+							if (!worst_graph.AddEdge(ite.worst_graph_node, worst_node, { false }, temp_resource))
+							{
+								accept = false;
+								break;
+							}
+						}
+
+						if(num_order == std::strong_ordering::equal)
+						{
+							if (thread_order_overlapping)
+							{
+								AddMutexEdge_AssumedLocked(ite.task_node, task_node, { false });
+							}
+							else
+							{
+								dynamic_edges.emplace_back(
+									true,
+									component_overlapping,
+									singleton_overlapping,
+									task_node,
+									ite.task_node
+								);
+							}
+						}
+						else if (num_order == std::strong_ordering::greater)
+						{
+							if (!worst_graph.AddEdge(worst_node, ite.worst_graph_node, { false }, temp_resource))
+							{
+								accept = false;
+								break;
+							}
+							else
+							{
+								if (thread_order_overlapping)
 								{
-									gener.RecoverModify();
-									Remove_AssumedLocked(node);
-									return false;
+									AddDirectEdge_AssumedLocked(task_node, ite.task_node, { false });
+								}
+								else
+								{
+									dynamic_edges.emplace_back(
+										false,
+										component_overlapping,
+										singleton_overlapping,
+										task_node,
+										ite.task_node
+									);
 								}
 							}
-							else if (o1 == Order::BIGGER)
+						}
+						else if (num_order == std::strong_ordering::less)
+						{
+							if (!worst_graph.AddEdge(ite.worst_graph_node, worst_node, { false }, temp_resource))
 							{
-								auto re = AddDirectEdge_AssumedLocked(node, *preprocess_nodes[index].node);
-								if (!re)
-								{
-									gener.RecoverModify();
-									Remove_AssumedLocked(node);
-									return false;
-								}
+								accept = false;
+								break;
 							}
-							else if (o1 == Order::MUTEX)
+							else
 							{
-								auto re = AddMutexEdge_AssumedLocked(node, *preprocess_nodes[index].node);
-								if (!re)
+								if (thread_order_overlapping)
 								{
-									gener.RecoverModify();
-									Remove_AssumedLocked(node);
-									return false;
+									AddDirectEdge_AssumedLocked(ite.task_node, task_node, { false });
+								}
+								else
+								{
+									dynamic_edges.emplace_back(
+										false,
+										component_overlapping,
+										singleton_overlapping,
+										ite.task_node,
+										task_node
+									);
 								}
 							}
 						}
 					}
-					++index;
 				}
-				preprocess_system_infos.emplace_back(
-					mutex.index,
-					property.priority,
-					property.order_function,
-					disname
-				);
-				return true;
 			}
-			gener.RecoverModify();
+
+			if (!accept)
+			{
+				worst_graph.RemoveNode(worst_node);
+				Remove_AssumedLocked(task_node);
+				return false;
+			}
 		}
 		return false;
 	}
@@ -330,70 +286,126 @@ namespace Noodles
 	{
 		if(finished_task >= process_nodes.size())
 			return false;
-		ReadWriteMutexGenerator ge(process_rw_id);
-		auto s_node = static_cast<SystemNode const*>(&node);
-		s_node->FlushMutexGenerator(ge);
-		auto rw_mutex = ge.GetMutex();
-		auto name = node.GetDisplayName();
+
+		auto rw_mutex = node->GetMutex();
+		auto name = node->GetDisplayName();
+
+		std::shared_lock sl(context_ptr->component_manager.GetMutex());
+		std::shared_lock s2(context_ptr->singleton_manager.GetMutex());
+
+		auto archetype_usage = context_ptr->component_manager.GetArchetypeUsageMark_AssumedLocked();
+		auto singleton_usage = context_ptr->singleton_manager.GetSingletonUsageMark_AssumedLocked();
+
+
 		if(TaskFlow::AddTemporaryNode_AssumedLocked(
-			node,
+			node.GetPointer(),
 			{name.name, filter},
 			[=, this](TaskFlowNode const& node, Potato::Task::TaskFlowNodeProperty property, TemporaryNodeIndex index)-> bool
 			{
-				assert(index.current_index < process_system_infos.size());
-				ReadWriteMutex index_rw_mutex{
-					std::span(process_rw_id),
-					process_system_infos[index.current_index].read_write_mutex
-				};
-				return rw_mutex.IsConflict(index_rw_mutex);
+				auto& sys = static_cast<SystemNode const&>(node);
+
+				auto s_rw_mutex = sys.GetMutex();
+
+				bool is_overlap =
+					MarkElement::IsOverlapping(
+						rw_mutex.thread_order_mark, s_rw_mutex.thread_order_write_mark
+					)
+					||
+					MarkElement::IsOverlapping(
+						rw_mutex.thread_order_write_mark, s_rw_mutex.thread_order_mark
+					)
+					;
+
+				if (!is_overlap)
+				{
+					is_overlap = MarkElement::IsOverlappingWithMask(
+						rw_mutex.thread_order_mark, s_rw_mutex.thread_order_write_mark, archetype_usage
+					)
+						||
+						MarkElement::IsOverlappingWithMask(
+							rw_mutex.thread_order_write_mark, s_rw_mutex.thread_order_mark, archetype_usage
+						)
+						;
+				}
+
+				if (!is_overlap)
+				{
+					is_overlap = MarkElement::IsOverlappingWithMask(
+						rw_mutex.singleton_mark, s_rw_mutex.singleton_write_mark, singleton_usage
+					)
+						||
+						MarkElement::IsOverlappingWithMask(
+							rw_mutex.singleton_write_mark, s_rw_mutex.singleton_mark, singleton_usage
+						)
+						;
+				}
+
+				return is_overlap;
 			}
 		))
 		{
-			process_system_infos.emplace_back(rw_mutex.index);
 			return true;
-		}else{
-			ge.RecoverModify();
 		}
 		return false;
 	}
 
-	bool LayerTaskFlow::AddTemporaryNodeDefer(SystemNode& node, Potato::Task::TaskFilter filter)
+	bool LayerTaskFlow::AddTemporaryNodeDefer(SystemNode::Ptr node, Potato::Task::TaskFilter filter)
 	{
 		std::lock_guard lg(process_mutex);
-		defer_temporary_system_node.emplace_back(&node, filter);
-		return true;
+		if (node)
+		{
+			defer_temporary_system_node.emplace_back(std::move(node), filter);
+			return true;
+		}
+		return false;
 	}
 
 	bool LayerTaskFlow::Update_AssumedLocked(std::pmr::memory_resource* resource)
 	{
-		bool par = need_update;
-		if(TaskFlow::Update_AssumedLocked())
+		if (context_ptr->this_frame_component_update || context_ptr->this_frame_singleton_update)
 		{
-			if(par)
+			for (auto& ite : dynamic_edges)
 			{
-				process_rw_id = preprocess_rw_id;
-				process_system_infos.clear();
-				for(auto& ite : preprocess_system_infos)
+				auto from = static_cast<SystemNode*>(preprocess_nodes[ite.pre_process_from].node.GetPointer());
+				auto to = static_cast<SystemNode*>(preprocess_nodes[ite.pre_process_to].node.GetPointer());
+				bool need_edge = false;
+				if (context_ptr->this_frame_singleton_update && ite.singleton_overlapping)
 				{
-					process_system_infos.emplace_back(ite.read_write_mutex);
+					auto mux1 = from->GetMutex();
+					auto mux2 = to->GetMutex();
+
+					if (MarkElement::IsOverlappingWithMask(
+						mux1.singleton_mark, mux2.singleton_write_mark, context_ptr->singleton_manager.GetSingletonUsageMark_AssumedLocked()
+					)
+						||
+						MarkElement::IsOverlappingWithMask(
+							mux1.singleton_write_mark, mux2.singleton_mark, context_ptr->singleton_manager.GetSingletonUsageMark_AssumedLocked()
+						)
+						)
+					{
+						need_edge = true;
+					}
 				}
-				temporary_rw_id_offset = process_rw_id.size();
-			}else
-			{
-				process_system_infos.resize(temporary_node_offset);
-				process_rw_id.resize(temporary_rw_id_offset);
+				if (!need_edge && context_ptr->this_frame_component_update && ite.component_overlapping)
+				{
+					if (from->IsComponentOverlapping(*to, context_ptr->component_manager.GetArchetypeUsageMark_AssumedLocked()))
+					{
+						need_edge = true;
+					}
+				}
+				if (need_edge)
+				{
+					AddDirectEdge_AssumedLocked(ite.pre_process_from, ite.pre_process_to);
+				}else
+				{
+					RemoveDirectEdge(ite.pre_process_from, ite.pre_process_to);
+				}
 			}
-			for(auto& ite : defer_temporary_system_node)
-			{
-				auto re = AddTemporaryNodeImmediately_AssumedLocked(*ite.ptr, ite.filter);
-				assert(re);
-			}
-			defer_temporary_system_node.clear();
-			return true;
 		}
+		auto updateed = TaskFlow::Update_AssumedLocked(resource);
 		for(auto& ite : defer_temporary_system_node)
 		{
-			auto re = AddTemporaryNodeImmediately_AssumedLocked(*ite.ptr, ite.filter);
+			auto re = AddTemporaryNodeImmediately_AssumedLocked(ite.ptr, ite.filter);
 			assert(re);
 		}
 		defer_temporary_system_node.clear();
@@ -460,22 +472,10 @@ namespace Noodles
 		require_quit = true;
 	}
 
-	Context::Context(Config config, SyncResource resource)
-		: config(config), 
-		manager({
-			resource.context_resource,
-			resource.archetype_resource,
-			resource.component_resource,
-			resource.singleton_resource,
-			resource.filter_resource,
-			resource.temporary_resource
-		}),
-		system_resource(resource.system_resource),
-		entity_resource(resource.entity_resource),
-		temporary_resource(resource.temporary_resource),
-		context_resource(resource.context_resource)
+	Context::Context(Config config)
+		: config(config)
 	{
-
+		entity_manager.Init(component_manager);
 	}
 
 	LayerTaskFlow* Context::FindSubContextTaskFlow_AssumedLocked(std::int32_t layer)
@@ -497,11 +497,11 @@ namespace Noodles
 		auto ptr = FindSubContextTaskFlow_AssumedLocked(layer);
 		if(ptr == nullptr)
 		{
-			auto re = Potato::IR::MemoryResourceRecord::Allocate<SubContextTaskFlow>(context_resource);
+			auto re = Potato::IR::MemoryResourceRecord::Allocate<LayerTaskFlow>(context_resource);
 			if (re)
 			{
-				LayerTaskFlow::Ptr ptr = new(re.Get()) LayerTaskFlow{ re, layer };
-				AddNode_AssumedLocked(*ptr, { u8"sub_task" });
+				LayerTaskFlow::Ptr ptr = new(re.Get()) LayerTaskFlow{ re, layer, this };
+				auto cur_node = AddNode_AssumedLocked(ptr.GetPointer(), { u8"sub_task" });
 				for (auto& ite : preprocess_nodes)
 				{
 					auto tar = static_cast<LayerTaskFlow*>(ite.node.GetPointer());
@@ -509,13 +509,13 @@ namespace Noodles
 					{
 						if (tar->layout > layer)
 						{
-							auto re = AddDirectEdge_AssumedLocked(*tar, *ptr);
+							auto re = AddDirectEdge_AssumedLocked(ite.self, cur_node);
 							assert(re);
 						}
 						else
 						{
 							assert(tar->layout != layer);
-							auto re = AddDirectEdge_AssumedLocked(*ptr, *tar);
+							auto re = AddDirectEdge_AssumedLocked(cur_node, ite.self);
 							assert(re);
 						}
 					}
@@ -527,26 +527,36 @@ namespace Noodles
 		return ptr;
 	}
 
-	bool Context::AddTickedSystemNode(SystemNode& node, SystemNodeProperty property)
+	bool Context::AddTickedSystemNode(SystemNode::Ptr node, SystemNodeProperty property)
 	{
-		std::lock_guard lg(preprocess_mutex);
-		auto ptr = FindOrCreateContextTaskFlow_AssumedLocked(property.priority.layout);
-		if(ptr)
+		if (node)
 		{
-			return ptr->AddTickedNode(node, property);
+			std::lock_guard lg(preprocess_mutex);
+			auto ptr = FindOrCreateContextTaskFlow_AssumedLocked(property.priority.layout);
+			if (ptr)
+			{
+				return ptr->AddTickedNode(std::move(node), property);
+			}
 		}
 		return false;
 	}
 
-	bool Context::AddTemporarySystemNodeDefer(SystemNode& node, std::int32_t layout, Potato::Task::TaskFilter filter)
+	bool Context::AddTemporarySystemNodeDefer(SystemNode::Ptr node, std::int32_t layout, Potato::Task::TaskFilter filter)
 	{
 		std::lock_guard lg(preprocess_mutex);
 		auto ptr = FindOrCreateContextTaskFlow_AssumedLocked(layout);
 		if (ptr)
 		{
-			return ptr->AddTemporaryNodeDefer(node, filter);
+			return ptr->AddTemporaryNodeDefer(std::move(node), filter);
 		}
 		return false;
+	}
+
+	bool Context::Update_AssumedLocked(std::pmr::memory_resource* resource)
+	{
+		this_frame_component_update = entity_manager.Flush(component_manager, resource);
+		this_frame_singleton_update = singleton_manager.Flush(resource);
+		return TaskFlow::Update_AssumedLocked(resource);
 	}
 
 	void Context::TaskFlowExecuteBegin(Potato::Task::TaskFlowContext& context)

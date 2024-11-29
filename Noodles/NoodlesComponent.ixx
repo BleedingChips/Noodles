@@ -233,7 +233,7 @@ export namespace Noodles
 		OptionalIndex AllocateComponentColumn_AssumedLocked(std::size_t archetype_index, std::pmr::vector<RemovedColumn>& removed_list);
 		void FixComponentChunkHole_AssumedLocked(std::pmr::vector<RemovedColumn>& holes, void(*func)(ChunkView const& view, std::size_t, std::size_t));
 		ChunkView GetChunk_AssumedLocked(std::size_t archetype_index) const;
-		std::span<MarkElement const> GetArchetypeUsage_AssumedLocked() const { return archetype_mask; }
+		std::span<MarkElement const> GetArchetypeUsageMark_AssumedLocked() const { return archetype_mask; }
 		std::size_t GetComponentMarkElementStorageCount() const { return manager.GetStorageCount(); }
 
 	protected:
