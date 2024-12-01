@@ -82,7 +82,7 @@ int main()
 
 	entity_manager.Flush(component_manager);
 
-	auto b1 = filter->IsIsOverlappingRunTime(*filter2, component_manager.GetArchetypeUsage_AssumedLocked());
+	auto b1 = filter->IsIsOverlappingRunTime(*filter2, component_manager.GetArchetypeUsageMark_AssumedLocked());
 
 	entity_manager.RemoveEntityComponent(
 		component_manager,
@@ -101,12 +101,18 @@ int main()
 
 	entity_manager.Flush(component_manager);
 
-	auto b2 = filter->IsIsOverlappingRunTime(*filter2, component_manager.GetArchetypeUsage_AssumedLocked());
+	auto b2 = filter->IsIsOverlappingRunTime(*filter2, component_manager.GetArchetypeUsageMark_AssumedLocked());
 
 	auto k = component_manager.ReadComponentRow_AssumedLocked(*filter, 0);
 
-	auto span_a = k->AsSpan<A>(0);
-	auto span_b = k->AsSpan<B>(1);
+	if(k)
+	{
+		auto span_a = k->AsSpan<A>(0);
+		auto span_b = k->AsSpan<B>(1);
+		volatile int i = 0;
+	}
+
+	
 
 	return 0;
 }

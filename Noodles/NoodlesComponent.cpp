@@ -187,7 +187,7 @@ namespace Noodles
 	{
 		std::lock_guard lg(mutex);
 		auto archetype_atomic_id = archetype.GetAtomicTypeMark();
-		if(MarkElement::Inclusion(archetype_atomic_id, GetRequiredAtomicMarkArray()) && !MarkElement::IsOverlapping(archetype_atomic_id, GetRefuseAtomicMarkArray()))
+		if(MarkElement::Inclusion(archetype_atomic_id, GetRequiredStructLayoutMarks().total_marks) && !MarkElement::IsOverlapping(archetype_atomic_id, GetRequiredStructLayoutMarks().total_marks))
 		{
 			auto old_size = archetype_member.size();
 			auto atomic_span = GetMarkIndex();
@@ -461,7 +461,7 @@ namespace Noodles
 	ComponentManager::ArchetypeBuilderRef::ArchetypeBuilderRef(ComponentManager& manager, std::pmr::memory_resource* temp_resource)
 		: atomic_type(temp_resource), mark(temp_resource)
 	{
-		mark.resize(manager.GetAtomicTypeManager().GetStorageCount());
+		mark.resize(manager.GetComponentMarkElementStorageCount());
 	}
 
 	bool ComponentManager::ArchetypeBuilderRef::Insert(StructLayout::Ptr ref, MarkIndex index)

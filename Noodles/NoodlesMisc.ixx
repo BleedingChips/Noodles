@@ -38,6 +38,30 @@ export namespace Noodles
 		static std::size_t GetMaxMarkIndexCount(std::size_t mark_index_count);
 	};
 
+	struct WrittenMarkElementSpan
+	{
+		std::span<MarkElement const> write_marks;
+		std::span<MarkElement const> total_marks;
+
+		bool WriteConfig(WrittenMarkElementSpan const& other) const
+		{
+			return MarkElement::IsOverlapping(
+				write_marks, other.total_marks
+			) || MarkElement::IsOverlapping(
+				other.total_marks, write_marks
+			);
+		}
+
+		bool WriteConfigWithMask(WrittenMarkElementSpan const& other, std::span<MarkElement const> mask) const
+		{
+			return MarkElement::IsOverlappingWithMask(
+				write_marks, other.total_marks, mask
+			) || MarkElement::IsOverlappingWithMask(
+				other.total_marks, write_marks, mask
+			);
+		}
+	};
+
 	struct StructLayoutMarkIndexManager
 	{
 		std::optional<MarkIndex> LocateOrAdd(StructLayout::Ptr const& type);

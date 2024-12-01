@@ -61,13 +61,6 @@ struct TestSystem : public Noodles::SystemNode
 {
 	void AddSystemNodeRef() const override {}
 	void SubSystemNodeRef() const override {}
-	void FlushMutexGenerator(Noodles::ReadWriteMutexGenerator& generator) const override
-	{
-		static std::array<Noodles::RWUniqueTypeID, 1> test = {
-			Noodles::RWUniqueTypeID::Create<Tuple2>()
-		};
-		generator.RegisterComponentMutex(std::span(test));
-	}
 	void SystemNodeExecute(Noodles::ContextWrapper& context) override { PrintSystemProperty(context); }
 	virtual Noodles::SystemName GetDisplayName() const override { return {}; }
 };
@@ -92,12 +85,12 @@ int main()
 	TestSystem systm;
 
 	auto ent = context.CreateEntity();
-	context.AddEntityComponent(*ent, Tuple{10086});
+	context.AddEntityComponent(ent, Tuple{10086});
 
 	for(std::size_t o = 0; o < 100; ++o)
 	{
 		auto ent2 = context.CreateEntity();
-		context.AddEntityComponent(*ent2, Tuple{o});
+		context.AddEntityComponent(ent2, Tuple{o});
 	}
 
 	auto Lambda = [](Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple2> filter)
@@ -105,7 +98,9 @@ int main()
 		PrintSystemProperty(context);
 	};
 
-	auto Ker = context.MoveAndCreateSingleton<Tuple2>(Tuple2{std::u8string{u8"Fff"}});
+	auto Ker = context.AddSingleton(Tuple2{ std::u8string{u8"Fff"} });
+
+
 	auto b1 = context.CreateAndAddTickedAutomaticSystem(Lambda,
 		{ u8"S133", u8"G11" },
 	{
@@ -128,13 +123,10 @@ int main()
 		auto sys = context.CreateAutomaticSystem(Lambda, {u8"Temp", u8"Temp"});
 		context.AddTemporaryNodeDefer(*sys, {});
 
-
-		decltype(filter)::OutputIndexT output;
-
-
+		/*
 		std::size_t ite_index = 0;
 		while(
-			Noodles::Context::ComponentWrapper wrapper = filter.IterateComponent_AssumedLocked(context.GetContext(), ite_index, output)
+			auto wrapper = context.GetContext().ReadEntity_AssumedLocked()
 			)
 		{
 			++ite_index;
@@ -146,6 +138,7 @@ int main()
 		{
 			Tuple* ref = filter.GetByIndex<0>(wrap);
 		}
+		*/
 
 	},
 		{ u8"TempTemp", u8"G22" },

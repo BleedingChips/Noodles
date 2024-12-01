@@ -92,10 +92,12 @@ export namespace Noodles
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<ComponentFilter>;
 
+		WrittenMarkElementSpan GetRequiredStructLayoutMarks() const
+		{
+			return {require_write_component, require_component};
+		}
 
-		std::span<MarkElement const> GetRequiredAtomicMarkArray() const { return require_component; }
-		std::span<MarkElement const> GetRequiresWriteAtomicMarkArray() const { return require_write_component; }
-		std::span<MarkElement const> GetRefuseAtomicMarkArray() const { return refuse_component; }
+		std::span<MarkElement const> GetRefuseStructLayoutMarks() const { return refuse_component; }
 		std::span<MarkElement const> GetArchetypeMarkArray() const { return archetype_usable; }
 		std::span<MarkIndex const> GetMarkIndex() const { return mark_index; }
 
@@ -224,9 +226,7 @@ export namespace Noodles
 
 		ComponentManager(Config config = {});
 		~ComponentManager();
-		StructLayoutMarkIndexManager& GetAtomicTypeManager() { return manager; }
-		StructLayoutMarkIndexManager const& GetAtomicTypeManager() const { return manager; }
-
+		
 		std::shared_mutex& GetMutex() const { return chunk_mutex; }
 
 		bool ReleaseComponentColumn_AssumedLocked(std::size_t archetype_index, std::size_t column_index, std::pmr::vector<RemovedColumn>& removed);
@@ -235,6 +235,7 @@ export namespace Noodles
 		ChunkView GetChunk_AssumedLocked(std::size_t archetype_index) const;
 		std::span<MarkElement const> GetArchetypeUsageMark_AssumedLocked() const { return archetype_mask; }
 		std::size_t GetComponentMarkElementStorageCount() const { return manager.GetStorageCount(); }
+		std::size_t GetArchetypeMarkElementStorageCount() const { return archetype_storage_count; }
 
 	protected:
 

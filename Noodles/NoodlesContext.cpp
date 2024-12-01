@@ -99,41 +99,18 @@ namespace Noodles
 					bool singleton_overlapping = false;
 					auto ite_mutex = ite.node->GetMutex();
 
-					bool thread_order_overlapping =
-						MarkElement::IsOverlapping(
-							cur_mutex.thread_order_mark, ite_mutex.thread_order_write_mark
-						)
-						||
-						MarkElement::IsOverlapping(
-							cur_mutex.thread_order_write_mark, ite_mutex.thread_order_mark
-						)
-						;
+					bool thread_order_overlapping = cur_mutex.thread_order_mark.WriteConfig(ite_mutex.thread_order_mark);
 
 					if(!thread_order_overlapping)
 					{
-						component_overlapping =
-							MarkElement::IsOverlapping(
-								cur_mutex.component_mark, ite_mutex.component_write_mark
-							)
-							||
-							MarkElement::IsOverlapping(
-								cur_mutex.component_write_mark, ite_mutex.component_mark
-							)
-							;
-						singleton_overlapping =
-							MarkElement::IsOverlapping(
-								cur_mutex.singleton_mark, ite_mutex.singleton_write_mark
-							)
-							||
-							MarkElement::IsOverlapping(
-								cur_mutex.singleton_write_mark, ite_mutex.singleton_mark
-							)
-							;
+						component_overlapping = cur_mutex.component_mark.WriteConfig(ite_mutex.thread_order_mark);
+						singleton_overlapping = cur_mutex.singleton_mark.WriteConfig(ite_mutex.thread_order_mark);
 					}
 
 					if (thread_order_overlapping || component_overlapping || singleton_overlapping)
 					{
 						auto num_order = property.priority <=> ite.priority;
+
 						if (num_order == std::strong_ordering::equal)
 						{
 							auto display_name = node->GetDisplayName();
@@ -272,6 +249,8 @@ namespace Noodles
 				Remove_AssumedLocked(task_node);
 				return false;
 			}
+
+			return true;
 		}
 		return false;
 	}
@@ -306,38 +285,16 @@ namespace Noodles
 
 				auto s_rw_mutex = sys.GetMutex();
 
-				bool is_overlap =
-					MarkElement::IsOverlapping(
-						rw_mutex.thread_order_mark, s_rw_mutex.thread_order_write_mark
-					)
-					||
-					MarkElement::IsOverlapping(
-						rw_mutex.thread_order_write_mark, s_rw_mutex.thread_order_mark
-					)
-					;
+				bool is_overlap = rw_mutex.thread_order_mark.WriteConfig(s_rw_mutex.thread_order_mark);
 
 				if (!is_overlap)
 				{
-					is_overlap = MarkElement::IsOverlappingWithMask(
-						rw_mutex.thread_order_mark, s_rw_mutex.thread_order_write_mark, archetype_usage
-					)
-						||
-						MarkElement::IsOverlappingWithMask(
-							rw_mutex.thread_order_write_mark, s_rw_mutex.thread_order_mark, archetype_usage
-						)
-						;
+					is_overlap = rw_mutex.component_mark.WriteConfig(s_rw_mutex.component_mark);
 				}
 
 				if (!is_overlap)
 				{
-					is_overlap = MarkElement::IsOverlappingWithMask(
-						rw_mutex.singleton_mark, s_rw_mutex.singleton_write_mark, singleton_usage
-					)
-						||
-						MarkElement::IsOverlappingWithMask(
-							rw_mutex.singleton_write_mark, s_rw_mutex.singleton_mark, singleton_usage
-						)
-						;
+					is_overlap = rw_mutex.singleton_mark.WriteConfig(s_rw_mutex.singleton_mark);
 				}
 
 				return is_overlap;
@@ -374,14 +331,9 @@ namespace Noodles
 					auto mux1 = from->GetMutex();
 					auto mux2 = to->GetMutex();
 
-					if (MarkElement::IsOverlappingWithMask(
-						mux1.singleton_mark, mux2.singleton_write_mark, context_ptr->singleton_manager.GetSingletonUsageMark_AssumedLocked()
+					if(
+						mux1.singleton_mark.WriteConfigWithMask(mux2.singleton_mark, context_ptr->singleton_manager.GetSingletonUsageMark_AssumedLocked())
 					)
-						||
-						MarkElement::IsOverlappingWithMask(
-							mux1.singleton_write_mark, mux2.singleton_mark, context_ptr->singleton_manager.GetSingletonUsageMark_AssumedLocked()
-						)
-						)
 					{
 						need_edge = true;
 					}
@@ -398,7 +350,7 @@ namespace Noodles
 					AddDirectEdge_AssumedLocked(ite.pre_process_from, ite.pre_process_to);
 				}else
 				{
-					RemoveDirectEdge(ite.pre_process_from, ite.pre_process_to);
+					RemoveDirectEdge_AssumedLocked(ite.pre_process_from, ite.pre_process_to);
 				}
 			}
 		}
@@ -497,7 +449,7 @@ namespace Noodles
 		auto ptr = FindSubContextTaskFlow_AssumedLocked(layer);
 		if(ptr == nullptr)
 		{
-			auto re = Potato::IR::MemoryResourceRecord::Allocate<LayerTaskFlow>(context_resource);
+			auto re = Potato::IR::MemoryResourceRecord::Allocate<LayerTaskFlow>(std::pmr::get_default_resource());
 			if (re)
 			{
 				LayerTaskFlow::Ptr ptr = new(re.Get()) LayerTaskFlow{ re, layer, this };

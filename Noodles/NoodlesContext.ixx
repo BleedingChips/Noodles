@@ -72,17 +72,14 @@ export namespace Noodles
 
 		struct Mutex
 		{
-			std::span<MarkElement const> component_mark;
-			std::span<MarkElement const> component_write_mark;
-			std::span<MarkElement const> singleton_mark;
-			std::span<MarkElement const> singleton_write_mark;
-			std::span<MarkElement const> thread_order_mark;
-			std::span<MarkElement const> thread_order_write_mark;
+			WrittenMarkElementSpan component_mark;
+			WrittenMarkElementSpan singleton_mark;
+			WrittenMarkElementSpan thread_order_mark;
 		};
 
-		virtual Mutex GetMutex() const = 0;
-		virtual bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> component_usage) const = 0;
-		virtual bool IsComponentOverlapping(ComponentFilter const& target_component_filter, std::span<MarkElement const> component_usage) = 0;
+		virtual Mutex GetMutex() const { return {}; };
+		virtual bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_usage_count) const { return false; };
+		virtual bool IsComponentOverlapping(ComponentFilter const& target_component_filter, std::span<MarkElement const> archetype_usage_count) const { return false; };
 
 	protected:
 
@@ -231,10 +228,10 @@ export namespace Noodles
 		}
 
 		template<typename Type>
-		bool AddEntityComponent(Entity& entity, Type&& type) { return entity_manager.AddEntityComponent(entity, std::forward<Type>(type)); }
+		bool AddEntityComponent(Entity::Ptr entity, Type&& type) { return entity_manager.AddEntityComponent(component_manager, std::move(entity), std::forward<Type>(type)); }
 
 		template<typename Type, typename ...OtherType>
-		bool AddEntityComponent(Entity& entity, Type&& c_type, OtherType&& ...other)
+		bool AddEntityComponent(Entity::Ptr entity, Type&& c_type, OtherType&& ...other)
 		{
 			if (this->AddEntityComponent(entity, std::forward<Type>(c_type)))
 			{
@@ -267,11 +264,7 @@ export namespace Noodles
 		bool CreateAndAddTickedAutomaticSystem(Function&& func, SystemName name, SystemNodeProperty property = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 		{
 			auto ptr = this->CreateAutomaticSystem(std::forward<Function>(func), name, resource);
-			if (ptr)
-			{
-				return AddTickedSystemNode(*ptr, property);
-			}
-			return false;
+			return this->AddTickedSystemNode(std::move(ptr), property);
 		}
 
 		bool RemoveEntity(Entity::Ptr entity) { return entity_manager.ReleaseEntity(std::move(entity)); }
@@ -313,6 +306,11 @@ export namespace Noodles
 			return ms.count() / 1000.0f;
 		}
 
+		std::size_t GetComponentMarkElementStorage() const { return component_manager.GetComponentMarkElementStorageCount(); }
+		std::size_t GetArchetypeMarkElementStorage() const { return component_manager.GetArchetypeMarkElementStorageCount(); }
+		std::size_t GetSingletonMarkElementStorage() const { return singleton_manager.GetSingletonMarkElementStorageCount(); }
+
+
 	protected:
 
 		LayerTaskFlow* FindSubContextTaskFlow_AssumedLocked(std::int32_t layer);
@@ -338,11 +336,6 @@ export namespace Noodles
 		ComponentManager component_manager;
 		EntityManager entity_manager;
 		SingletonManager singleton_manager;
-
-		std::pmr::memory_resource* context_resource = nullptr;
-		std::pmr::memory_resource* system_resource = nullptr;
-		std::pmr::memory_resource* entity_resource = nullptr;
-		std::pmr::memory_resource* temporary_resource = nullptr;
 
 		friend struct TaskFlow::Wrapper;
 		friend struct SystemNode;
@@ -474,6 +467,30 @@ export namespace Noodles
 			}
 		};
 
+		SystemNode::Mutex GetSystemNodeMutex() const
+		{
+			return {
+				filter->GetRequiredStructLayoutMarks(),
+				{},
+				{}
+			};
+		}
+
+		bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> component_usage) const
+		{
+			return target_node.IsComponentOverlapping(*filter, component_usage);
+			
+		}
+
+		bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> component_usage) const
+		{
+			return MarkElement::IsOverlappingWithMask(
+				this->filter->GetArchetypeMarkArray(),
+				filter.GetArchetypeMarkArray(),
+				component_usage
+			) && this->filter->GetRequiredStructLayoutMarks().WriteConfig(filter.GetRequiredStructLayoutMarks());
+		}
+
 	protected:
 
 		AtomicComponentFilter() = default;
@@ -483,7 +500,7 @@ export namespace Noodles
 		friend struct Context;
 	};
 
-	template<AcceptableFilterType ComponentT>
+	template<AcceptableFilterType ...ComponentT>
 	struct AtomicSingletonFilter
 	{
 		static std::span<ComponentFilter::Info const> GetRequire()
@@ -505,8 +522,17 @@ export namespace Noodles
 			assert(filter);
 		}
 
-		decltype(auto) Get(Context& context) const { return static_cast<ComponentT*>(context.ReadSingleton_AssumedLocked(*filter)); }
+		decltype(auto) Get(Context& context) const { return context.ReadSingleton_AssumedLocked(*filter); }
 		decltype(auto) Get(ContextWrapper& wrapper) const { return Get(wrapper.GetContext()); }
+
+		SystemNode::Mutex GetSystemNodeMutex() const
+		{
+			return {
+				{},
+				filter->GetRequiredStructLayoutMarks(),
+				{}
+			};
+		}
 
 	protected:
 
@@ -521,6 +547,11 @@ export namespace Noodles
 		AtomicThreadOrder(Context& context, std::size_t identity) {}
 		AtomicThreadOrder(AtomicThreadOrder const&) = default;
 		AtomicThreadOrder(AtomicThreadOrder&&) = default;
+
+		SystemNode::Mutex GetSystemNodeMutex() const
+		{
+			return {};
+		}
 	};
 
 
@@ -529,6 +560,24 @@ export namespace Noodles
 
 	template<typename Type>
 	concept IsCoverFromContextWrapper = std::is_constructible_v<std::remove_cvref_t<Type>, ContextWrapper&>;
+
+	template<typename Type>
+	concept HasSystemMutexFunctionWrapper = requires(Type const& type)
+	{
+		{type.GetSystemNodeMutex()} -> std::same_as<SystemNode::Mutex>;
+	};
+
+	template<typename Type>
+	concept HasIsComponentOverlappingWithSystemNodeFunctionWrapper = requires(Type const& type)
+	{
+		{ type.IsComponentOverlapping(std::declval<SystemNode const&>(), std::span<MarkElement const>{}) } -> std::same_as<bool>;
+	};
+
+	template<typename Type>
+	concept HasIsComponentOverlappingWithComponentFilterFunctionWrapper = requires(Type const& type)
+	{
+		{ type.IsComponentOverlapping(std::declval<ComponentFilter const&>(), std::span<MarkElement const>{}) } -> std::same_as<bool>;
+	};
 
 	struct SystemAutomatic
 	{
@@ -572,6 +621,17 @@ export namespace Noodles
 					return std::ref(data);
 			}
 
+			SystemNode::Mutex GetSystemNodeMutex() const
+			{
+				if constexpr (HasSystemMutexFunctionWrapper<RealType>)
+				{
+					return data.GetSystemNodeMutex();
+				}else
+				{
+					return {};
+				}
+			}
+
 			void Reset()
 			{
 				if constexpr (!IsContextWrapper<Type> && IsCoverFromContextWrapper<Type>)
@@ -579,6 +639,24 @@ export namespace Noodles
 					assert(data.has_value());
 					data.reset();
 				}
+			}
+
+			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> component_usage) const
+			{
+				if constexpr (HasIsComponentOverlappingWithSystemNodeFunctionWrapper<RealType>)
+				{
+					return data.IsComponentOverlapping(target_node, component_usage);
+				}
+				return false;
+			}
+
+			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> component_usage) const
+			{
+				if constexpr (HasIsComponentOverlappingWithComponentFilterFunctionWrapper<RealType>)
+				{
+					return data.IsComponentOverlapping(filter, component_usage);
+				}
+				return false;
 			}
 		};
 
@@ -605,6 +683,22 @@ export namespace Noodles
 				cur_holder.Reset();
 				other_holders.Reset();
 			}
+
+			void FlushSystemNodeMutex(SystemNode::Mutex output_mutex)
+			{
+				auto cur = cur_holder.GetSystemNodeMutex();
+				// todo
+			}
+
+			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> component_usage) const
+			{
+				return cur_holder.IsComponentOverlapping(target_node, component_usage) && other_holders.IsComponentOverlapping(target_node,component_usage);
+			}
+
+			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> component_usage) const
+			{
+				return cur_holder.IsComponentOverlapping(filter, component_usage) && other_holders.IsComponentOverlapping(filter, component_usage);
+			}
 		};
 
 		template<>
@@ -612,6 +706,9 @@ export namespace Noodles
 		{
 			ParameterHolders(Context& context, std::size_t identity) {}
 			void Reset() {}
+			void FlushSystemNodeMutex(SystemNode::Mutex output_mutex){}
+			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> component_usage) { return false; }
+			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> component_usage) { return false; }
 		};
 
 		template<typename ...ParT>
@@ -666,7 +763,7 @@ export namespace Noodles
 		SystemName display_name;
 
 		DynamicAutoSystemHolder(Context& context, Func fun, Potato::IR::MemoryResourceRecord record, SystemName display_name)
-			: append_data(context), fun(std::move(fun)), MemoryResourceRecordIntrusiveInterface(record), display_name(display_name)
+			: append_data(context, 0), fun(std::move(fun)), MemoryResourceRecordIntrusiveInterface(record), display_name(display_name)
 		{
 		}
 
@@ -680,7 +777,6 @@ export namespace Noodles
 			{
 				Automatic::Execute(context, append_data, fun);
 			}
-
 		}
 
 		void AddSystemNodeRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
@@ -695,7 +791,7 @@ export namespace Noodles
 		auto layout = Potato::MemLayout::MemLayoutCPP::Get<Type>();
 		auto str_layout = name.GetSerializeLayout();
 		auto offset = layout.Insert(str_layout);
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout);
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
 		if (re)
 		{
 			name.SerializeTo({ re.GetByte() + offset, str_layout.size });

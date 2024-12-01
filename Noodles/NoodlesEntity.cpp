@@ -19,23 +19,23 @@ namespace Noodles
 		MarkElement::Reset(modify_component_mask);
 	}
 
-	auto Entity::Create(StructLayoutMarkIndexManager const& manager, std::pmr::memory_resource* resource)
+	auto Entity::Create(ComponentManager const& manager, std::pmr::memory_resource* resource)
 		-> Ptr
 	{
 		auto layout = Potato::MemLayout::MemLayoutCPP::Get<Entity>();
-		auto offset_current_mask = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetStorageCount()));
-		auto offset_modify_component = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetStorageCount()));
+		auto offset_current_mask = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetComponentMarkElementStorageCount()));
+		auto offset_modify_component = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetComponentMarkElementStorageCount()));
 
 		auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
 		if (record)
 		{
 			auto current_mask = std::span{
-				new (record.GetByte(offset_current_mask)) MarkElement[manager.GetStorageCount()],
-				manager.GetStorageCount()
+				new (record.GetByte(offset_current_mask)) MarkElement[manager.GetComponentMarkElementStorageCount()],
+				manager.GetComponentMarkElementStorageCount()
 			};
 			auto modify_component = std::span{
-				new (record.GetByte(offset_modify_component)) MarkElement[manager.GetStorageCount()],
-				manager.GetStorageCount()
+				new (record.GetByte(offset_modify_component)) MarkElement[manager.GetComponentMarkElementStorageCount()],
+				manager.GetComponentMarkElementStorageCount()
 			};
 			return new (record.Get()) Entity{
 				record,
@@ -93,7 +93,7 @@ namespace Noodles
 
 	Entity::Ptr EntityManager::CreateEntity(ComponentManager& manager, std::pmr::memory_resource* entity_resource, std::pmr::memory_resource* temp_resource)
 	{
-		auto ent = Entity::Create(manager.GetAtomicTypeManager(), entity_resource);
+		auto ent = Entity::Create(manager, entity_resource);
 		if (ent)
 		{
 			EntityProperty entity_property
@@ -110,7 +110,7 @@ namespace Noodles
 
 	bool EntityManager::Init(ComponentManager& manager)
 	{
-		auto re = manager.GetAtomicTypeManager().LocateOrAdd(StructLayout::GetStatic<EntityProperty>());
+		auto re = manager.LocateStructLayout(StructLayout::GetStatic<EntityProperty>());
 		if(re && re->index == 0)
 		{
 			return true;
@@ -139,7 +139,7 @@ namespace Noodles
 		auto ope = atomic_type->GetOperateProperty();
 		if (!ope.move_construct && !ope.copy_construct)
 			return false;
-		auto loc = manager.GetAtomicTypeManager().LocateOrAdd(atomic_type);
+		auto loc = manager.LocateStructLayout(atomic_type);
 		if (loc.has_value() && (accept_build_in || *loc != GetEntityPropertyAtomicTypeID()))
 		{
 			std::lock_guard lg(target_entity->mutex);
@@ -198,8 +198,6 @@ namespace Noodles
 						{
 							entity_modifier[i].infos.WholeOffset(1);
 						}
-
-						assert(re);
 						return true;
 					}
 				}
@@ -247,7 +245,7 @@ namespace Noodles
 	bool EntityManager::RemoveEntityComponentImp(ComponentManager& manager, Entity::Ptr target_entity, StructLayout::Ptr atomic_type, bool accept_build_in)
 	{
 		assert(target_entity && atomic_type);
-		auto loc = manager.GetAtomicTypeManager().LocateOrAdd(atomic_type);
+		auto loc = manager.LocateStructLayout(atomic_type);
 		if (loc.has_value() && (accept_build_in || *loc != GetEntityPropertyAtomicTypeID()))
 		{
 			std::lock_guard lg(target_entity->mutex);
@@ -350,11 +348,10 @@ namespace Noodles
 								mview.layout->Destruction(
 									buffer
 								);
-								mview.layout->CopyConstruction(
+								mview.layout->MoveConstruction(
 									buffer,
 									ite2.resource.Get()
 								);
-								ite2.Release();
 							}
 						}
 					}
@@ -417,7 +414,6 @@ namespace Noodles
 								assert(re);
 								auto re2 = MarkElement::Mark(builder.GetMarks(), ite2.index);
 								assert(!re2);
-								ite2.Release();
 							}
 						}
 
@@ -461,6 +457,11 @@ namespace Noodles
 						MarkElement::CopyTo(entity.modify_component_mask, entity.current_component_mask);
 					}
 				}
+			}
+
+			for(auto& ite : entity_modifier_event)
+			{
+				ite.Release();
 			}
 
 			entity_modifier.clear();

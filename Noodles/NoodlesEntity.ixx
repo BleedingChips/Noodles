@@ -25,7 +25,7 @@ export namespace Noodles
 
 		using Ptr = Potato::Pointer::IntrusivePtr<Entity>;
 
-		static Ptr Create(StructLayoutMarkIndexManager const& component_manager, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		static Ptr Create(ComponentManager const& component_manager, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		enum class State
 		{
