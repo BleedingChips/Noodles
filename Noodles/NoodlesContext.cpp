@@ -103,8 +103,8 @@ namespace Noodles
 
 					if(!thread_order_overlapping)
 					{
-						component_overlapping = cur_mutex.component_mark.WriteConfig(ite_mutex.thread_order_mark);
-						singleton_overlapping = cur_mutex.singleton_mark.WriteConfig(ite_mutex.thread_order_mark);
+						component_overlapping = cur_mutex.component_mark.WriteConfig(ite_mutex.component_mark);
+						singleton_overlapping = cur_mutex.singleton_mark.WriteConfig(ite_mutex.singleton_mark);
 					}
 
 					if (thread_order_overlapping || component_overlapping || singleton_overlapping)
@@ -149,23 +149,6 @@ namespace Noodles
 							{
 							}
 							else if (o1 == Order::UNDEFINE)
-							{
-								accept = false;
-								break;
-							}
-						}
-
-						if (num_order == std::strong_ordering::greater)
-						{
-							if (!worst_graph.AddEdge(worst_node, ite.worst_graph_node, { false }, temp_resource))
-							{
-								accept = false;
-								break;
-							}
-						}
-						else if (num_order == std::strong_ordering::less)
-						{
-							if (!worst_graph.AddEdge(ite.worst_graph_node, worst_node, { false }, temp_resource))
 							{
 								accept = false;
 								break;
@@ -250,6 +233,15 @@ namespace Noodles
 				return false;
 			}
 
+			auto& ref = system_infos[index];
+
+			ref.name = node->GetDisplayName();
+			ref.node = std::move(node);
+			ref.order_func = property.order_function;
+			ref.priority = property.priority;
+			ref.task_node = task_node;
+			ref.worst_graph_node = worst_node;
+
 			return true;
 		}
 		return false;
@@ -319,7 +311,8 @@ namespace Noodles
 
 	bool LayerTaskFlow::Update_AssumedLocked(std::pmr::memory_resource* resource)
 	{
-		if (context_ptr->this_frame_component_update || context_ptr->this_frame_singleton_update)
+		bool has_archetype_update = context_ptr->component_manager.HasArchetypeUpdate_AssumedLocked();
+		if (has_archetype_update || context_ptr->this_frame_singleton_update)
 		{
 			for (auto& ite : dynamic_edges)
 			{
@@ -338,9 +331,9 @@ namespace Noodles
 						need_edge = true;
 					}
 				}
-				if (!need_edge && context_ptr->this_frame_component_update && ite.component_overlapping)
+				if (!need_edge && has_archetype_update && ite.component_overlapping)
 				{
-					if (from->IsComponentOverlapping(*to, context_ptr->component_manager.GetArchetypeUsageMark_AssumedLocked()))
+					if (from->IsComponentOverlapping(*to, context_ptr->component_manager.GetArchetypeUpdateMark_AssumedLocked(), context_ptr->component_manager.GetArchetypeUsageMark_AssumedLocked()))
 					{
 						need_edge = true;
 					}
@@ -506,7 +499,8 @@ namespace Noodles
 
 	bool Context::Update_AssumedLocked(std::pmr::memory_resource* resource)
 	{
-		this_frame_component_update = entity_manager.Flush(component_manager, resource);
+		component_manager.ClearArchetypeUpdateMark_AssumedLocked();
+		entity_manager.Flush(component_manager, resource);
 		this_frame_singleton_update = singleton_manager.Flush(resource);
 		return TaskFlow::Update_AssumedLocked(resource);
 	}
@@ -540,13 +534,50 @@ namespace Noodles
 		TaskFlow::Commited(context.context, require_time, context.node_property);
 	}
 
+	ThreadOrderFilter::Ptr Context::CreateThreadOrderFilter(std::span<ComponentFilter::Info const> info, std::pmr::memory_resource* resource)
+	{
+		auto layout = Potato::MemLayout::MemLayoutCPP::Get<ThreadOrderFilter>();
+		auto offset = layout.Insert(Potato::MemLayout::Layout::Get<MarkElement>(), thread_order_manager.GetStorageCount() * 2);
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
+		if (re)
+		{
+			std::span<MarkElement> write_span = {
+				new(re.GetByte(offset)) MarkElement[thread_order_manager.GetStorageCount()],
+				thread_order_manager.GetStorageCount()
+			};
+
+			std::span<MarkElement> total_span = {
+				new(re.GetByte(offset) + sizeof(MarkElement) * thread_order_manager.GetStorageCount()) MarkElement[thread_order_manager.GetStorageCount()],
+				thread_order_manager.GetStorageCount()
+			};
+
+			for (auto& ite : info)
+			{
+				auto loc = thread_order_manager.LocateOrAdd(ite.struct_layout);
+				if (!loc)
+				{
+					re.Deallocate();
+					return {};
+				}else
+				{
+					if (ite.need_write)
+					{
+						MarkElement::Mark(write_span, *loc);
+					}
+					MarkElement::Mark(total_span, *loc);
+				}
+			}
+
+			return new (re.Get()) ThreadOrderFilter{ re, {write_span, total_span} };
+		}
+		return {};
+	}
+
 	bool Context::Commited(Potato::Task::TaskContext& context, Potato::Task::TaskFlowNodeProperty property)
 	{
 		std::lock_guard lg(TaskFlow::process_mutex);
 		if(current_status == Status::DONE || current_status == Status::READY)
 		{
-			entity_manager.Flush(component_manager);
-			singleton_manager.Flush();
 			Update_AssumedLocked();
 			return TaskFlow::Commited_AssumedLocked(context, std::move(property));
 		}

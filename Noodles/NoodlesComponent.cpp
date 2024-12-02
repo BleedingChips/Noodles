@@ -187,7 +187,7 @@ namespace Noodles
 	{
 		std::lock_guard lg(mutex);
 		auto archetype_atomic_id = archetype.GetAtomicTypeMark();
-		if(MarkElement::Inclusion(archetype_atomic_id, GetRequiredStructLayoutMarks().total_marks) && !MarkElement::IsOverlapping(archetype_atomic_id, GetRequiredStructLayoutMarks().total_marks))
+		if(MarkElement::Inclusion(archetype_atomic_id, GetRequiredStructLayoutMarks().total_marks) && !MarkElement::IsOverlapping(archetype_atomic_id, refuse_component))
 		{
 			auto old_size = archetype_member.size();
 			auto atomic_span = GetMarkIndex();
@@ -428,7 +428,7 @@ namespace Noodles
 		archetype_mask(config.resource),
 		filters(config.resource)
 	{
-		archetype_mask.resize(archetype_storage_count);
+		archetype_mask.resize(archetype_storage_count * 2);
 	}
 
 	
@@ -583,7 +583,8 @@ namespace Noodles
 						ref.max_count = count;
 						ref.column_size = archetype_layout.size;
 						ref.current_count = 1;
-						MarkElement::Mark(archetype_mask, MarkIndex{ archetype_index });
+						MarkElement::Mark(GetWriteableArchetypeUsageMark_AssumedLocked(), MarkIndex{ archetype_index });
+						MarkElement::Mark(GetWriteableArchetypeUpdateMark_AssumedLocked(), MarkIndex{ archetype_index });
 						return 0;
 					}
 				}else
@@ -591,6 +592,10 @@ namespace Noodles
 					ref.current_count += 1;
 					if(ref.current_count < ref.max_count)
 					{
+						if (ref.current_count == 1)
+						{
+							MarkElement::Mark(GetWriteableArchetypeUpdateMark_AssumedLocked(), MarkIndex{ archetype_index });
+						}
 						return ref.current_count;
 					}else
 					{
@@ -627,8 +632,9 @@ namespace Noodles
 				if(chunk.current_count == 0)
 				{
 					chunk.record.Deallocate();
-					auto re = MarkElement::Mark(archetype_mask, MarkIndex{ite.archetype_index}, false);
+					auto re = MarkElement::Mark(GetWriteableArchetypeUsageMark_AssumedLocked(), MarkIndex{ite.archetype_index}, false);
 					assert(re);
+					re = MarkElement::Mark(GetWriteableArchetypeUpdateMark_AssumedLocked(), MarkIndex{ ite.archetype_index }, true);
 				}
 			}else
 			{

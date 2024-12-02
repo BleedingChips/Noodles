@@ -233,11 +233,17 @@ export namespace Noodles
 		OptionalIndex AllocateComponentColumn_AssumedLocked(std::size_t archetype_index, std::pmr::vector<RemovedColumn>& removed_list);
 		void FixComponentChunkHole_AssumedLocked(std::pmr::vector<RemovedColumn>& holes, void(*func)(ChunkView const& view, std::size_t, std::size_t));
 		ChunkView GetChunk_AssumedLocked(std::size_t archetype_index) const;
-		std::span<MarkElement const> GetArchetypeUsageMark_AssumedLocked() const { return archetype_mask; }
+		std::span<MarkElement const> GetArchetypeUsageMark_AssumedLocked() const { return std::span(archetype_mask).subspan(0, archetype_storage_count); }
+		std::span<MarkElement const> GetArchetypeUpdateMark_AssumedLocked() const { return std::span(archetype_mask).subspan(archetype_storage_count); }
 		std::size_t GetComponentMarkElementStorageCount() const { return manager.GetStorageCount(); }
 		std::size_t GetArchetypeMarkElementStorageCount() const { return archetype_storage_count; }
+		void ClearArchetypeUpdateMark_AssumedLocked() { MarkElement::Reset(GetWriteableArchetypeUpdateMark_AssumedLocked()); }
+		bool HasArchetypeUpdate_AssumedLocked() const { return !MarkElement::IsReset(GetArchetypeUpdateMark_AssumedLocked()); }
 
 	protected:
+
+		std::span<MarkElement> GetWriteableArchetypeUsageMark_AssumedLocked() { return std::span(archetype_mask).subspan(0, archetype_storage_count); }
+		std::span<MarkElement> GetWriteableArchetypeUpdateMark_AssumedLocked() { return std::span(archetype_mask).subspan(archetype_storage_count); }
 
 		std::tuple<Archetype::OPtr, OptionalIndex> CreateArchetype_AssumedLocked(ArchetypeBuilderRef const& ref);
 

@@ -34,6 +34,7 @@ export namespace Noodles
 		static bool IsReset(std::span<MarkElement const> target);
 		static bool IsSame(std::span<MarkElement const> source, std::span<MarkElement const> target);
 		static void CopyTo(std::span<MarkElement const> source, std::span<MarkElement> target);
+		static void MarkTo(std::span<MarkElement const> source, std::span<MarkElement> target);
 		static std::size_t GetMarkElementStorageCalculate(std::size_t mark_index_count);
 		static std::size_t GetMaxMarkIndexCount(std::size_t mark_index_count);
 	};
@@ -42,6 +43,7 @@ export namespace Noodles
 	{
 		std::span<MarkElement const> write_marks;
 		std::span<MarkElement const> total_marks;
+		operator bool() const { return !write_marks.empty(); }
 
 		bool WriteConfig(WrittenMarkElementSpan const& other) const
 		{
@@ -61,6 +63,16 @@ export namespace Noodles
 			);
 		}
 	};
+
+	struct WrittenMarkElementSpanWriteable
+	{
+		std::span<MarkElement> write_marks;
+		std::span<MarkElement> total_marks;
+		operator WrittenMarkElementSpan() const { return { write_marks, total_marks }; }
+		void MarkFrom(WrittenMarkElementSpan target);
+		operator bool() const { return !write_marks.empty(); }
+	};
+	
 
 	struct StructLayoutMarkIndexManager
 	{

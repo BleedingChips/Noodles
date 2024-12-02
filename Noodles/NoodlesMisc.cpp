@@ -130,6 +130,15 @@ namespace Noodles
 		}
 	}
 
+	void MarkElement::MarkTo(std::span<MarkElement const> source, std::span<MarkElement> target)
+	{
+		assert(source.size() == target.size());
+		for (std::size_t i = 0; i < source.size(); ++i)
+		{
+			target[i].mark |= source[i].mark;
+		}
+	}
+
 	bool MarkElement::IsReset(std::span<MarkElement const> target)
 	{
 		for (auto& ite : target)
@@ -138,6 +147,12 @@ namespace Noodles
 				return false;
 		}
 		return true;
+	}
+
+	void WrittenMarkElementSpanWriteable::MarkFrom(WrittenMarkElementSpan target)
+	{
+		MarkElement::MarkTo(target.total_marks, total_marks);
+		MarkElement::MarkTo(target.write_marks, write_marks);
 	}
 
 	std::optional<MarkIndex> StructLayoutMarkIndexManager::Locate_AssumedLocked(StructLayout::Ptr const& type) const

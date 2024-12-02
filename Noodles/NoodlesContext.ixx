@@ -78,8 +78,8 @@ export namespace Noodles
 		};
 
 		virtual Mutex GetMutex() const { return {}; };
-		virtual bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_usage_count) const { return false; };
-		virtual bool IsComponentOverlapping(ComponentFilter const& target_component_filter, std::span<MarkElement const> archetype_usage_count) const { return false; };
+		virtual bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return false; };
+		virtual bool IsComponentOverlapping(ComponentFilter const& target_component_filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return false; };
 
 	protected:
 
@@ -195,14 +195,27 @@ export namespace Noodles
 		virtual void SubSystemTemplateRef() const = 0;
 	};
 
+	struct ThreadOrderFilter : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
+	{
+		WrittenMarkElementSpan GetStructLayoutMarks() const { return marks; };
+		using Ptr = Potato::Pointer::IntrusivePtr<ThreadOrderFilter>;
+	protected:
+		ThreadOrderFilter(Potato::IR::MemoryResourceRecord record, WrittenMarkElementSpanWriteable marks)
+			: MemoryResourceRecordIntrusiveInterface(record), marks(marks) {}
+		WrittenMarkElementSpanWriteable marks;
+		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
+		friend struct Context;
+	};
+
 	export struct Context : protected Potato::Task::TaskFlow
 	{
 		struct Config
 		{
 			std::chrono::milliseconds min_frame_time = std::chrono::milliseconds{ 13 };
-			std::size_t max_component_count = 256;
+			std::size_t max_component_count = 128;
 			std::size_t max_archetype_count = 128;
-			std::size_t max_singleton_count = 64;
+			std::size_t max_singleton_count = 128;
+			std::size_t max_thread_order_count = 128;
 		};
 
 		using Ptr = Potato::Pointer::IntrusivePtr<Context, TaskFlow::Wrapper>;
@@ -305,11 +318,8 @@ export namespace Noodles
 			auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(GetFramedDuration());
 			return ms.count() / 1000.0f;
 		}
-
-		std::size_t GetComponentMarkElementStorage() const { return component_manager.GetComponentMarkElementStorageCount(); }
-		std::size_t GetArchetypeMarkElementStorage() const { return component_manager.GetArchetypeMarkElementStorageCount(); }
-		std::size_t GetSingletonMarkElementStorage() const { return singleton_manager.GetSingletonMarkElementStorageCount(); }
-
+		
+		ThreadOrderFilter::Ptr CreateThreadOrderFilter(std::span<ComponentFilter::Info const> info, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 	protected:
 
@@ -326,10 +336,11 @@ export namespace Noodles
 
 		std::atomic<std::chrono::steady_clock::duration> framed_duration;
 
+		StructLayoutMarkIndexManager thread_order_manager;
+
 		std::mutex mutex;
 		Config config;
 		bool require_quit = false;
-		bool this_frame_component_update = false;
 		bool this_frame_singleton_update = false;
 		std::chrono::steady_clock::time_point start_up_tick_lock;
 
@@ -476,19 +487,31 @@ export namespace Noodles
 			};
 		}
 
-		bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> component_usage) const
+		bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update,  std::span<MarkElement const> component_usage) const
 		{
-			return target_node.IsComponentOverlapping(*filter, component_usage);
-			
+			if (MarkElement::IsOverlapping(filter->GetArchetypeMarkArray(), archetype_update))
+			{
+				return target_node.IsComponentOverlapping(*filter, archetype_update, component_usage);
+			}else
+			{
+				return false;
+			}
 		}
 
-		bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> component_usage) const
+		bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 		{
-			return MarkElement::IsOverlappingWithMask(
-				this->filter->GetArchetypeMarkArray(),
-				filter.GetArchetypeMarkArray(),
-				component_usage
-			) && this->filter->GetRequiredStructLayoutMarks().WriteConfig(filter.GetRequiredStructLayoutMarks());
+			if (MarkElement::IsOverlapping(this->filter->GetArchetypeMarkArray(), archetype_update))
+			{
+				return MarkElement::IsOverlappingWithMask(
+					this->filter->GetArchetypeMarkArray(),
+					filter.GetArchetypeMarkArray(),
+					component_usage
+				) && this->filter->GetRequiredStructLayoutMarks().WriteConfig(filter.GetRequiredStructLayoutMarks());
+			}
+			else
+			{
+				return false;
+			}
 		}
 
 	protected:
@@ -544,13 +567,23 @@ export namespace Noodles
 	template<AcceptableFilterType ...ComponentT>
 	struct AtomicThreadOrder
 	{
-		AtomicThreadOrder(Context& context, std::size_t identity) {}
+		AtomicThreadOrder(Context& context, std::size_t identity)
+		{
+			static std::array<ComponentFilter::Info, sizeof...(ComponentT)> temp_buffer = {
+				{
+					IsFilterWriteType<ComponentT>, Potato::IR::StructLayout::GetStatic<ComponentT>()
+				}...
+			};
+			filter = context.CreateThreadOrderFilter(temp_buffer);
+		}
 		AtomicThreadOrder(AtomicThreadOrder const&) = default;
 		AtomicThreadOrder(AtomicThreadOrder&&) = default;
 
+		ThreadOrderFilter::Ptr filter;
+
 		SystemNode::Mutex GetSystemNodeMutex() const
 		{
-			return {};
+			return {{}, {}, filter->GetStructLayoutMarks()};
 		}
 	};
 
@@ -570,13 +603,13 @@ export namespace Noodles
 	template<typename Type>
 	concept HasIsComponentOverlappingWithSystemNodeFunctionWrapper = requires(Type const& type)
 	{
-		{ type.IsComponentOverlapping(std::declval<SystemNode const&>(), std::span<MarkElement const>{}) } -> std::same_as<bool>;
+		{ type.IsComponentOverlapping(std::declval<SystemNode const&>(), std::span<MarkElement const>{}, std::span<MarkElement const>{}) } -> std::same_as<bool>;
 	};
 
 	template<typename Type>
 	concept HasIsComponentOverlappingWithComponentFilterFunctionWrapper = requires(Type const& type)
 	{
-		{ type.IsComponentOverlapping(std::declval<ComponentFilter const&>(), std::span<MarkElement const>{}) } -> std::same_as<bool>;
+		{ type.IsComponentOverlapping(std::declval<ComponentFilter const&>(), std::span<MarkElement const>{}, std::span<MarkElement const>{}) } -> std::same_as<bool>;
 	};
 
 	struct SystemAutomatic
@@ -641,20 +674,20 @@ export namespace Noodles
 				}
 			}
 
-			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> component_usage) const
+			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 			{
 				if constexpr (HasIsComponentOverlappingWithSystemNodeFunctionWrapper<RealType>)
 				{
-					return data.IsComponentOverlapping(target_node, component_usage);
+					return data.IsComponentOverlapping(target_node, archetype_update, component_usage);
 				}
 				return false;
 			}
 
-			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> component_usage) const
+			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 			{
 				if constexpr (HasIsComponentOverlappingWithComponentFilterFunctionWrapper<RealType>)
 				{
-					return data.IsComponentOverlapping(filter, component_usage);
+					return data.IsComponentOverlapping(filter, archetype_update, component_usage);
 				}
 				return false;
 			}
@@ -684,20 +717,32 @@ export namespace Noodles
 				other_holders.Reset();
 			}
 
-			void FlushSystemNodeMutex(SystemNode::Mutex output_mutex)
+			void FlushSystemNodeMutex(WrittenMarkElementSpanWriteable component, WrittenMarkElementSpanWriteable singleton, WrittenMarkElementSpanWriteable thread_order) const
 			{
-				auto cur = cur_holder.GetSystemNodeMutex();
-				// todo
+				SystemNode::Mutex cur = cur_holder.GetSystemNodeMutex();
+				if (cur.component_mark)
+				{
+					component.MarkFrom(cur.component_mark);
+				}
+				if (cur.singleton_mark)
+				{
+					component.MarkFrom(cur.singleton_mark);
+				}
+				if (cur.thread_order_mark)
+				{
+					component.MarkFrom(cur.thread_order_mark);
+				}
+				other_holders.FlushSystemNodeMutex(component, singleton, thread_order);
 			}
 
-			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> component_usage) const
+			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 			{
-				return cur_holder.IsComponentOverlapping(target_node, component_usage) && other_holders.IsComponentOverlapping(target_node,component_usage);
+				return cur_holder.IsComponentOverlapping(target_node, archetype_update, component_usage) || other_holders.IsComponentOverlapping(target_node, archetype_update, component_usage);
 			}
 
-			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> component_usage) const
+			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 			{
-				return cur_holder.IsComponentOverlapping(filter, component_usage) && other_holders.IsComponentOverlapping(filter, component_usage);
+				return cur_holder.IsComponentOverlapping(filter, archetype_update, component_usage) || other_holders.IsComponentOverlapping(filter, archetype_update, component_usage);
 			}
 		};
 
@@ -706,9 +751,9 @@ export namespace Noodles
 		{
 			ParameterHolders(Context& context, std::size_t identity) {}
 			void Reset() {}
-			void FlushSystemNodeMutex(SystemNode::Mutex output_mutex){}
-			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> component_usage) { return false; }
-			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> component_usage) { return false; }
+			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const { return false; }
+			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const { return false; }
+			void FlushSystemNodeMutex(WrittenMarkElementSpanWriteable component, WrittenMarkElementSpanWriteable singleton, WrittenMarkElementSpanWriteable thread_order) const {}
 		};
 
 		template<typename ...ParT>
@@ -761,10 +806,19 @@ export namespace Noodles
 		> fun;
 
 		SystemName display_name;
+		WrittenMarkElementSpanWriteable component;
+		WrittenMarkElementSpanWriteable singleton;
+		WrittenMarkElementSpanWriteable thread_core;
 
-		DynamicAutoSystemHolder(Context& context, Func fun, Potato::IR::MemoryResourceRecord record, SystemName display_name)
-			: append_data(context, 0), fun(std::move(fun)), MemoryResourceRecordIntrusiveInterface(record), display_name(display_name)
+		DynamicAutoSystemHolder(
+				Context& context, Func fun, Potato::IR::MemoryResourceRecord record, SystemName display_name, 
+			WrittenMarkElementSpanWriteable component,
+			WrittenMarkElementSpanWriteable singleton,
+			WrittenMarkElementSpanWriteable thread_core
+			)
+			: append_data(context, 0), fun(std::move(fun)), MemoryResourceRecordIntrusiveInterface(record), display_name(display_name), component(component), singleton(singleton), thread_core(thread_core)
 		{
+			append_data.FlushSystemNodeMutex(component, singleton, thread_core);
 		}
 
 		virtual void SystemNodeExecute(ContextWrapper& context) override
@@ -782,6 +836,22 @@ export namespace Noodles
 		void AddSystemNodeRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
 		void SubSystemNodeRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
 		virtual SystemName GetDisplayName() const override { return display_name; }
+		virtual bool IsComponentOverlapping(ComponentFilter const& target_component_filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const override
+		{
+			return append_data.IsComponentOverlapping(target_component_filter, archetype_update, archetype_usage_count);
+		}
+		virtual bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const override
+		{
+			return append_data.IsComponentOverlapping(target_node, archetype_update, archetype_usage_count);
+		}
+		virtual SystemNode::Mutex GetMutex() const override
+		{
+			return {
+				component,
+				singleton,
+				thread_core
+			};
+		}
 	};
 
 	template<typename Function>
@@ -789,14 +859,40 @@ export namespace Noodles
 	{
 		using Type = DynamicAutoSystemHolder<std::remove_cvref_t<Function>>;
 		auto layout = Potato::MemLayout::MemLayoutCPP::Get<Type>();
+		auto span_offset = layout.Insert(Potato::IR::Layout::Get<MarkElement>(), 
+			(component_manager.GetComponentMarkElementStorageCount() 
+			+ singleton_manager.GetSingletonMarkElementStorageCount() 
+			+ thread_order_manager.GetStorageCount()) * 2
+		);
 		auto str_layout = name.GetSerializeLayout();
 		auto offset = layout.Insert(str_layout);
 		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
 		if (re)
 		{
+			std::size_t ite_span_offset = span_offset;
+
+			WrittenMarkElementSpanWriteable component{
+				{new (re.GetByte(ite_span_offset)) MarkElement[component_manager.GetComponentMarkElementStorageCount()], component_manager.GetComponentMarkElementStorageCount()},
+				{new (re.GetByte(ite_span_offset) + sizeof(MarkElement) * component_manager.GetComponentMarkElementStorageCount()) MarkElement[component_manager.GetComponentMarkElementStorageCount()], component_manager.GetComponentMarkElementStorageCount()},
+			};
+
+			ite_span_offset += (component_manager.GetComponentMarkElementStorageCount() * 2 * sizeof(MarkElement));
+
+			WrittenMarkElementSpanWriteable singleton{
+				{new (re.GetByte(ite_span_offset)) MarkElement[singleton_manager.GetSingletonMarkElementStorageCount()], singleton_manager.GetSingletonMarkElementStorageCount()},
+				{new (re.GetByte(ite_span_offset) + sizeof(MarkElement) * singleton_manager.GetSingletonMarkElementStorageCount()) MarkElement[singleton_manager.GetSingletonMarkElementStorageCount()], singleton_manager.GetSingletonMarkElementStorageCount()},
+			};
+
+			ite_span_offset += (singleton_manager.GetSingletonMarkElementStorageCount() * 2 * sizeof(MarkElement));
+
+			WrittenMarkElementSpanWriteable thread_order{
+				{new (re.GetByte(ite_span_offset)) MarkElement[thread_order_manager.GetStorageCount()], thread_order_manager.GetStorageCount()},
+				{new (re.GetByte(ite_span_offset) + sizeof(MarkElement) * thread_order_manager.GetStorageCount()) MarkElement[thread_order_manager.GetStorageCount()], thread_order_manager.GetStorageCount()},
+			};
+
 			name.SerializeTo({ re.GetByte() + offset, str_layout.size });
 			auto new_name = name.ReMap({ re.GetByte() + offset, str_layout.size });
-			return new (re.Get()) Type{ *this, std::forward<Function>(func), re, new_name };
+			return new (re.Get()) Type{ *this, std::forward<Function>(func), re, new_name, component, singleton, thread_order };
 		}
 		return {};
 	}

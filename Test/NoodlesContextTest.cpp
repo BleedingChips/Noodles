@@ -86,6 +86,7 @@ int main()
 
 	auto ent = context.CreateEntity();
 	context.AddEntityComponent(ent, Tuple{10086});
+	context.AddEntityComponent(ent, Tuple2{ u8"" });
 
 	for(std::size_t o = 0; o < 100; ++o)
 	{
