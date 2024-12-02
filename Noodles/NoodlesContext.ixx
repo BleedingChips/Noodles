@@ -570,7 +570,7 @@ export namespace Noodles
 		AtomicThreadOrder(Context& context, std::size_t identity)
 		{
 			static std::array<ComponentFilter::Info, sizeof...(ComponentT)> temp_buffer = {
-				{
+				ComponentFilter::Info{
 					IsFilterWriteType<ComponentT>, Potato::IR::StructLayout::GetStatic<ComponentT>()
 				}...
 			};
@@ -726,11 +726,11 @@ export namespace Noodles
 				}
 				if (cur.singleton_mark)
 				{
-					component.MarkFrom(cur.singleton_mark);
+					singleton.MarkFrom(cur.singleton_mark);
 				}
 				if (cur.thread_order_mark)
 				{
-					component.MarkFrom(cur.thread_order_mark);
+					thread_order.MarkFrom(cur.thread_order_mark);
 				}
 				other_holders.FlushSystemNodeMutex(component, singleton, thread_order);
 			}
