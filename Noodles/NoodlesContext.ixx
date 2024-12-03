@@ -47,9 +47,6 @@ export namespace Noodles
 		std::u8string_view name;
 		std::u8string_view group;
 		bool operator==(const SystemName& i1) const { return name == i1.name && group == i1.group; }
-		Potato::IR::Layout GetSerializeLayout() const;
-		void SerializeTo(std::span<std::byte> output) const;
-		SystemName ReMap(std::span<std::byte> input) const;
 	};
 
 	export struct Context;
@@ -67,8 +64,6 @@ export namespace Noodles
 		};
 
 		using Ptr = Potato::Pointer::IntrusivePtr<SystemNode, Wrapper>;
-
-		virtual SystemName GetDisplayName() const = 0;
 
 		struct Mutex
 		{
@@ -120,14 +115,14 @@ export namespace Noodles
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<LayerTaskFlow, Potato::Task::TaskFlow::Wrapper>;
 
-		bool AddTemporaryNodeImmediately(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
-		bool AddTemporaryNodeDefer(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
+		bool AddTemporaryNodeImmediately(SystemNode::Ptr node, std::u8string_view system_name, Potato::Task::TaskFilter filter);
+		bool AddTemporaryNodeDefer(SystemNode::Ptr node, std::u8string_view system_name, Potato::Task::TaskFilter filter);
 
 	protected:
 
-		bool AddTickedNode(SystemNode::Ptr node, SystemNodeProperty property, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
+		bool AddTickedNode(SystemNode::Ptr node, SystemName system_name, SystemNodeProperty property, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 		virtual bool Update_AssumedLocked(std::pmr::memory_resource* resource) override;
-		bool AddTemporaryNodeImmediately_AssumedLocked(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
+		bool AddTemporaryNodeImmediately_AssumedLocked(SystemNode::Ptr node, std::u8string_view system_name, Potato::Task::TaskFilter filter);
 
 		LayerTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout, Potato::Pointer::ObserverPtr<Context> context_ptr)
 			: MemoryResourceRecordIntrusiveInterface(record), layout(layout), context_ptr(context_ptr)
@@ -166,6 +161,7 @@ export namespace Noodles
 		struct DeferInfo
 		{
 			SystemNode::Ptr ptr;
+			std::u8string_view system_name;
 			Potato::Task::TaskFilter filter;
 		};
 
@@ -189,7 +185,7 @@ export namespace Noodles
 		};
 
 		using Ptr = Potato::Pointer::IntrusivePtr<SystemTemplate, Wrapper>;
-		virtual SystemNode::Ptr CreateSystemNode(Context& context, SystemName name, std::pmr::memory_resource* resource = std::pmr::get_default_resource()) const = 0;
+		virtual SystemNode::Ptr CreateSystemNode(Context& context, std::pmr::memory_resource* resource = std::pmr::get_default_resource()) const = 0;
 	protected:
 		virtual void AddSystemTemplateRef() const = 0;
 		virtual void SubSystemTemplateRef() const = 0;
@@ -263,21 +259,21 @@ export namespace Noodles
 			requires(std::is_copy_constructible_v<Func>);
 
 		template<typename Func>
-		SystemNode::Ptr CreateAutomaticSystem(Func&& func, SystemName name, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		SystemNode::Ptr CreateAutomaticSystem(Func&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
-		SystemNode::Ptr CreateSystem(SystemTemplate const& system_template, SystemName name, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		SystemNode::Ptr CreateSystem(SystemTemplate const& system_template, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 		{
-			return system_template.CreateSystemNode(*this, name, resource);
+			return system_template.CreateSystemNode(*this, resource);
 		}
 
-		bool AddTickedSystemNode(SystemNode::Ptr node, SystemNodeProperty property);
-		bool AddTemporarySystemNodeDefer(SystemNode::Ptr node, std::int32_t layout, Potato::Task::TaskFilter property);
+		bool AddTickedSystemNode(SystemNode::Ptr node, SystemName system_name, SystemNodeProperty property);
+		bool AddTemporarySystemNodeDefer(SystemNode::Ptr node, std::int32_t layout, std::u8string_view system_name, Potato::Task::TaskFilter property);
 
 		template<typename Function>
 		bool CreateAndAddTickedAutomaticSystem(Function&& func, SystemName name, SystemNodeProperty property = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 		{
-			auto ptr = this->CreateAutomaticSystem(std::forward<Function>(func), name, resource);
-			return this->AddTickedSystemNode(std::move(ptr), property);
+			auto ptr = this->CreateAutomaticSystem(std::forward<Function>(func), resource);
+			return this->AddTickedSystemNode(std::move(ptr), name, property);
 		}
 
 		bool RemoveEntity(Entity::Ptr entity) { return entity_manager.ReleaseEntity(std::move(entity)); }
@@ -391,12 +387,12 @@ export namespace Noodles
 		Potato::Task::TaskFlowNodeProperty GetProperty() const { return node_property; }
 		Context& GetContext() const { return noodles_context; }
 		template<typename Func>
-		SystemNode::Ptr CreateAutomaticSystem(Func&& func, SystemName name, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		SystemNode::Ptr CreateAutomaticSystem(Func&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 		{
-			return noodles_context.CreateAutomaticSystem(std::forward<Func>(func), name, resource);
+			return noodles_context.CreateAutomaticSystem(std::forward<Func>(func), resource);
 		}
-		bool AddTemporaryNodeImmediately(SystemNode& node, Potato::Task::TaskFilter filter) { return current_layout_flow.AddTemporaryNodeDefer(&node, std::move(filter)); }
-		bool AddTemporaryNodeDefer(SystemNode& node, Potato::Task::TaskFilter filter) { return current_layout_flow.AddTemporaryNodeDefer(&node, std::move(filter)); }
+		bool AddTemporaryNodeImmediately(SystemNode::Ptr node, std::u8string_view system_name = u8"temporary_system", Potato::Task::TaskFilter filter = {}) { return current_layout_flow.AddTemporaryNodeDefer(std::move(node), system_name, std::move(filter)); }
+		bool AddTemporaryNodeDefer(SystemNode::Ptr node, std::u8string_view system_name = u8"temporary_system", Potato::Task::TaskFilter filter = {}) { return current_layout_flow.AddTemporaryNodeDefer(std::move(node), system_name, std::move(filter)); }
 		void Quit() { return noodles_context.Quit(); }
 	protected:
 		Potato::Task::TaskContext& task_context;
@@ -805,18 +801,17 @@ export namespace Noodles
 			Func
 		> fun;
 
-		SystemName display_name;
 		WrittenMarkElementSpanWriteable component;
 		WrittenMarkElementSpanWriteable singleton;
 		WrittenMarkElementSpanWriteable thread_core;
 
 		DynamicAutoSystemHolder(
-				Context& context, Func fun, Potato::IR::MemoryResourceRecord record, SystemName display_name, 
+				Context& context, Func fun, Potato::IR::MemoryResourceRecord record,
 			WrittenMarkElementSpanWriteable component,
 			WrittenMarkElementSpanWriteable singleton,
 			WrittenMarkElementSpanWriteable thread_core
 			)
-			: append_data(context, 0), fun(std::move(fun)), MemoryResourceRecordIntrusiveInterface(record), display_name(display_name), component(component), singleton(singleton), thread_core(thread_core)
+			: append_data(context, 0), fun(std::move(fun)), MemoryResourceRecordIntrusiveInterface(record), component(component), singleton(singleton), thread_core(thread_core)
 		{
 			append_data.FlushSystemNodeMutex(component, singleton, thread_core);
 		}
@@ -835,7 +830,6 @@ export namespace Noodles
 
 		void AddSystemNodeRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
 		void SubSystemNodeRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
-		virtual SystemName GetDisplayName() const override { return display_name; }
 		virtual bool IsComponentOverlapping(ComponentFilter const& target_component_filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const override
 		{
 			return append_data.IsComponentOverlapping(target_component_filter, archetype_update, archetype_usage_count);
@@ -855,7 +849,7 @@ export namespace Noodles
 	};
 
 	template<typename Function>
-	SystemNode::Ptr Context::CreateAutomaticSystem(Function&& func, SystemName name, std::pmr::memory_resource* resource)
+	SystemNode::Ptr Context::CreateAutomaticSystem(Function&& func, std::pmr::memory_resource* resource)
 	{
 		using Type = DynamicAutoSystemHolder<std::remove_cvref_t<Function>>;
 		auto layout = Potato::MemLayout::MemLayoutCPP::Get<Type>();
@@ -864,8 +858,6 @@ export namespace Noodles
 			+ singleton_manager.GetSingletonMarkElementStorageCount() 
 			+ thread_order_manager.GetStorageCount()) * 2
 		);
-		auto str_layout = name.GetSerializeLayout();
-		auto offset = layout.Insert(str_layout);
 		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
 		if (re)
 		{
@@ -890,9 +882,7 @@ export namespace Noodles
 				{new (re.GetByte(ite_span_offset) + sizeof(MarkElement) * thread_order_manager.GetStorageCount()) MarkElement[thread_order_manager.GetStorageCount()], thread_order_manager.GetStorageCount()},
 			};
 
-			name.SerializeTo({ re.GetByte() + offset, str_layout.size });
-			auto new_name = name.ReMap({ re.GetByte() + offset, str_layout.size });
-			return new (re.Get()) Type{ *this, std::forward<Function>(func), re, new_name, component, singleton, thread_order };
+			return new (re.Get()) Type{ *this, std::forward<Function>(func), re, component, singleton, thread_order };
 		}
 		return {};
 	}
@@ -901,9 +891,9 @@ export namespace Noodles
 	struct SystemTemplateHolder : public SystemTemplate, public Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
 		Func func;
-		virtual SystemNode::Ptr CreateSystemNode(Context& context, SystemName name, std::pmr::memory_resource* resource) const override
+		virtual SystemNode::Ptr CreateSystemNode(Context& context, std::pmr::memory_resource* resource) const override
 		{
-			return context.CreateAutomaticSystem(func, name, resource);
+			return context.CreateAutomaticSystem(func, resource);
 		}
 		SystemTemplateHolder(Potato::IR::MemoryResourceRecord record, Func&& func) : MemoryResourceRecordIntrusiveInterface(record), func(std::move(func)) {}
 	protected:
@@ -921,158 +911,4 @@ export namespace Noodles
 			std::forward<Func>(func)
 		);
 	}
-
-	/*
-	template<typename Type>
-	concept IgnoreMutexComponentType = requires(Type)
-	{
-		requires(Type::NoodlesProperty::ignore_mutex);
-	};
-
-	struct RWUniqueTypeID
-	{
-		bool is_write = false;
-		bool ignore_mutex = false;
-		AtomicType::Ptr atomic_type;
-
-
-		template<AcceptableFilterType Type>
-		static RWUniqueTypeID Create()
-		{
-			return RWUniqueTypeID{
-				IsFilterWriteType<Type>,
-				IgnoreMutexComponentType<Type>,
-				GetAtomicType<Type>()
-			};
-		}
-	};
-
-	
-
-	
-
-	struct ReadWriteMutexIndex
-	{
-		Potato::Misc::IndexSpan<> components_span;
-		Potato::Misc::IndexSpan<> singleton_span;
-		Potato::Misc::IndexSpan<> user_modify;
-	};
-
-	struct ReadWriteMutex
-	{
-		std::span<RWUniqueTypeID const> total_type_id;
-		ReadWriteMutexIndex index;
-		bool IsConflict(ReadWriteMutex const& mutex) const;
-	};
-
-	export struct Context;
-	export struct SubContextTaskFlow;
-	export struct ParallelExecutor;
-
-	struct ReadWriteMutexGenerator
-	{
-
-		void RegisterComponentMutex(std::span<RWUniqueTypeID const> ifs);
-		void RegisterSingletonMutex(std::span<RWUniqueTypeID const> ifs);
-		void RegisterUserModifyMutex(std::span<RWUniqueTypeID const> ifs);
-		std::tuple<std::size_t, std::size_t> CalculateUniqueIDCount() const;
-		ReadWriteMutex GetMutex() const;
-		void RecoverModify() { unique_ids.resize(old_index); }
-
-		ReadWriteMutexGenerator(std::pmr::vector<RWUniqueTypeID>& reference_vector) : unique_ids(reference_vector), old_index(reference_vector.size()){ }
-
-	protected:
-
-		std::pmr::vector<RWUniqueTypeID>& unique_ids;
-		std::size_t old_index;
-		std::size_t component_count = 0;
-		std::size_t singleton_count = 0;
-		std::size_t user_modify_count = 0;
-
-		friend struct Context;
-		friend struct SubContextTaskFlow;
-	};
-
-	export struct ContextWrapper;
-
-	
-
-	enum class Order
-	{
-		MUTEX,
-		SMALLER,
-		BIGGER,
-		UNDEFINE
-	};
-
-	using OrderFunction = Order(*)(SystemName p1, SystemName p2);
-
-	struct SystemNodeProperty
-	{
-		Priority priority;
-		OrderFunction order_function = nullptr;
-		Potato::Task::TaskFilter filter;
-	};
-
-	export struct SubContextTaskFlow : public Potato::Task::TaskFlow, protected Potato::Pointer::DefaultIntrusiveInterface
-	{
-		using Ptr = Potato::Pointer::IntrusivePtr<SubContextTaskFlow, Potato::Task::TaskFlow::Wrapper>;
-
-		bool AddTemporaryNodeImmediately(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
-		bool AddTemporaryNodeDefer(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
-	
-	protected:
-
-		bool AddTickedNode(SystemNode::Ptr node, SystemNodeProperty property);
-		virtual bool Update_AssumedLocked(std::pmr::memory_resource* resource) override;
-		bool AddTemporaryNodeImmediately_AssumedLocked(SystemNode::Ptr node, Potato::Task::TaskFilter filter);
-
-		SubContextTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
-			: record(record), layout(layout),
-			preprocess_rw_id(record.GetMemoryResource()), preprocess_system_infos(record.GetMemoryResource())
-			, process_rw_id(record.GetMemoryResource()), process_system_infos(record.GetMemoryResource())
-		{}
-
-		virtual void AddTaskFlowRef() const override { DefaultIntrusiveInterface::AddRef(); }
-		virtual void SubTaskFlowRef() const override { DefaultIntrusiveInterface::SubRef(); }
-
-
-		void Release() override{ auto re = record; this->~SubContextTaskFlow(); re.Deallocate(); }
-
-		Potato::IR::MemoryResourceRecord record;
-		std::int32_t layout;
-		std::pmr::vector<RWUniqueTypeID> preprocess_rw_id;
-		struct SystemNodeInfo
-		{
-			ReadWriteMutexIndex read_write_mutex;
-			Priority priority;
-			OrderFunction order_func = nullptr;
-			SystemName name;
-		};
-		std::pmr::vector<SystemNodeInfo> preprocess_system_infos;
-
-		struct DeferInfo
-		{
-			SystemNode::Ptr ptr;
-			Potato::Task::TaskFilter filter;
-		};
-
-		std::pmr::vector<DeferInfo> defer_temporary_system_node;
-
-		struct ProcessSystemInfo
-		{
-			ReadWriteMutexIndex read_write_mutex;
-		};
-
-		std::size_t temporary_rw_id_offset = 0;
-		std::pmr::vector<RWUniqueTypeID> process_rw_id;
-		std::pmr::vector<ProcessSystemInfo> process_system_infos;
-
-		friend struct TaskFlow::Wrapper;
-		friend struct Context;
-		friend struct SystemNode;
-	};
-
-	
-	*/
 }

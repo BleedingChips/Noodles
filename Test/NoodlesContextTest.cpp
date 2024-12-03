@@ -62,7 +62,6 @@ struct TestSystem : public Noodles::SystemNode
 	void AddSystemNodeRef() const override {}
 	void SubSystemNodeRef() const override {}
 	void SystemNodeExecute(Noodles::ContextWrapper& context) override { PrintSystemProperty(context); }
-	virtual Noodles::SystemName GetDisplayName() const override { return {}; }
 };
 
 void TestFunction(Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple2>& fup, Noodles::AtomicSingletonFilter<Tuple2>& filter)
@@ -121,8 +120,8 @@ int main()
 	auto b4 = context.CreateAndAddTickedAutomaticSystem([&](Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple> filter)
 	{
 		PrintSystemProperty(context);
-		auto sys = context.CreateAutomaticSystem(Lambda, {u8"Temp", u8"Temp"});
-		context.AddTemporaryNodeDefer(*sys, {});
+		auto sys = context.CreateAutomaticSystem(Lambda);
+		context.AddTemporaryNodeDefer(sys,u8"Temp", {});
 
 		/*
 		std::size_t ite_index = 0;
@@ -167,10 +166,9 @@ int main()
 					[&](){
 						std::lock_guard lg(PrintMutex);
 						std::println("defer - {0}", index2);
-					},
-					{u8"temp"}
+					}
 				);
-				wrapper.AddTemporaryNodeDefer(*P, {});
+				wrapper.AddTemporaryNodeDefer(P, { u8"temp" });
 			}
 			index2 += 1;
 		}else if(info.status == Noodles::ParallelInfo::Status::Parallel)

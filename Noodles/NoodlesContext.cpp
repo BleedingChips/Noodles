@@ -33,33 +33,7 @@ namespace Noodles
 		SystemNodeExecute(exe_context);
 	}
 
-	static Potato::Format::StaticFormatPattern<u8"{}:{}"> system_static_format_pattern;
-
-	Potato::IR::Layout SystemName::GetSerializeLayout() const
-	{
-		Potato::Format::FormatWritter<char8_t> temp_writer;
-		auto re = system_static_format_pattern.Format(temp_writer, group, name);
-		assert(re);
-		return Potato::IR::Layout::GetArray<char8_t>(temp_writer.GetWritedSize());
-	}
-
-	void SystemName::SerializeTo(std::span<std::byte> output) const
-	{
-		Potato::Format::FormatWritter<char8_t> temp_writer{
-			std::span<char8_t>{reinterpret_cast<char8_t*>(output.data()), output.size()}
-		};
-		auto re = system_static_format_pattern.Format(temp_writer, group, name);
-		assert(re);
-	}
-	SystemName SystemName::ReMap(std::span<std::byte> input) const
-	{
-		return {
-			std::u8string_view{reinterpret_cast<char8_t*>(input.data() + sizeof(char8_t) * ( group.size() + 1)), name.size()},
-			std::u8string_view{reinterpret_cast<char8_t*>(input.data()), group.size()}
-		};
-	}
-
-	bool LayerTaskFlow::AddTickedNode(SystemNode::Ptr node, SystemNodeProperty property, std::pmr::memory_resource* temp_resource)
+	bool LayerTaskFlow::AddTickedNode(SystemNode::Ptr node, SystemName system_name, SystemNodeProperty property, std::pmr::memory_resource* temp_resource)
 	{
 		if(node)
 		{
@@ -81,9 +55,10 @@ namespace Noodles
 
 			Potato::Task::TaskFlowNodeProperty nproperty
 			{
-				node->GetDisplayName().name,
+				system_name.name,
 				property.filter
 			};
+
 			auto task_node = TaskFlow::AddNode_AssumedLocked(node.GetPointer(), nproperty, index);
 			assert(task_node);
 
@@ -113,7 +88,7 @@ namespace Noodles
 
 						if (num_order == std::strong_ordering::equal)
 						{
-							auto display_name = node->GetDisplayName();
+							auto display_name = system_name;
 							Order o1 = Order::UNDEFINE;
 							Order o2 = Order::UNDEFINE;
 							if (property.order_function != nullptr)
@@ -235,7 +210,7 @@ namespace Noodles
 
 			auto& ref = system_infos[index];
 
-			ref.name = node->GetDisplayName();
+			ref.name = system_name;
 			ref.node = std::move(node);
 			ref.order_func = property.order_function;
 			ref.priority = property.priority;
@@ -247,19 +222,19 @@ namespace Noodles
 		return false;
 	}
 
-	bool LayerTaskFlow::AddTemporaryNodeImmediately(SystemNode::Ptr node, Potato::Task::TaskFilter filter)
+	bool LayerTaskFlow::AddTemporaryNodeImmediately(SystemNode::Ptr node, std::u8string_view system_name, Potato::Task::TaskFilter filter)
 	{
 		std::lock_guard lg(process_mutex);
-		return AddTemporaryNodeImmediately_AssumedLocked(node, filter);
+		return AddTemporaryNodeImmediately_AssumedLocked(node, system_name, filter);
 	}
 
-	bool LayerTaskFlow::AddTemporaryNodeImmediately_AssumedLocked(SystemNode::Ptr node, Potato::Task::TaskFilter filter)
+	bool LayerTaskFlow::AddTemporaryNodeImmediately_AssumedLocked(SystemNode::Ptr node, std::u8string_view system_name, Potato::Task::TaskFilter filter)
 	{
 		if(finished_task >= process_nodes.size())
 			return false;
 
 		auto rw_mutex = node->GetMutex();
-		auto name = node->GetDisplayName();
+		auto name = system_name;
 
 		std::shared_lock sl(context_ptr->component_manager.GetMutex());
 		std::shared_lock s2(context_ptr->singleton_manager.GetMutex());
@@ -270,7 +245,7 @@ namespace Noodles
 
 		if(TaskFlow::AddTemporaryNode_AssumedLocked(
 			node.GetPointer(),
-			{name.name, filter},
+			{ system_name, filter},
 			[=, this](TaskFlowNode const& node, Potato::Task::TaskFlowNodeProperty property, TemporaryNodeIndex index)-> bool
 			{
 				auto& sys = static_cast<SystemNode const&>(node);
@@ -298,12 +273,12 @@ namespace Noodles
 		return false;
 	}
 
-	bool LayerTaskFlow::AddTemporaryNodeDefer(SystemNode::Ptr node, Potato::Task::TaskFilter filter)
+	bool LayerTaskFlow::AddTemporaryNodeDefer(SystemNode::Ptr node, std::u8string_view system_name, Potato::Task::TaskFilter filter)
 	{
 		std::lock_guard lg(process_mutex);
 		if (node)
 		{
-			defer_temporary_system_node.emplace_back(std::move(node), filter);
+			defer_temporary_system_node.emplace_back(std::move(node), system_name, filter);
 			return true;
 		}
 		return false;
@@ -350,7 +325,7 @@ namespace Noodles
 		auto updateed = TaskFlow::Update_AssumedLocked(resource);
 		for(auto& ite : defer_temporary_system_node)
 		{
-			auto re = AddTemporaryNodeImmediately_AssumedLocked(ite.ptr, ite.filter);
+			auto re = AddTemporaryNodeImmediately_AssumedLocked(ite.ptr, ite.system_name, ite.filter);
 			assert(re);
 		}
 		defer_temporary_system_node.clear();
@@ -472,7 +447,7 @@ namespace Noodles
 		return ptr;
 	}
 
-	bool Context::AddTickedSystemNode(SystemNode::Ptr node, SystemNodeProperty property)
+	bool Context::AddTickedSystemNode(SystemNode::Ptr node, SystemName system_name, SystemNodeProperty property)
 	{
 		if (node)
 		{
@@ -480,19 +455,19 @@ namespace Noodles
 			auto ptr = FindOrCreateContextTaskFlow_AssumedLocked(property.priority.layout);
 			if (ptr)
 			{
-				return ptr->AddTickedNode(std::move(node), property);
+				return ptr->AddTickedNode(std::move(node), system_name, property);
 			}
 		}
 		return false;
 	}
 
-	bool Context::AddTemporarySystemNodeDefer(SystemNode::Ptr node, std::int32_t layout, Potato::Task::TaskFilter filter)
+	bool Context::AddTemporarySystemNodeDefer(SystemNode::Ptr node, std::int32_t layout, std::u8string_view system_name, Potato::Task::TaskFilter filter)
 	{
 		std::lock_guard lg(preprocess_mutex);
 		auto ptr = FindOrCreateContextTaskFlow_AssumedLocked(layout);
 		if (ptr)
 		{
-			return ptr->AddTemporaryNodeDefer(std::move(node), filter);
+			return ptr->AddTemporaryNodeDefer(std::move(node), system_name, filter);
 		}
 		return false;
 	}
