@@ -47,10 +47,10 @@ int main()
 				Potato::IR::StaticAtomicStructLayout<E>::Create()
 	};
 
-	auto init_list2 = std::array<SingletonFilter::Info, 2>
+	auto init_list2 = std::array<StructLayoutWriteProperty, 2>
 	{
-		SingletonFilter::Info{true, Potato::IR::StaticAtomicStructLayout<A>::Create()},
-		SingletonFilter::Info{false, Potato::IR::StaticAtomicStructLayout<B>::Create()}
+		StructLayoutWriteProperty::Get<A>(),
+		StructLayoutWriteProperty::Get<B const>()
 	};
 
 	auto refuse_component = std::array<StructLayout::Ptr, 1>

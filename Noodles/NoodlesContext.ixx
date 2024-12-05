@@ -23,15 +23,6 @@ import NoodlesEntity;
 
 export namespace Noodles
 {
-	
-	template<typename Type>
-	concept IsFilterWriteType = std::is_same_v<Type, std::remove_cvref_t<Type>>;
-
-	template<typename Type>
-	concept IsFilterReadType = std::is_same_v<Type, std::add_const_t<std::remove_cvref_t<Type>>>;
-
-	template<typename Type>
-	concept AcceptableFilterType = IsFilterWriteType<Type> || IsFilterReadType<Type>;
 
 	struct Priority
 	{
@@ -67,9 +58,9 @@ export namespace Noodles
 
 		struct Mutex
 		{
-			WrittenMarkElementSpan component_mark;
-			WrittenMarkElementSpan singleton_mark;
-			WrittenMarkElementSpan thread_order_mark;
+			StructLayoutMarksInfosView component_mark;
+			StructLayoutMarksInfosView singleton_mark;
+			StructLayoutMarksInfosView thread_order_mark;
 		};
 
 		virtual Mutex GetMutex() const { return {}; };
@@ -193,12 +184,12 @@ export namespace Noodles
 
 	struct ThreadOrderFilter : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
-		WrittenMarkElementSpan GetStructLayoutMarks() const { return marks; };
+		StructLayoutMarksInfosView GetStructLayoutMarks() const { return marks; };
 		using Ptr = Potato::Pointer::IntrusivePtr<ThreadOrderFilter>;
 	protected:
-		ThreadOrderFilter(Potato::IR::MemoryResourceRecord record, WrittenMarkElementSpanWriteable marks)
+		ThreadOrderFilter(Potato::IR::MemoryResourceRecord record, StructLayoutMarksInfos marks)
 			: MemoryResourceRecordIntrusiveInterface(record), marks(marks) {}
-		WrittenMarkElementSpanWriteable marks;
+		StructLayoutMarksInfos marks;
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 		friend struct Context;
 	};
@@ -283,7 +274,7 @@ export namespace Noodles
 
 
 		decltype(auto) CreateComponentFilter(
-			std::span<ComponentFilter::Info const> require_struct_layout,
+			std::span<StructLayoutWriteProperty const> require_struct_layout,
 			std::span<StructLayout::Ptr const> refuse_struct_layout,
 			std::size_t identity
 			)
@@ -291,7 +282,7 @@ export namespace Noodles
 			return component_manager.CreateComponentFilter(require_struct_layout, refuse_struct_layout, identity);
 		}
 
-		decltype(auto) CreateSingletonFilter(std::span<ComponentFilter::Info const> require_struct_layout, std::size_t identity)
+		decltype(auto) CreateSingletonFilter(std::span<StructLayoutWriteProperty const> require_struct_layout, std::size_t identity)
 		{
 			return singleton_manager.CreateSingletonFilter(require_struct_layout, identity);
 		}
@@ -315,7 +306,7 @@ export namespace Noodles
 			return ms.count() / 1000.0f;
 		}
 		
-		ThreadOrderFilter::Ptr CreateThreadOrderFilter(std::span<ComponentFilter::Info const> info, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		ThreadOrderFilter::Ptr CreateThreadOrderFilter(std::span<StructLayoutWriteProperty const> info, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 	protected:
 
@@ -409,12 +400,10 @@ export namespace Noodles
 	struct AtomicComponentFilter
 	{
 		
-		static std::span<ComponentFilter::Info const> GetRequire()
+		static std::span<StructLayoutWriteProperty const> GetRequire()
 		{
-			static std::array<ComponentFilter::Info, sizeof...(ComponentT)> temp_buffer = {
-				{
-					IsFilterWriteType<ComponentT>, Potato::IR::StructLayout::GetStatic<ComponentT>()
-				}...
+			static std::array<StructLayoutWriteProperty, sizeof...(ComponentT)> temp_buffer = {
+				StructLayoutWriteProperty::GetComponent<ComponentT>()...
 			};
 			return std::span(temp_buffer);
 		}
@@ -522,12 +511,10 @@ export namespace Noodles
 	template<AcceptableFilterType ...ComponentT>
 	struct AtomicSingletonFilter
 	{
-		static std::span<ComponentFilter::Info const> GetRequire()
+		static std::span<StructLayoutWriteProperty const> GetRequire()
 		{
-			static std::array<ComponentFilter::Info, sizeof...(ComponentT)> temp_buffer = {
-				{
-					IsFilterWriteType<ComponentT>, Potato::IR::StructLayout::GetStatic<ComponentT>()
-				}...
+			static std::array<StructLayoutWriteProperty, sizeof...(ComponentT)> temp_buffer = {
+				StructLayoutWriteProperty::GetSingleton<ComponentT>()...
 			};
 			return std::span(temp_buffer);
 		}
@@ -565,10 +552,8 @@ export namespace Noodles
 	{
 		AtomicThreadOrder(Context& context, std::size_t identity)
 		{
-			static std::array<ComponentFilter::Info, sizeof...(ComponentT)> temp_buffer = {
-				ComponentFilter::Info{
-					IsFilterWriteType<ComponentT>, Potato::IR::StructLayout::GetStatic<ComponentT>()
-				}...
+			static std::array<StructLayoutWriteProperty, sizeof...(ComponentT)> temp_buffer = {
+				StructLayoutWriteProperty::Get<ComponentT>()...
 			};
 			filter = context.CreateThreadOrderFilter(temp_buffer);
 		}
@@ -713,7 +698,7 @@ export namespace Noodles
 				other_holders.Reset();
 			}
 
-			void FlushSystemNodeMutex(WrittenMarkElementSpanWriteable component, WrittenMarkElementSpanWriteable singleton, WrittenMarkElementSpanWriteable thread_order) const
+			void FlushSystemNodeMutex(StructLayoutMarksInfos component, StructLayoutMarksInfos singleton, StructLayoutMarksInfos thread_order) const
 			{
 				SystemNode::Mutex cur = cur_holder.GetSystemNodeMutex();
 				if (cur.component_mark)
@@ -749,7 +734,7 @@ export namespace Noodles
 			void Reset() {}
 			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const { return false; }
 			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const { return false; }
-			void FlushSystemNodeMutex(WrittenMarkElementSpanWriteable component, WrittenMarkElementSpanWriteable singleton, WrittenMarkElementSpanWriteable thread_order) const {}
+			void FlushSystemNodeMutex(StructLayoutMarksInfos component, StructLayoutMarksInfos singleton, StructLayoutMarksInfos thread_order) const {}
 		};
 
 		template<typename ...ParT>
@@ -801,15 +786,15 @@ export namespace Noodles
 			Func
 		> fun;
 
-		WrittenMarkElementSpanWriteable component;
-		WrittenMarkElementSpanWriteable singleton;
-		WrittenMarkElementSpanWriteable thread_core;
+		StructLayoutMarksInfos component;
+		StructLayoutMarksInfos singleton;
+		StructLayoutMarksInfos thread_core;
 
 		DynamicAutoSystemHolder(
 				Context& context, Func fun, Potato::IR::MemoryResourceRecord record,
-			WrittenMarkElementSpanWriteable component,
-			WrittenMarkElementSpanWriteable singleton,
-			WrittenMarkElementSpanWriteable thread_core
+			StructLayoutMarksInfos component,
+			StructLayoutMarksInfos singleton,
+			StructLayoutMarksInfos thread_core
 			)
 			: append_data(context, 0), fun(std::move(fun)), MemoryResourceRecordIntrusiveInterface(record), component(component), singleton(singleton), thread_core(thread_core)
 		{
@@ -863,21 +848,21 @@ export namespace Noodles
 		{
 			std::size_t ite_span_offset = span_offset;
 
-			WrittenMarkElementSpanWriteable component{
+			StructLayoutMarksInfos component{
 				{new (re.GetByte(ite_span_offset)) MarkElement[component_manager.GetComponentMarkElementStorageCount()], component_manager.GetComponentMarkElementStorageCount()},
 				{new (re.GetByte(ite_span_offset) + sizeof(MarkElement) * component_manager.GetComponentMarkElementStorageCount()) MarkElement[component_manager.GetComponentMarkElementStorageCount()], component_manager.GetComponentMarkElementStorageCount()},
 			};
 
 			ite_span_offset += (component_manager.GetComponentMarkElementStorageCount() * 2 * sizeof(MarkElement));
 
-			WrittenMarkElementSpanWriteable singleton{
+			StructLayoutMarksInfos singleton{
 				{new (re.GetByte(ite_span_offset)) MarkElement[singleton_manager.GetSingletonMarkElementStorageCount()], singleton_manager.GetSingletonMarkElementStorageCount()},
 				{new (re.GetByte(ite_span_offset) + sizeof(MarkElement) * singleton_manager.GetSingletonMarkElementStorageCount()) MarkElement[singleton_manager.GetSingletonMarkElementStorageCount()], singleton_manager.GetSingletonMarkElementStorageCount()},
 			};
 
 			ite_span_offset += (singleton_manager.GetSingletonMarkElementStorageCount() * 2 * sizeof(MarkElement));
 
-			WrittenMarkElementSpanWriteable thread_order{
+			StructLayoutMarksInfos thread_order{
 				{new (re.GetByte(ite_span_offset)) MarkElement[thread_order_manager.GetStorageCount()], thread_order_manager.GetStorageCount()},
 				{new (re.GetByte(ite_span_offset) + sizeof(MarkElement) * thread_order_manager.GetStorageCount()) MarkElement[thread_order_manager.GetStorageCount()], thread_order_manager.GetStorageCount()},
 			};

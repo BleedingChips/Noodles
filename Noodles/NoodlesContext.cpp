@@ -509,7 +509,7 @@ namespace Noodles
 		TaskFlow::Commited(context.context, require_time, context.node_property);
 	}
 
-	ThreadOrderFilter::Ptr Context::CreateThreadOrderFilter(std::span<ComponentFilter::Info const> info, std::pmr::memory_resource* resource)
+	ThreadOrderFilter::Ptr Context::CreateThreadOrderFilter(std::span<StructLayoutWriteProperty const> info, std::pmr::memory_resource* resource)
 	{
 		auto layout = Potato::MemLayout::MemLayoutCPP::Get<ThreadOrderFilter>();
 		auto offset = layout.Insert(Potato::MemLayout::Layout::Get<MarkElement>(), thread_order_manager.GetStorageCount() * 2);

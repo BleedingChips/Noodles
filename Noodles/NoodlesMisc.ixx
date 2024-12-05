@@ -39,13 +39,13 @@ export namespace Noodles
 		static std::size_t GetMaxMarkIndexCount(std::size_t mark_index_count);
 	};
 
-	struct WrittenMarkElementSpan
+	struct StructLayoutMarksInfosView
 	{
 		std::span<MarkElement const> write_marks;
 		std::span<MarkElement const> total_marks;
 		operator bool() const { return !write_marks.empty(); }
 
-		bool WriteConfig(WrittenMarkElementSpan const& other) const
+		bool WriteConfig(StructLayoutMarksInfosView const& other) const
 		{
 			return MarkElement::IsOverlapping(
 				write_marks, other.total_marks
@@ -54,7 +54,7 @@ export namespace Noodles
 			);
 		}
 
-		bool WriteConfigWithMask(WrittenMarkElementSpan const& other, std::span<MarkElement const> mask) const
+		bool WriteConfigWithMask(StructLayoutMarksInfosView const& other, std::span<MarkElement const> mask) const
 		{
 			return MarkElement::IsOverlappingWithMask(
 				write_marks, other.total_marks, mask
@@ -64,15 +64,69 @@ export namespace Noodles
 		}
 	};
 
-	struct WrittenMarkElementSpanWriteable
+	struct StructLayoutMarksInfos
 	{
 		std::span<MarkElement> write_marks;
 		std::span<MarkElement> total_marks;
-		operator WrittenMarkElementSpan() const { return { write_marks, total_marks }; }
-		void MarkFrom(WrittenMarkElementSpan target);
+		operator StructLayoutMarksInfosView() const { return { write_marks, total_marks }; }
+		void MarkFrom(StructLayoutMarksInfosView target);
 		operator bool() const { return !write_marks.empty(); }
 	};
-	
+
+	template<typename Type>
+	concept HasRemoveComponentWriteProperty = requires(Type type)
+	{
+		{ Type::RemoveComponentWriteProperty }->std::same_as<std::true_type>;
+	};
+
+	template<typename Type>
+	concept HasRemoveSingletonWriteProperty = requires(Type type)
+	{
+		{ Type::RemoveSingletonWriteProperty }->std::same_as<std::true_type>;
+	};
+
+	template<typename Type>
+	concept IsFilterWriteType = std::is_same_v<Type, std::remove_cvref_t<Type>>;
+
+	template<typename Type>
+	concept IsFilterReadType = std::is_same_v<Type, std::add_const_t<std::remove_cvref_t<Type>>>;
+
+	template<typename Type>
+	concept AcceptableFilterType = IsFilterWriteType<Type> || IsFilterReadType<Type>;
+
+	struct StructLayoutWriteProperty
+	{
+		bool need_write = false;
+		StructLayout::Ptr struct_layout;
+		template<AcceptableFilterType Type>
+		static StructLayoutWriteProperty GetComponent()
+		{
+			if constexpr (HasRemoveComponentWriteProperty<Type>)
+			{
+				return {false, StructLayout::GetStatic<Type>()};
+			}else
+			{
+				return { IsFilterWriteType<Type>,StructLayout::GetStatic<Type>() };
+			}
+		}
+		template<AcceptableFilterType Type>
+		static StructLayoutWriteProperty GetSingleton()
+		{
+			if constexpr (HasRemoveSingletonWriteProperty<Type>)
+			{
+				return { false, StructLayout::GetStatic<Type>() };
+			}
+			else
+			{
+				return { IsFilterWriteType<Type>,StructLayout::GetStatic<Type>() };
+			}
+		}
+		template<AcceptableFilterType Type>
+		static StructLayoutWriteProperty Get()
+		{
+			return { IsFilterWriteType<Type>,StructLayout::GetStatic<Type>() };
+		}
+	};
 
 	struct StructLayoutMarkIndexManager
 	{

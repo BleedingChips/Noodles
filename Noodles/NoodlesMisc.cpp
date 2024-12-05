@@ -149,7 +149,7 @@ namespace Noodles
 		return true;
 	}
 
-	void WrittenMarkElementSpanWriteable::MarkFrom(WrittenMarkElementSpan target)
+	void StructLayoutMarksInfos::MarkFrom(StructLayoutMarksInfosView target)
 	{
 		MarkElement::MarkTo(target.total_marks, total_marks);
 		MarkElement::MarkTo(target.write_marks, write_marks);

@@ -42,10 +42,10 @@ int main()
 	ComponentManager component_manager;
 	EntityManager entity_manager;
 
-	auto init_list2 = std::array<ComponentFilter::Info, 2>
+	auto init_list2 = std::array<StructLayoutWriteProperty, 2>
 	{
-		ComponentFilter::Info{true, Potato::IR::StaticAtomicStructLayout<A>::Create()},
-		ComponentFilter::Info{false, Potato::IR::StaticAtomicStructLayout<B>::Create()}
+		StructLayoutWriteProperty::Get<A>(),
+		StructLayoutWriteProperty::Get<B const>()
 	};
 
 	auto refuse_component = std::array<StructLayout::Ptr, 1>

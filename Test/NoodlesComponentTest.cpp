@@ -51,10 +51,10 @@ int main()
 		Archetype::Init{Potato::IR::StaticAtomicStructLayout<E>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<E>())},
 	};
 
-	auto init_list2 = std::array<ComponentFilter::Info, 2>
+	auto init_list2 = std::array<StructLayoutWriteProperty, 2>
 	{
-		ComponentFilter::Info{true, Potato::IR::StaticAtomicStructLayout<A>::Create()},
-		ComponentFilter::Info{false, Potato::IR::StaticAtomicStructLayout<B>::Create()}
+		StructLayoutWriteProperty::Get<A>(),
+		StructLayoutWriteProperty::Get<A const>()
 	};
 
 	auto refuse_component = std::array<StructLayout::Ptr, 1>
@@ -73,7 +73,7 @@ int main()
 		
 		
 
-		auto filter = ComponentFilter::Create(manager, init_list2, refuse_component);
+		auto filter = ComponentFilter::Create(manager, 2, init_list2, refuse_component);
 
 		filter->OnCreatedArchetype(0, *archetype);
 

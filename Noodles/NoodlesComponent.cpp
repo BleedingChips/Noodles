@@ -123,7 +123,7 @@ namespace Noodles
 	ComponentFilter::Ptr ComponentFilter::Create(
 		StructLayoutMarkIndexManager& manager,
 		std::size_t archetype_storage_count,
-		std::span<Info const> require_component_type,
+		std::span<StructLayoutWriteProperty const> require_component_type,
 		std::span<StructLayout::Ptr const> refuse_component_type,
 		std::pmr::memory_resource* storage_resource,
 		std::pmr::memory_resource* archetype_info_resource
@@ -383,7 +383,7 @@ namespace Noodles
 	}
 
 	ComponentFilter::Ptr ComponentManager::CreateComponentFilter(
-		std::span<ComponentFilter::Info const> require_component,
+		std::span<StructLayoutWriteProperty const> require_component,
 		std::span<StructLayout::Ptr const> refuse_component,
 		std::size_t identity,
 		std::pmr::memory_resource* filter_resource,

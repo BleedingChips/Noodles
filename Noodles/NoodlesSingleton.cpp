@@ -42,7 +42,7 @@ namespace Noodles
 
 	SingletonFilter::Ptr SingletonFilter::Create(
 		StructLayoutMarkIndexManager& manager,
-		std::span<Info const> require_singleton,
+		std::span<StructLayoutWriteProperty const> require_singleton,
 		std::pmr::memory_resource* storage_resource
 	)
 	{
@@ -155,7 +155,7 @@ namespace Noodles
 		ClearCurrentSingleton_AssumedLocked();
 	}
 
-	SingletonFilter::Ptr SingletonManager::CreateSingletonFilter(std::span<SingletonFilter::Info const> require_atomic, std::size_t identity, std::pmr::memory_resource* filter_resource)
+	SingletonFilter::Ptr SingletonManager::CreateSingletonFilter(std::span<StructLayoutWriteProperty const> require_atomic, std::size_t identity, std::pmr::memory_resource* filter_resource)
 	{
 		auto ptr = SingletonFilter::Create(
 			manager,

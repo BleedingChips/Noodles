@@ -92,7 +92,7 @@ export namespace Noodles
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<ComponentFilter>;
 
-		WrittenMarkElementSpan GetRequiredStructLayoutMarks() const
+		StructLayoutMarksInfosView GetRequiredStructLayoutMarks() const
 		{
 			return {require_write_component, require_component};
 		}
@@ -101,16 +101,10 @@ export namespace Noodles
 		std::span<MarkElement const> GetArchetypeMarkArray() const { return archetype_usable; }
 		std::span<MarkIndex const> GetMarkIndex() const { return mark_index; }
 
-		struct Info
-		{
-			bool need_write = false;
-			StructLayout::Ptr struct_layout;
-		};
-
 		static ComponentFilter::Ptr Create(
 			StructLayoutMarkIndexManager& manager,
 			std::size_t archetype_storage_count,
-			std::span<Info const> require_component_type,
+			std::span<StructLayoutWriteProperty const> require_component_type,
 			std::span<StructLayout::Ptr const> refuse_component_type,
 			std::pmr::memory_resource* storage_resource = std::pmr::get_default_resource(),
 			std::pmr::memory_resource* archetype_info_resource = std::pmr::get_default_resource()
@@ -168,7 +162,7 @@ export namespace Noodles
 		};
 
 		ComponentFilter::Ptr CreateComponentFilter(
-			std::span<ComponentFilter::Info const> require_component,
+			std::span<StructLayoutWriteProperty const> require_component,
 			std::span<StructLayout::Ptr const> refuse_component,
 			std::size_t identity,
 			std::pmr::memory_resource* filter_resource = std::pmr::get_default_resource(),

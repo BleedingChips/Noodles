@@ -47,10 +47,10 @@ export namespace Noodles
 
 	struct SingletonFilter : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
-		using Info = ComponentFilter::Info;
+
 		using Ptr = Potato::Pointer::IntrusivePtr<SingletonFilter>;
 
-		WrittenMarkElementSpan GetRequiredStructLayoutMarks() const
+		StructLayoutMarksInfosView GetRequiredStructLayoutMarks() const
 		{
 			return { require_write_singleton, require_singleton };
 		}
@@ -62,7 +62,7 @@ export namespace Noodles
 
 		static SingletonFilter::Ptr Create(
 			StructLayoutMarkIndexManager& manager,
-			std::span<Info const> require_singleton,
+			std::span<StructLayoutWriteProperty const> require_singleton,
 			std::pmr::memory_resource* storage_resource = std::pmr::get_default_resource()
 		);
 
@@ -108,7 +108,7 @@ export namespace Noodles
 		SingletonManager(Config config = {});
 		~SingletonManager();
 
-		SingletonFilter::Ptr CreateSingletonFilter(std::span<SingletonFilter::Info const> input, std::size_t identity, std::pmr::memory_resource* filter_resource = std::pmr::get_default_resource());
+		SingletonFilter::Ptr CreateSingletonFilter(std::span<StructLayoutWriteProperty const> input, std::size_t identity, std::pmr::memory_resource* filter_resource = std::pmr::get_default_resource());
 
 		SingletonWrapper ReadSingleton_AssumedLocked(SingletonFilter const& filter, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
 		bool AddSingleton(StructLayout::Ptr struct_layout, void* target_buffer, EntityManager::Operation operation, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
