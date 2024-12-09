@@ -85,6 +85,7 @@ namespace Noodles
 					if (thread_order_overlapping || component_overlapping || singleton_overlapping)
 					{
 						auto num_order = property.priority <=> ite.priority;
+						bool need_worth_test = (num_order == std::strong_ordering::equal);
 
 						if (num_order == std::strong_ordering::equal)
 						{
@@ -149,7 +150,7 @@ namespace Noodles
 						}
 						else if (num_order == std::strong_ordering::greater)
 						{
-							if (!worst_graph.AddEdge(worst_node, ite.worst_graph_node, { false }, temp_resource))
+							if (need_worth_test && !worst_graph.AddEdge(worst_node, ite.worst_graph_node, { false }, temp_resource))
 							{
 								accept = false;
 								break;
@@ -174,7 +175,7 @@ namespace Noodles
 						}
 						else if (num_order == std::strong_ordering::less)
 						{
-							if (!worst_graph.AddEdge(ite.worst_graph_node, worst_node, { false }, temp_resource))
+							if (need_worth_test && !worst_graph.AddEdge(ite.worst_graph_node, worst_node, { false }, temp_resource))
 							{
 								accept = false;
 								break;
