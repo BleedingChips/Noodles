@@ -29,6 +29,7 @@ export namespace Noodles
 		std::int32_t layout = 0;
 		std::int32_t primary = 0;
 		std::int32_t second = 0;
+		std::int32_t third = 0;
 		std::strong_ordering operator<=>(Priority const&) const = default;
 		bool operator==(const Priority&) const = default;
 	};

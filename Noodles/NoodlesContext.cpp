@@ -148,7 +148,7 @@ namespace Noodles
 								);
 							}
 						}
-						else if (num_order == std::strong_ordering::greater)
+						else if (num_order == std::strong_ordering::less)
 						{
 							if (need_worth_test && !worst_graph.AddEdge(worst_node, ite.worst_graph_node, { false }, temp_resource))
 							{
@@ -173,7 +173,7 @@ namespace Noodles
 								}
 							}
 						}
-						else if (num_order == std::strong_ordering::less)
+						else if (num_order == std::strong_ordering::greater)
 						{
 							if (need_worth_test && !worst_graph.AddEdge(ite.worst_graph_node, worst_node, { false }, temp_resource))
 							{
@@ -428,7 +428,7 @@ namespace Noodles
 					auto tar = static_cast<LayerTaskFlow*>(ite.node.GetPointer());
 					if (tar != ptr)
 					{
-						if (tar->layout > layer)
+						if (tar->layout < layer)
 						{
 							auto re = AddDirectEdge_AssumedLocked(ite.self, cur_node);
 							assert(re);
