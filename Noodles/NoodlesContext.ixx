@@ -216,7 +216,7 @@ export namespace Noodles
 			auto ent = CreateEntity();
 			if (ent)
 			{
-				if (this->AddEntityComponent(*ent, std::forward<Type>(type)...))
+				if (this->AddEntityComponent(ent, std::forward<CurType>(ctype), std::forward<Type>(type)...))
 				{
 					return ent;
 				}
@@ -236,7 +236,7 @@ export namespace Noodles
 		{
 			if (this->AddEntityComponent(entity, std::forward<Type>(c_type)))
 			{
-				return this->AddEntityComponent(entity, std::forward<OtherType>(other)...);
+				return this->AddEntityComponent(std::move(entity), std::forward<OtherType>(other)...);
 			}
 			return false;
 		}
@@ -438,8 +438,10 @@ export namespace Noodles
 			return wrapper.AsSpan<Type>(index);
 		}
 
-		std::optional<ComponentRowWrapper> IterateComponent_AssumedLocked(Context& context, std::size_t ite_index, std::span<std::size_t> output) const { return context.IterateComponent_AssumedLocked(*filter, ite_index); }
-		std::optional<ComponentRowWrapper> ReadEntity_AssumedLocked(Context& context, Entity const& entity, std::span<std::size_t> output) const { { return context.ReadEntity_AssumedLocked(entity, *filter); } }
+		std::optional<ComponentRowWrapper> IterateComponent_AssumedLocked(Context& context, std::size_t ite_index) const { return context.IterateComponent_AssumedLocked(*filter, ite_index); }
+		std::optional<ComponentRowWrapper> IterateComponent_AssumedLocked(ContextWrapper& context_wrapper, std::size_t ite_index) const { return IterateComponent_AssumedLocked(context_wrapper.GetContext(), ite_index); }
+		std::optional<ComponentRowWrapper> ReadEntity_AssumedLocked(Context& context, Entity const& entity) const { return context.ReadEntity_AssumedLocked(entity, *filter); }
+		std::optional<ComponentRowWrapper> ReadEntity_AssumedLocked(ContextWrapper& context_wrapper, Entity const& entity) const { return ReadEntity_AssumedLocked(context_wrapper.GetContext(), entity); }
 		//decltype(auto) ReadEntityDirect_AssumedLocked(Context& context, Entity const& entity, std::span<void*> output, bool prefer_modifier = true) const { return context.ReadEntityDirect_AssumedLocked(entity, *filter, output, prefer_modifier); };
 
 		template<AcceptableFilterType ...RefuseComponent>
@@ -529,8 +531,28 @@ export namespace Noodles
 			assert(filter);
 		}
 
-		decltype(auto) Get(Context& context) const { return context.ReadSingleton_AssumedLocked(*filter); }
-		decltype(auto) Get(ContextWrapper& wrapper) const { return Get(wrapper.GetContext()); }
+		decltype(auto) GetWrapper(Context& context) const { return context.ReadSingleton_AssumedLocked(*filter); }
+		decltype(auto) GetWrapper(ContextWrapper& context_wrapper) const { return GetWrapper(context_wrapper.GetContext()); }
+
+		template<std::size_t index> static auto Get(SingletonWrapper wrapper)
+		{
+			using Type = typename Potato::TMP::FindByIndex<index, ComponentT...>::Type;
+			if(!wrapper.buffers.empty())
+			{
+				return reinterpret_cast<Type*>(wrapper.buffers[index]);
+			}
+			return static_cast<Type*>(nullptr);
+		}
+
+		template<typename Type> static Type* Get(SingletonWrapper wrapper) requires(Potato::TMP::IsOneOfV<Type, ComponentT...>)
+		{
+			constexpr std::size_t index = Potato::TMP::LocateByType<Type, ComponentT...>::Value;
+			if (!wrapper.buffers.empty())
+			{
+				return reinterpret_cast<Type*>(wrapper.buffers[index]);
+			}
+			return nullptr;
+		}
 
 		SystemNode::Mutex GetSystemNodeMutex() const
 		{

@@ -82,7 +82,7 @@ export namespace Noodles
 		std::size_t array_size;
 		operator bool() const { return archetype; }
 		template<typename Type>
-		std::span<Type> AsSpan(std::size_t index){ return std::span{
+		std::span<Type> AsSpan(std::size_t index) const { return std::span{
 			static_cast<Type*>(component_row_buffers[index]),
 			array_size
 		};}
