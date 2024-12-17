@@ -72,12 +72,12 @@ int main()
 
 	auto re1 = entity_manager.AddEntityComponent(
 		component_manager,
-		entity, A{10086}
+		*entity, A{10086}
 	);
 
 	auto re2 = entity_manager.AddEntityComponent(
 		component_manager,
-		entity, B{ 10076 }
+		*entity, B{ 10076 }
 	);
 
 	entity_manager.Flush(component_manager);
@@ -86,17 +86,17 @@ int main()
 
 	entity_manager.RemoveEntityComponent(
 		component_manager,
-		entity, StructLayout::GetStatic<B>()
+		*entity, *StructLayout::GetStatic<B>()
 	);
 
 	auto re3 = entity_manager.AddEntityComponent(
 		component_manager,
-		entity, C{ 10086 }
+		*entity, C{ 10086 }
 	);
 
 	auto re4 = entity_manager.AddEntityComponent(
 		component_manager,
-		entity, D{ 10076 }
+		*entity, D{ 10076 }
 	);
 
 	entity_manager.Flush(component_manager);

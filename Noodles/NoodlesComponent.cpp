@@ -147,7 +147,7 @@ namespace Noodles
 
 			for(auto& Ite : require_component_type)
 			{
-				auto loc = manager.LocateOrAdd(Ite.struct_layout);
+				auto loc = manager.LocateOrAdd(*Ite.struct_layout);
 				if(loc.has_value())
 				{
 					MarkElement::Mark(require_mask, *loc);
@@ -167,7 +167,7 @@ namespace Noodles
 
 			for(auto& Ite : refuse_component_type)
 			{
-				auto loc = manager.LocateOrAdd(Ite);
+				auto loc = manager.LocateOrAdd(*Ite);
 				if (loc.has_value())
 				{
 					MarkElement::Mark(refuse_mask, *loc);

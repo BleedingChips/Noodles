@@ -44,11 +44,11 @@ int main()
 
 
 	auto init_list = std::array{
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<A>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<B>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<C>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<D>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<D>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<E>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<E>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<A>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<B>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<C>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<D>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<D>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<E>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<E>())},
 	};
 
 	auto init_list2 = std::array<StructLayoutWriteProperty, 2>
@@ -96,10 +96,10 @@ int main()
 			);
 
 			ComponentManager::ArchetypeBuilderRef buildref{manager};
-			buildref.Insert(StructLayout::GetStatic<A>(), *manager.LocateStructLayout(StructLayout::GetStatic<A>()));
-			buildref.Insert(StructLayout::GetStatic<B>(), *manager.LocateStructLayout(StructLayout::GetStatic<B>()));
-			buildref.Insert(StructLayout::GetStatic<C>(), *manager.LocateStructLayout(StructLayout::GetStatic<C>()));
-			buildref.Insert(StructLayout::GetStatic<D>(), *manager.LocateStructLayout(StructLayout::GetStatic<D>()));
+			buildref.Insert(StructLayout::GetStatic<A>(), *manager.LocateStructLayout(*StructLayout::GetStatic<A>()));
+			buildref.Insert(StructLayout::GetStatic<B>(), *manager.LocateStructLayout(*StructLayout::GetStatic<B>()));
+			buildref.Insert(StructLayout::GetStatic<C>(), *manager.LocateStructLayout(*StructLayout::GetStatic<C>()));
+			buildref.Insert(StructLayout::GetStatic<D>(), *manager.LocateStructLayout(*StructLayout::GetStatic<D>()));
 
 			auto [aptr, index] = manager.FindOrCreateArchetype(buildref);
 

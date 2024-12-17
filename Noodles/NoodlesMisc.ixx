@@ -130,7 +130,7 @@ export namespace Noodles
 
 	struct StructLayoutMarkIndexManager
 	{
-		std::optional<MarkIndex> LocateOrAdd(StructLayout::Ptr const& type);
+		std::optional<MarkIndex> LocateOrAdd(StructLayout const& type);
 		StructLayoutMarkIndexManager(std::size_t struct_layout_max_count = 128, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 			: storage_count(MarkElement::GetMarkElementStorageCalculate(struct_layout_max_count)),
 			max_count(MarkElement::GetMaxMarkIndexCount(struct_layout_max_count)),
@@ -140,7 +140,7 @@ export namespace Noodles
 		std::size_t GetStorageCount() const { return storage_count; }
 		std::size_t GetMaxStructLayoutCount() const { return max_count; }
 	protected:
-		std::optional<MarkIndex> Locate_AssumedLocked(StructLayout::Ptr const& type) const;
+		std::optional<MarkIndex> Locate_AssumedLocked(StructLayout const& type) const;
 		std::size_t const storage_count = 0;
 		std::size_t const max_count = 0;
 		std::shared_mutex mutex;

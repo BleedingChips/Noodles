@@ -101,7 +101,7 @@ namespace Noodles
 				ent
 			};
 
-			auto re = AddEntityComponentImp(manager, ent, StructLayout::GetStatic<EntityProperty>(), &entity_property, true, Operation::Move, temp_resource);
+			auto re = AddEntityComponentImp(manager, *ent, *StructLayout::GetStatic<EntityProperty>(), &entity_property, true, Operation::Move, temp_resource);
 			assert(re);
 			return ent;
 		}
@@ -110,7 +110,7 @@ namespace Noodles
 
 	bool EntityManager::Init(ComponentManager& manager)
 	{
-		auto re = manager.LocateStructLayout(StructLayout::GetStatic<EntityProperty>());
+		auto re = manager.LocateStructLayout(*StructLayout::GetStatic<EntityProperty>());
 		if(re && re->index == 0)
 		{
 			return true;
@@ -133,32 +133,31 @@ namespace Noodles
 		return false;
 	}
 
-	bool EntityManager::AddEntityComponentImp(ComponentManager& manager, Entity::Ptr target_entity, StructLayout::Ptr atomic_type, void* reference_buffer, bool accept_build_in, Operation operation, std::pmr::memory_resource* resource)
+	bool EntityManager::AddEntityComponentImp(ComponentManager& manager, Entity& target_entity, StructLayout const& atomic_type, void* reference_buffer, bool accept_build_in, Operation operation, std::pmr::memory_resource* resource)
 	{
-		assert(target_entity && atomic_type);
-		auto ope = atomic_type->GetOperateProperty();
+		auto ope = atomic_type.GetOperateProperty();
 		if (!ope.move_construct && !ope.copy_construct)
 			return false;
 		auto loc = manager.LocateStructLayout(atomic_type);
 		if (loc.has_value() && (accept_build_in || *loc != GetEntityPropertyAtomicTypeID()))
 		{
-			std::lock_guard lg(target_entity->mutex);
-			if (target_entity->state == Entity::State::Normal || target_entity->state == Entity::State::PreInit)
+			std::lock_guard lg(target_entity.mutex);
+			if (target_entity.state == Entity::State::Normal || target_entity.state == Entity::State::PreInit)
 			{
-				auto re = MarkElement::Mark(target_entity->modify_component_mask, *loc);
+				auto re = MarkElement::Mark(target_entity.modify_component_mask, *loc);
 				if (!re)
 				{
-					auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, atomic_type->GetLayout());
+					auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, atomic_type.GetLayout());
 					if (record)
 					{
 						if (operation == Operation::Copy)
 						{
-							auto re = atomic_type->CopyConstruction(record.Get(), reference_buffer);
+							auto re = atomic_type.CopyConstruction(record.Get(), reference_buffer);
 							assert(re);
 						}
 						else
 						{
-							auto re = atomic_type->MoveConstruction(record.Get(), reference_buffer);
+							auto re = atomic_type.MoveConstruction(record.Get(), reference_buffer);
 							assert(re);
 						}
 
@@ -166,20 +165,20 @@ namespace Noodles
 
 						decltype(entity_modifier_event)::iterator insert_ite = entity_modifier_event.end();
 
-						if (!target_entity->modify_index)
+						if (!target_entity.modify_index)
 						{
-							target_entity->modify_index = entity_modifier.size();
+							target_entity.modify_index = entity_modifier.size();
 							entity_modifier.emplace_back(
 								false,
 								Potato::Misc::IndexSpan<>{
 								entity_modifier_event.size(),
 									entity_modifier_event.size() + 1
 								},
-								target_entity
+								&target_entity
 							);
 						}else
 						{
-							auto& ref = entity_modifier[target_entity->modify_index];
+							auto& ref = entity_modifier[target_entity.modify_index];
 							insert_ite = ref.infos.End() + entity_modifier_event.begin();
 							ref.infos.BackwardEnd(1);
 						}
@@ -189,12 +188,12 @@ namespace Noodles
 							EntityModifierEvent{
 								true,
 								*loc,
-								atomic_type,
+								&atomic_type,
 								record
 							}
 						);
 
-						for (auto i = target_entity->modify_index.Get() + 1; i < entity_modifier.size(); ++i)
+						for (auto i = target_entity.modify_index.Get() + 1; i < entity_modifier.size(); ++i)
 						{
 							entity_modifier[i].infos.WholeOffset(1);
 						}
@@ -242,39 +241,38 @@ namespace Noodles
 		return false;
 	}
 
-	bool EntityManager::RemoveEntityComponentImp(ComponentManager& manager, Entity::Ptr target_entity, StructLayout::Ptr atomic_type, bool accept_build_in)
+	bool EntityManager::RemoveEntityComponentImp(ComponentManager& manager, Entity& target_entity, StructLayout const& atomic_type, bool accept_build_in)
 	{
-		assert(target_entity && atomic_type);
 		auto loc = manager.LocateStructLayout(atomic_type);
 		if (loc.has_value() && (accept_build_in || *loc != GetEntityPropertyAtomicTypeID()))
 		{
-			std::lock_guard lg(target_entity->mutex);
-			if (target_entity->state == Entity::State::Normal || target_entity->state == Entity::State::PreInit)
+			std::lock_guard lg(target_entity.mutex);
+			if (target_entity.state == Entity::State::Normal || target_entity.state == Entity::State::PreInit)
 			{
 
-				auto re = MarkElement::Mark(target_entity->modify_component_mask, *loc, false);
+				auto re = MarkElement::Mark(target_entity.modify_component_mask, *loc, false);
 				if(re)
 				{
 					Potato::Misc::IndexSpan<> event_span;
 
 					std::lock_guard lg(entity_mutex);
 
-					if (!target_entity->modify_index)
+					if (!target_entity.modify_index)
 					{
-						target_entity->modify_index = entity_modifier.size();
+						target_entity.modify_index = entity_modifier.size();
 						entity_modifier.emplace_back(
 							false,
 							Potato::Misc::IndexSpan<>{
 							entity_modifier_event.size(),
 								entity_modifier_event.size()
 						},
-							std::move(target_entity)
+							&target_entity
 						);
 						event_span = { entity_modifier_event.size(), entity_modifier_event.size() };
 					}
 					else
 					{
-						event_span = entity_modifier[target_entity->modify_index].infos;
+						event_span = entity_modifier[target_entity.modify_index].infos;
 					}
 					auto span = event_span.Slice(std::span(entity_modifier_event));
 					for(auto& ite : span)

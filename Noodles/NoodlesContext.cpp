@@ -529,7 +529,7 @@ namespace Noodles
 
 			for (auto& ite : info)
 			{
-				auto loc = thread_order_manager.LocateOrAdd(ite.struct_layout);
+				auto loc = thread_order_manager.LocateOrAdd(*ite.struct_layout);
 				if (!loc)
 				{
 					re.Deallocate();

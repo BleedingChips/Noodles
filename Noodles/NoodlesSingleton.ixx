@@ -111,14 +111,14 @@ export namespace Noodles
 		SingletonFilter::Ptr CreateSingletonFilter(std::span<StructLayoutWriteProperty const> input, std::size_t identity, std::pmr::memory_resource* filter_resource = std::pmr::get_default_resource());
 
 		SingletonWrapper ReadSingleton_AssumedLocked(SingletonFilter const& filter, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
-		bool AddSingleton(StructLayout::Ptr struct_layout, void* target_buffer, EntityManager::Operation operation, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
+		bool AddSingleton(StructLayout const& struct_layout, void* target_buffer, EntityManager::Operation operation, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 		template<typename SingletonType>
 		bool AddSingleton(SingletonType&& type, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource())
 		{
-			return this->AddSingleton(StructLayout::GetStatic<SingletonType>(), &type, std::is_rvalue_reference_v<SingletonType&&> ? EntityManager::Operation::Move : EntityManager::Operation::Copy, temp_resource);
+			return this->AddSingleton(*StructLayout::GetStatic<SingletonType>(), &type, std::is_rvalue_reference_v<SingletonType&&> ? EntityManager::Operation::Move : EntityManager::Operation::Copy, temp_resource);
 		}
 
-		bool RemoveSingleton(StructLayout::Ptr const& atomic_type);
+		bool RemoveSingleton(StructLayout const& atomic_type);
 		bool Flush(std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 		SingletonView GetSingletonView_AssumedLocked() const
 		{

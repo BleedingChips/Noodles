@@ -64,9 +64,9 @@ struct TestSystem : public Noodles::SystemNode
 	void SystemNodeExecute(Noodles::ContextWrapper& context) override { PrintSystemProperty(context); }
 };
 
-void TestFunction(Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple2>& fup, Noodles::AtomicSingletonFilter<Tuple2>& filter)
+void TestFunction(Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple2> fup, Noodles::AtomicSingletonFilter<Tuple2> filter)
 {
-	auto P = filter.Get(context);
+	auto P = filter.GetWrapper(context);
 	PrintSystemProperty(context);
 }
 
@@ -84,13 +84,13 @@ int main()
 	TestSystem systm;
 
 	auto ent = context.CreateEntity();
-	context.AddEntityComponent(ent, Tuple{10086});
-	context.AddEntityComponent(ent, Tuple2{ u8"" });
+	context.AddEntityComponent(*ent, Tuple{10086});
+	context.AddEntityComponent(*ent, Tuple2{ u8"" });
 
 	for(std::size_t o = 0; o < 100; ++o)
 	{
 		auto ent2 = context.CreateEntity();
-		context.AddEntityComponent(ent2, Tuple{o});
+		context.AddEntityComponent(*ent2, Tuple{o});
 	}
 
 	auto Lambda = [](Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple2> filter)

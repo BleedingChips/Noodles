@@ -229,14 +229,19 @@ export namespace Noodles
 		}
 
 		template<typename Type>
-		bool AddEntityComponent(Entity::Ptr entity, Type&& type) { return entity_manager.AddEntityComponent(component_manager, std::move(entity), std::forward<Type>(type)); }
+		bool AddEntityComponent(Entity& entity, Type&& type) { return entity_manager.AddEntityComponent(component_manager, entity, std::forward<Type>(type)); }
 
 		template<typename Type, typename ...OtherType>
-		bool AddEntityComponent(Entity::Ptr entity, Type&& c_type, OtherType&& ...other)
+		bool AddEntityComponent(Entity& entity, Type&& c_type, OtherType&& ...other)
 		{
 			if (this->AddEntityComponent(entity, std::forward<Type>(c_type)))
 			{
-				return this->AddEntityComponent(std::move(entity), std::forward<OtherType>(other)...);
+				if (!this->AddEntityComponent(std::move(entity), std::forward<OtherType>(other)...))
+				{
+					entity_manager.RemoveEntityComponent<Type>(component_manager, entity);
+					return false;
+				}
+				return true;
 			}
 			return false;
 		}

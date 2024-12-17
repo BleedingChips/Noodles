@@ -155,30 +155,25 @@ namespace Noodles
 		MarkElement::MarkTo(target.write_marks, write_marks);
 	}
 
-	std::optional<MarkIndex> StructLayoutMarkIndexManager::Locate_AssumedLocked(StructLayout::Ptr const& type) const
+	std::optional<MarkIndex> StructLayoutMarkIndexManager::Locate_AssumedLocked(StructLayout const& type) const
 	{
-		if(type)
+		for (std::size_t i = 0; i < struct_layouts.size(); ++i)
 		{
-			for (std::size_t i = 0; i < struct_layouts.size(); ++i)
+			auto& ref = struct_layouts[i];
+			if (*ref == type)
 			{
-				auto& ref = struct_layouts[i];
-				if (ref == type || *ref == *type)
-				{
-					return MarkIndex{i};
-				}
+				return MarkIndex{ i };
 			}
 		}
 		return std::nullopt;
 	}
 
-	std::optional<MarkIndex> StructLayoutMarkIndexManager::LocateOrAdd(StructLayout::Ptr const& type)
+	std::optional<MarkIndex> StructLayoutMarkIndexManager::LocateOrAdd(StructLayout const& type)
 	{
-		if(!type)
-			return std::nullopt;
 		{
 			std::shared_lock sl(mutex);
 			auto re = Locate_AssumedLocked(type);
-			if(re.has_value())
+			if (re.has_value())
 			{
 				return re;
 			}
@@ -194,7 +189,7 @@ namespace Noodles
 			auto count = struct_layouts.size();
 			if(count < GetMaxStructLayoutCount())
 			{
-				struct_layouts.emplace_back(type);
+				struct_layouts.emplace_back(&type);
 				return MarkIndex{count};
 			}
 		}

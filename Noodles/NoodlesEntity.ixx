@@ -107,20 +107,20 @@ export namespace Noodles
 
 
 		template<typename Type>
-		bool AddEntityComponent(ComponentManager& manager, Entity::Ptr target_entity, Type&& type, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource()) requires(std::is_rvalue_reference_v<decltype(type)>)
+		bool AddEntityComponent(ComponentManager& manager, Entity& target_entity, Type&& type, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource()) requires(std::is_rvalue_reference_v<decltype(type)>)
 		{
-			return this->AddEntityComponent(manager, std::move(target_entity), StructLayout::GetStatic<Type>(), &type, std::is_rvalue_reference_v<Type&&> ? Operation::Move : Operation::Copy, temp_resource);
+			return this->AddEntityComponent(manager, target_entity, *StructLayout::GetStatic<Type>(), &type, std::is_rvalue_reference_v<Type&&> ? Operation::Move : Operation::Copy, temp_resource);
 		}
 
-		bool AddEntityComponent(ComponentManager& manager, Entity::Ptr target_entity, StructLayout::Ptr struct_layout, void* reference_buffer, Operation operation = Operation::Copy, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		bool AddEntityComponent(ComponentManager& manager, Entity& target_entity, StructLayout const& struct_layout, void* reference_buffer, Operation operation = Operation::Copy, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 		{
-			return AddEntityComponentImp(manager, std::move(target_entity), std::move(struct_layout), reference_buffer, false, operation, resource);
+			return AddEntityComponentImp(manager, target_entity, struct_layout, reference_buffer, false, operation, resource);
 		}
 
 		template<typename Type>
-		bool RemoveEntityComponent(ComponentManager& manager, Entity::Ptr target_entity) { return this->RemoveEntityComponent(manager, std::move(target_entity), *StructLayout::GetStatic<Type>()); }
+		bool RemoveEntityComponent(ComponentManager& manager, Entity& target_entity) { return this->RemoveEntityComponent(manager, std::move(target_entity), *StructLayout::GetStatic<Type>()); }
 
-		bool RemoveEntityComponent(ComponentManager& manager, Entity::Ptr target_entity, StructLayout::Ptr struct_layout){ return RemoveEntityComponentImp(manager, std::move(target_entity), std::move(struct_layout), false); }
+		bool RemoveEntityComponent(ComponentManager& manager, Entity& target_entity, StructLayout const& struct_layout){ return RemoveEntityComponentImp(manager, target_entity, struct_layout, false); }
 
 		bool Flush(ComponentManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 
@@ -134,8 +134,8 @@ export namespace Noodles
 
 	protected:
 
-		bool AddEntityComponentImp(ComponentManager& manager, Entity::Ptr target_entity, StructLayout::Ptr struct_layout, void* reference_buffer, bool accept_build_in, Operation operation, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
-		bool RemoveEntityComponentImp(ComponentManager& manager, Entity::Ptr target_entity, StructLayout::Ptr struct_layout, bool accept_build_in_component = false);
+		bool AddEntityComponentImp(ComponentManager& manager, Entity& target_entity, StructLayout const& struct_layout, void* reference_buffer, bool accept_build_in, Operation operation, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		bool RemoveEntityComponentImp(ComponentManager& manager, Entity& target_entity, StructLayout const& struct_layout, bool accept_build_in_component = false);
 
 		
 		struct EntityModifierInfo

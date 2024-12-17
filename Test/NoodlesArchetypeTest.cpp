@@ -32,9 +32,9 @@ int main()
 	StructLayoutMarkIndexManager manager;
 
 	auto init_list = std::array{
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<A>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<B>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *manager.LocateOrAdd(StructLayout::GetStatic<C>())}
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<A>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<B>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<C>())}
 	};
 
 	
@@ -61,7 +61,7 @@ int main()
 		);
 	c->i = 86;
 
-	auto re_ad4 = ptr->Locate(*manager.LocateOrAdd(StructLayout::GetStatic<D>()));
+	auto re_ad4 = ptr->Locate(*manager.LocateOrAdd(*StructLayout::GetStatic<D>()));
 
 	return 0;
 }

@@ -68,7 +68,7 @@ namespace Noodles
 
 			for (auto& Ite : require_singleton)
 			{
-				auto loc = manager.LocateOrAdd(Ite.struct_layout);
+				auto loc = manager.LocateOrAdd(*Ite.struct_layout);
 				if (loc.has_value())
 				{
 					MarkElement::Mark(require_mask, *loc);
@@ -207,7 +207,7 @@ namespace Noodles
 		return {std::move(buffers)};
 	}
 
-	bool SingletonManager::AddSingleton(StructLayout::Ptr struct_layout, void* target_buffer, EntityManager::Operation operation, std::pmr::memory_resource* temp_resource)
+	bool SingletonManager::AddSingleton(StructLayout const& struct_layout, void* target_buffer, EntityManager::Operation operation, std::pmr::memory_resource* temp_resource)
 	{
 		auto loc = manager.LocateOrAdd(struct_layout);
 		
@@ -217,19 +217,19 @@ namespace Noodles
 			auto re = MarkElement::CheckIsMark(modify_mask, *loc);
 			if(!re)
 			{
-				auto record = Potato::IR::MemoryResourceRecord::Allocate(temp_resource, struct_layout->GetLayout());
+				auto record = Potato::IR::MemoryResourceRecord::Allocate(temp_resource, struct_layout.GetLayout());
 				if(record)
 				{
 					if(operation == EntityManager::Operation::Move)
 					{
-						auto re = struct_layout->MoveConstruction(
+						auto re = struct_layout.MoveConstruction(
 							record.GetByte(),
 							target_buffer
 						);
 						assert(re);
 					}else
 					{
-						auto re = struct_layout->CopyConstruction(
+						auto re = struct_layout.CopyConstruction(
 							record.GetByte(),
 							target_buffer
 						);
@@ -238,7 +238,7 @@ namespace Noodles
 					modifier.emplace_back(
 						*loc,
 						record,
-						std::move(struct_layout)
+						&struct_layout
 					);
 					re = MarkElement::Mark(modify_mask, *loc);
 					assert(!re);
@@ -250,7 +250,7 @@ namespace Noodles
 		return false;
 	}
 
-	bool SingletonManager::RemoveSingleton(StructLayout::Ptr const& struct_layout)
+	bool SingletonManager::RemoveSingleton(StructLayout const& struct_layout)
 	{
 		auto loc = manager.LocateOrAdd(struct_layout);
 		if(loc)

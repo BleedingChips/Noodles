@@ -179,7 +179,7 @@ export namespace Noodles
 		std::optional<ComponentRowWrapper> ReadComponentRow_AssumedLocked(std::size_t archetype_index, ComponentFilter const& filter, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
 		std::optional<ComponentRowWrapper> ReadComponent_AssumedLocked(std::size_t archetype_index, std::size_t column_index, ComponentFilter const& filter, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
 
-		std::optional<MarkIndex> LocateStructLayout(StructLayout::Ptr const& loc) { return manager.LocateOrAdd(loc); }
+		std::optional<MarkIndex> LocateStructLayout(StructLayout const& loc) { return manager.LocateOrAdd(loc); }
 		std::tuple<Archetype::OPtr, OptionalIndex> FindArchetype(std::span<MarkElement const> require_archetype) const
 		{
 			std::shared_lock sl(chunk_mutex);
