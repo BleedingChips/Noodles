@@ -82,7 +82,7 @@ namespace Noodles
 		{
 			auto& mm = archetype->GetMemberView(*mindex);
 			auto target = GetComponent(mm, column_index);
-			auto re = mm.layout->CopyConstruction(
+			auto re = mm.layout->MoveConstruction(
 				target, target_buffer
 			);
 			assert(re);
