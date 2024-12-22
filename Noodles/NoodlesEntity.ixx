@@ -124,7 +124,7 @@ export namespace Noodles
 
 		bool Flush(ComponentManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 
-		std::optional<ComponentRowWrapper> ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentFilter const& filter, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
+		bool ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentFilter const& filter, ComponentAccessor& accessor) const;
 
 		EntityManager(Config fing = {});
 		~EntityManager();

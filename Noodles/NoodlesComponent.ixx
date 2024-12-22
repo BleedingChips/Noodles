@@ -75,17 +75,29 @@ export namespace Noodles
 		friend struct ComponentManager;
 	};
 
-	struct ComponentRowWrapper
+	struct ComponentAccessor
 	{
-		Archetype::OPtr archetype;
-		std::pmr::vector<void*> component_row_buffers;
-		std::size_t array_size;
-		operator bool() const { return archetype; }
+		ComponentAccessor(std::span<void*> output_buffer) : output_buffer(output_buffer) {}
+		ComponentAccessor(ComponentAccessor const& other, std::span<void*> output_buffer) : archetype(other.archetype), array_size(other.array_size), output_buffer(output_buffer)
+		{
+			assert(output_buffer.size() == other.output_buffer.size());
+			std::memcpy(output_buffer.data(), other.output_buffer.data(), sizeof(void*) * output_buffer.size());
+		}
 		template<typename Type>
-		std::span<Type> AsSpan(std::size_t index) const { return std::span{
-			static_cast<Type*>(component_row_buffers[index]),
-			array_size
-		};}
+		std::span<Type> AsSpan(std::size_t index) const {
+			return std::span{
+				static_cast<Type*>(output_buffer[index]),
+				array_size
+			};
+		}
+	protected:
+		Archetype::OPtr archetype;
+		std::span<void*> output_buffer;
+		std::size_t array_size = 0;
+		operator bool() const { return archetype; }
+
+		friend struct ComponentManager;
+	
 	};
 
 	struct ComponentFilter : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
@@ -175,9 +187,9 @@ export namespace Noodles
 			std::size_t column_index;
 		};
 
-		std::optional<ComponentRowWrapper> ReadComponentRow_AssumedLocked(ComponentFilter const& filter, std::size_t filter_ite, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
-		std::optional<ComponentRowWrapper> ReadComponentRow_AssumedLocked(std::size_t archetype_index, ComponentFilter const& filter, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
-		std::optional<ComponentRowWrapper> ReadComponent_AssumedLocked(std::size_t archetype_index, std::size_t column_index, ComponentFilter const& filter, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
+		bool ReadComponentRow_AssumedLocked(ComponentFilter const& filter, std::size_t filter_ite, ComponentAccessor& accessor) const;
+		bool ReadComponentRow_AssumedLocked(std::size_t archetype_index, ComponentFilter const& filter, ComponentAccessor& accessor) const;
+		bool ReadComponent_AssumedLocked(std::size_t archetype_index, std::size_t column_index, ComponentFilter const& filter, ComponentAccessor& accessor) const;
 
 		std::optional<MarkIndex> LocateStructLayout(StructLayout const& loc) { return manager.LocateOrAdd(loc); }
 		std::tuple<Archetype::OPtr, OptionalIndex> FindArchetype(std::span<MarkElement const> require_archetype) const

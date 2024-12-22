@@ -60,8 +60,7 @@ namespace Noodles
 		}
 	}
 
-	auto EntityManager::ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentFilter const& filter, std::pmr::memory_resource* wrapper_resource) const
-		->std::optional<ComponentRowWrapper>
+	bool EntityManager::ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentFilter const& filter, ComponentAccessor& accessor) const
 	{
 		std::shared_lock sl(ent.mutex);
 		if (ent.state == Entity::State::Normal && ent.archetype_index)
@@ -70,10 +69,10 @@ namespace Noodles
 				ent.archetype_index,
 				ent.column_index,
 				filter,
-				wrapper_resource
+				accessor
 			);
 		}
-		return std::nullopt;
+		return false;
 	}
 
 	EntityManager::EntityManager(Config config)

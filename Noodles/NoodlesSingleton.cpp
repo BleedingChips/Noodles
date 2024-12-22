@@ -181,30 +181,29 @@ namespace Noodles
 		return ptr;
 	}
 
-	SingletonWrapper SingletonManager::ReadSingleton_AssumedLocked(SingletonFilter const& filter, std::pmr::memory_resource* wrapper_resource) const
+	bool SingletonManager::ReadSingleton_AssumedLocked(SingletonFilter const& filter, SingletonAccessor& accessor) const
 	{
-		std::pmr::vector<std::byte*> buffers{wrapper_resource};
-		std::shared_lock sl(filter.mutex);
+		std::shared_lock lg(filter.mutex);
 		auto span = filter.EnumSingleton_AssumedLocked();
-		buffers.reserve(span.size());
 		auto view = GetSingletonView_AssumedLocked();
-		for(auto ite : span)
+		if (span.size() <= accessor.buffers.size())
 		{
-			if (ite != std::numeric_limits<std::size_t>::max() && singleton_record)
+			std::size_t  i = 0;
+			for (auto ite : span)
 			{
-				buffers.push_back(
-					singleton_record.GetByte(ite)
-				);
-			}
-			else
-			{
-				buffers.push_back(
-					nullptr
-				);
-
+				if (ite != std::numeric_limits<std::size_t>::max() && singleton_record)
+				{
+					accessor.buffers[i] = singleton_record.GetByte(ite);
+				}
+				else
+				{
+					accessor.buffers[i] = nullptr;
+				}
+				i += 1;
 			}
 		}
-		return {std::move(buffers)};
+		
+		return true;
 	}
 
 	bool SingletonManager::AddSingleton(StructLayout const& struct_layout, void* target_buffer, EntityManager::Operation operation, std::pmr::memory_resource* temp_resource)

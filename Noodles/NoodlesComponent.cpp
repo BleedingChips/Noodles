@@ -256,130 +256,81 @@ namespace Noodles
 			);
 	}
 
-	auto ComponentManager::ReadComponentRow_AssumedLocked(ComponentFilter const& filter, std::size_t filter_ite, std::pmr::memory_resource* wrapper_resource) const
-		->std::optional<ComponentRowWrapper>
+	bool ComponentManager::ReadComponentRow_AssumedLocked(ComponentFilter const& filter, std::size_t filter_ite, ComponentAccessor& accessor) const
 	{
 		std::shared_lock sl(filter.mutex);
 		std::size_t archetype_index = 0;
 		auto re = filter.EnumMountPointIndexByIterator_AssumedLocked(filter_ite, archetype_index);
-		if(re.has_value())
+		if(re.has_value() && re->size() <= accessor.output_buffer.size())
 		{
 			assert(chunk_infos.size() > archetype_index);
 			auto& ref = chunk_infos[archetype_index];
 			auto view = ref.GetView();
 			if(view)
 			{
-				std::pmr::vector<void*> temp_elements{ wrapper_resource };
-				temp_elements.resize(re->size());
-				for (std::size_t i = 0; i < temp_elements.size(); ++i)
+				for (std::size_t i = 0; i < re->size(); ++i)
 				{
-					temp_elements[i] = view.GetComponent(
+					accessor.output_buffer[i] = view.GetComponent(
 						Archetype::Index{(*re)[i]},
 						0
 					);
 				}
-				return ComponentRowWrapper
-				{
-					view.archetype,
-					
-					std::move(temp_elements),
-					view.current_count
-				};
+				accessor.archetype = view.archetype;
+				accessor.array_size = view.current_count;
+				return true;
 			}
-			ComponentRowWrapper wrapper
-			{
-				std::move(view.archetype),
-				{},
-				0
-			};
-			return wrapper;
 		}
-		return std::nullopt;
+		return false;
 	}
 
-	auto ComponentManager::ReadComponentRow_AssumedLocked(std::size_t archetype_index, ComponentFilter const& filter, std::pmr::memory_resource* wrapper_resource) const
-		->std::optional<ComponentRowWrapper>
+	bool ComponentManager::ReadComponentRow_AssumedLocked(std::size_t archetype_index, ComponentFilter const& filter, ComponentAccessor& accessor) const
 	{
 		std::shared_lock sl(filter.mutex);
 		auto re = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
-		if (re.has_value())
+		if (re.has_value() && re->size() <= accessor.output_buffer.size())
 		{
 			assert(chunk_infos.size() > archetype_index);
 			auto& ref = chunk_infos[archetype_index];
 			auto view = ref.GetView();
 			if (view)
 			{
-				std::pmr::vector<void*> temp_elements{ wrapper_resource };
-				temp_elements.resize(re->size());
-				for (std::size_t i = 0; i < temp_elements.size(); ++i)
+				for (std::size_t i = 0; i < re->size(); ++i)
 				{
-					temp_elements[i] = view.GetComponent(
+					accessor.output_buffer[i] = view.GetComponent(
 						Archetype::Index{ (*re)[i] },
 						0
 					);
 				}
-				return ComponentRowWrapper
-				{
-					view.archetype,
-					std::move(temp_elements),
-					view.current_count
-					
-				};
-			}else
-			{
-				ComponentRowWrapper wrapper
-				{
-					std::move(view.archetype),
-					{},
-					0
-				};
-				return wrapper;
+				accessor.archetype = view.archetype;
+				accessor.array_size = view.current_count;
+				return true;
 			}
 		}
-		return std::nullopt;
+		return false;
 	}
 
-	auto ComponentManager::ReadComponent_AssumedLocked(std::size_t archetype_index, std::size_t column_index, ComponentFilter const& filter, std::pmr::memory_resource* wrapper_resource) const
-		->std::optional<ComponentRowWrapper>
+	bool ComponentManager::ReadComponent_AssumedLocked(std::size_t archetype_index, std::size_t column_index, ComponentFilter const& filter, ComponentAccessor& accessor) const
 	{
 		std::shared_lock sl(filter.mutex);
 		auto re = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
-		if (re.has_value())
+		if (re.has_value() && re->size() <= accessor.output_buffer.size())
 		{
 			auto view = GetChunk_AssumedLocked(archetype_index);
 			if(view)
 			{
-				if (view)
+				for (std::size_t i = 0; i < re->size(); ++i)
 				{
-					std::pmr::vector<void*> temp_elements{ wrapper_resource };
-					temp_elements.resize(re->size());
-					for (std::size_t i = 0; i < temp_elements.size(); ++i)
-					{
-						temp_elements[i] = view.GetComponent(
-							Archetype::Index{ (*re)[i] },
-							column_index
-						);
-					}
-					return ComponentRowWrapper
-					{
-						view.archetype,
-						std::move(temp_elements),
-						1
-					};
+					accessor.output_buffer[i] = view.GetComponent(
+						Archetype::Index{ (*re)[i] },
+						column_index
+					);
 				}
-				else
-				{
-					ComponentRowWrapper wrapper
-					{
-						std::move(view.archetype),
-						{},
-						0
-					};
-					return wrapper;
-				}
+				accessor.archetype = view.archetype;
+				accessor.array_size = 1;
+				return true;
 			}
 		}
-		return std::nullopt;
+		return false;
 	}
 
 	ComponentFilter::Ptr ComponentManager::CreateComponentFilter(

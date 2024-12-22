@@ -34,15 +34,21 @@ export namespace Noodles
 		) const;
 	};
 
-	struct SingletonWrapper
+	struct SingletonAccessor
 	{
-		std::pmr::vector<std::byte*> buffers;
+		SingletonAccessor(SingletonAccessor const& in, std::span<void*> in_buffer) : buffers(in_buffer) { assert(in.buffers.size() == in_buffer.size()); std::memcpy(buffers.data(), in.buffers.data(), sizeof(void*) * buffers.size()); }
+		SingletonAccessor(std::span<void*> in) :buffers(in) {}
+		
 		template<typename Type>
 		Type* As(std::size_t index) const
 		{
-			auto b = reinterpret_cast<Type*>(buffers[index]);
+			auto b = static_cast<Type*>(buffers[index]);
 			return (b == nullptr) ? nullptr : reinterpret_cast<Type*>(b);
 		}
+	protected:
+		std::span<void*> buffers;
+
+		friend SingletonManager;
 	};
 
 	struct SingletonFilter : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
@@ -110,7 +116,7 @@ export namespace Noodles
 
 		SingletonFilter::Ptr CreateSingletonFilter(std::span<StructLayoutWriteProperty const> input, std::size_t identity, std::pmr::memory_resource* filter_resource = std::pmr::get_default_resource());
 
-		SingletonWrapper ReadSingleton_AssumedLocked(SingletonFilter const& filter, std::pmr::memory_resource* wrapper_resource = std::pmr::get_default_resource()) const;
+		bool ReadSingleton_AssumedLocked(SingletonFilter const& filter, SingletonAccessor& accessor) const;
 		bool AddSingleton(StructLayout const& struct_layout, void* target_buffer, EntityManager::Operation operation, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 		template<typename SingletonType>
 		bool AddSingleton(SingletonType&& type, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource())

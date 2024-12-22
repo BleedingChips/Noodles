@@ -69,20 +69,26 @@ int main()
 	singleton_manager.AddSingleton(A{10086});
 	singleton_manager.AddSingleton(B{ 10071 });
 
-	auto k = singleton_manager.ReadSingleton_AssumedLocked(*filter);
+	std::array<void*, 100> buffer1;
+	SingletonAccessor accessor(buffer1);
 
-	auto a = k.As<A>(0);
-	auto b = k.As<B>(1);
+	auto k = singleton_manager.ReadSingleton_AssumedLocked(*filter, accessor);
+
+	auto a = accessor.As<A>(0);
+	auto b = accessor.As<B>(1);
 
 	singleton_manager.Flush();
 
-	auto k2 = singleton_manager.ReadSingleton_AssumedLocked(*filter);
+	std::array<void*, 100> buffer2;
+	SingletonAccessor accessor2(buffer2);
 
-	auto a2 = k.As<A>(0);
-	auto b2 = k.As<B>(1);
+	auto k2 = singleton_manager.ReadSingleton_AssumedLocked(*filter, accessor2);
 
-	auto a3 = k2.As<A>(0);
-	auto b3 = k2.As<B>(1);
+	auto a2 = accessor.As<A>(0);
+	auto b2 = accessor.As<B>(1);
+
+	auto a3 = accessor2.As<A>(0);
+	auto b3 = accessor2.As<B>(1);
 
 	return 0;
 }

@@ -66,7 +66,9 @@ struct TestSystem : public Noodles::SystemNode
 
 void TestFunction(Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple2> fup, Noodles::AtomicSingletonFilter<Tuple2> filter)
 {
-	auto P = filter.GetWrapper(context);
+
+	filter.GetSingletons(context);
+	auto P = filter.Get<0>();
 	PrintSystemProperty(context);
 }
 

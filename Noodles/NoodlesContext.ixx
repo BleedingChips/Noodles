@@ -293,13 +293,10 @@ export namespace Noodles
 			return singleton_manager.CreateSingletonFilter(require_struct_layout, identity);
 		}
 
-		std::optional<ComponentRowWrapper> IterateComponent_AssumedLocked(ComponentFilter const& filter, std::size_t ite_index) const
-		{
-			return component_manager.ReadComponentRow_AssumedLocked(filter, ite_index);
-		}
-		std::optional<ComponentRowWrapper> ReadEntity_AssumedLocked(Entity const& entity, ComponentFilter const& filter) const { { return entity_manager.ReadEntityComponents_AssumedLocked(component_manager, entity, filter); } }
+		bool IterateComponent_AssumedLocked(ComponentFilter const& filter, std::size_t ite_index, ComponentAccessor& accessor) const { return component_manager.ReadComponentRow_AssumedLocked(filter, ite_index, accessor); }
+		bool ReadEntity_AssumedLocked(Entity const& entity, ComponentFilter const& filter, ComponentAccessor& accessor) const { { return entity_manager.ReadEntityComponents_AssumedLocked(component_manager, entity, filter, accessor); } }
 		//decltype(auto) ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output, bool prefer_modifier = true) const { return manager.ReadEntityDirect_AssumedLocked(entity, filter, output, prefer_modifier); };
-		SingletonWrapper ReadSingleton_AssumedLocked(SingletonFilter const& filter) { return singleton_manager.ReadSingleton_AssumedLocked(filter); }
+		bool ReadSingleton_AssumedLocked(SingletonFilter const& filter, SingletonAccessor& accessor) { return singleton_manager.ReadSingleton_AssumedLocked(filter, accessor); }
 
 		void Quit();
 
@@ -415,6 +412,7 @@ export namespace Noodles
 		}
 
 		AtomicComponentFilter(Context& context, std::size_t identity)
+			: accessor(std::span(buffer))
 		{
 			filter = context.CreateComponentFilter(
 				GetRequire(),
@@ -424,29 +422,33 @@ export namespace Noodles
 			assert(filter);
 		}
 
-		AtomicComponentFilter(AtomicComponentFilter const&) = default;
-		AtomicComponentFilter(AtomicComponentFilter&&) = default;
+		AtomicComponentFilter(AtomicComponentFilter const& in)
+			: filter(in.filter), accessor(in.accessor, std::span(buffer))
+		{
+			
+		}
+		AtomicComponentFilter(AtomicComponentFilter&&) = delete;
 
 		template<std::size_t index>
-		decltype(auto) AsSpan(ComponentRowWrapper const& wrapper) const
+		decltype(auto) AsSpan() const
 		{
 			static_assert(index < sizeof...(ComponentT));
 			using Type = Potato::TMP::FindByIndex<index, ComponentT...>::Type;
-			return wrapper.AsSpan<Type>(index);
+			return accessor.AsSpan<Type>(index);
 		}
 
 		template<typename Type>
-		decltype(auto) AsSpan(ComponentRowWrapper const& wrapper) const
+		decltype(auto) AsSpan() const
 		{
 			static_assert(Potato::TMP::IsOneOfV<Type, ComponentT...>);
 			constexpr std::size_t index = Potato::TMP::LocateByType<Type, ComponentT...>::Value;
-			return wrapper.AsSpan<Type>(index);
+			return accessor.AsSpan<Type>(index);
 		}
 
-		std::optional<ComponentRowWrapper> IterateComponent_AssumedLocked(Context& context, std::size_t ite_index) const { return context.IterateComponent_AssumedLocked(*filter, ite_index); }
-		std::optional<ComponentRowWrapper> IterateComponent_AssumedLocked(ContextWrapper& context_wrapper, std::size_t ite_index) const { return IterateComponent_AssumedLocked(context_wrapper.GetContext(), ite_index); }
-		std::optional<ComponentRowWrapper> ReadEntity_AssumedLocked(Context& context, Entity const& entity) const { return context.ReadEntity_AssumedLocked(entity, *filter); }
-		std::optional<ComponentRowWrapper> ReadEntity_AssumedLocked(ContextWrapper& context_wrapper, Entity const& entity) const { return ReadEntity_AssumedLocked(context_wrapper.GetContext(), entity); }
+		bool IterateComponent(Context& context, std::size_t ite_index) { return context.IterateComponent_AssumedLocked(*filter, ite_index, accessor); }
+		bool IterateComponent(ContextWrapper& context_wrapper, std::size_t ite_index) { return IterateComponent(context_wrapper.GetContext(), ite_index); }
+		bool ReadEntity(Context& context, Entity const& entity) { return context.ReadEntity_AssumedLocked(entity, *filter, accessor); }
+		bool ReadEntity(ContextWrapper& context_wrapper, Entity const& entity) { return ReadEntity(context_wrapper.GetContext(), entity); }
 		//decltype(auto) ReadEntityDirect_AssumedLocked(Context& context, Entity const& entity, std::span<void*> output, bool prefer_modifier = true) const { return context.ReadEntityDirect_AssumedLocked(entity, *filter, output, prefer_modifier); };
 
 		template<AcceptableFilterType ...RefuseComponent>
@@ -460,15 +462,9 @@ export namespace Noodles
 				return std::span(temp_buffer);
 			}
 
-			WithRefuse(Context& context, std::size_t identity)
-			{
-				AtomicComponentFilter::filter = context.CreateComponentFilter(
-					AtomicComponentFilter::GetRequire(),
-					GetResuse(),
-					identity
-				);
-				assert(AtomicComponentFilter::filter);
-			}
+			WithRefuse(Context& context, std::size_t identity) : AtomicComponentFilter(context, identity) {}
+
+			WithRefuse(WithRefuse const& in) : AtomicComponentFilter(in) {}
 		};
 
 		SystemNode::Mutex GetSystemNodeMutex() const
@@ -507,11 +503,13 @@ export namespace Noodles
 			}
 		}
 
+
+
 	protected:
 
-		AtomicComponentFilter() = default;
-
 		ComponentFilter::Ptr filter;
+		std::array<void*, sizeof...(ComponentT)> buffer;
+		ComponentAccessor accessor;
 
 		friend struct Context;
 	};
@@ -528,6 +526,7 @@ export namespace Noodles
 		}
 
 		AtomicSingletonFilter(Context& context, std::size_t identity)
+			: accessor(std::span(buffers))
 		{
 			filter = context.CreateSingletonFilter(
 				GetRequire(),
@@ -536,27 +535,25 @@ export namespace Noodles
 			assert(filter);
 		}
 
-		decltype(auto) GetWrapper(Context& context) const { return context.ReadSingleton_AssumedLocked(*filter); }
-		decltype(auto) GetWrapper(ContextWrapper& context_wrapper) const { return GetWrapper(context_wrapper.GetContext()); }
-
-		template<std::size_t index> static auto Get(SingletonWrapper wrapper)
+		AtomicSingletonFilter(AtomicSingletonFilter const& other)
+			: filter(other.filter), accessor(other.accessor, std::span(buffers))
 		{
-			using Type = typename Potato::TMP::FindByIndex<index, ComponentT...>::Type;
-			if(!wrapper.buffers.empty())
-			{
-				return reinterpret_cast<Type*>(wrapper.buffers[index]);
-			}
-			return static_cast<Type*>(nullptr);
+			assert(filter);
 		}
 
-		template<typename Type> static Type* Get(SingletonWrapper wrapper) requires(Potato::TMP::IsOneOfV<Type, ComponentT...>)
+		decltype(auto) GetSingletons(Context& context) { return context.ReadSingleton_AssumedLocked(*filter, accessor); }
+		decltype(auto) GetSingletons(ContextWrapper& context_wrapper) { return GetSingletons(context_wrapper.GetContext()); }
+
+		template<std::size_t index> auto Get() const
+		{
+			using Type = typename Potato::TMP::FindByIndex<index, ComponentT...>::Type;
+			return accessor.As<Type>(index);
+		}
+
+		template<typename Type> Type* Get() const requires(Potato::TMP::IsOneOfV<Type, ComponentT...>)
 		{
 			constexpr std::size_t index = Potato::TMP::LocateByType<Type, ComponentT...>::Value;
-			if (!wrapper.buffers.empty())
-			{
-				return reinterpret_cast<Type*>(wrapper.buffers[index]);
-			}
-			return nullptr;
+			return accessor.As<Type>(index);
 		}
 
 		SystemNode::Mutex GetSystemNodeMutex() const
@@ -571,7 +568,8 @@ export namespace Noodles
 	protected:
 
 		SingletonFilter::Ptr filter;
-
+		std::array<void*, sizeof...(ComponentT)> buffers;
+		SingletonAccessor accessor;
 		friend struct Context;
 	};
 
