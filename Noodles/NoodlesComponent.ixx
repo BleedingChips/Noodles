@@ -5,11 +5,7 @@ module;
 export module NoodlesComponent;
 
 import std;
-import PotatoTMP;
-import PotatoMisc;
-import PotatoPointer;
-import PotatoIR;
-import PotatoTaskSystem;
+import Potato;
 
 export import NoodlesMisc;
 export import NoodlesArchetype;

@@ -4,9 +4,7 @@ module;
 export module NoodlesMisc;
 
 import std;
-import PotatoIR;
-import PotatoPointer;
-import PotatoTaskSystem;
+import Potato;
 
 export namespace Noodles
 {

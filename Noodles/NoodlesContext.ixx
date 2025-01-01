@@ -6,13 +6,7 @@ export module NoodlesContext;
 
 import std;
 
-import PotatoMisc;
-import PotatoPointer;
-import PotatoIR;
-import PotatoTaskSystem;
-import PotatoTaskFlow;
-import PotatoTMP;
-import PotatoGraph;
+import Potato;
 
 import NoodlesMisc;
 import NoodlesArchetype;
@@ -34,19 +28,26 @@ export namespace Noodles
 		bool operator==(const Priority&) const = default;
 	};
 
-	struct SystemName
-	{
-		std::u8string_view name;
-		std::u8string_view group;
-		bool operator==(const SystemName& i1) const { return name == i1.name && group == i1.group; }
-	};
-
 	export struct Context;
 	export struct LayerTaskFlow;
 	export struct ParallelExecutor;
 	export struct ContextWrapper;
 
-	struct SystemNode : protected Potato::Task::TaskFlowNode
+	struct ParallelInfo
+	{
+		enum class Status
+		{
+			None,
+			Parallel,
+			Done
+		};
+		Status status = Status::None;
+		std::size_t total_count = 0;
+		std::size_t current_index = 0;
+		std::size_t user_index = 0;
+	};
+
+	struct SystemNode : public Potato::Task::Node
 	{
 
 		struct Wrapper
@@ -65,15 +66,22 @@ export namespace Noodles
 		};
 
 		virtual Mutex GetMutex() const { return {}; };
-		virtual bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return false; };
-		virtual bool IsComponentOverlapping(ComponentFilter const& target_component_filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return false; };
+
+		enum class ComponentOverlappingState
+		{
+			NoUpdate,
+			IsOverlapped,
+			IsNotOverlapped
+		};
+
+		virtual ComponentOverlappingState IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return ComponentOverlappingState::NoUpdate; };
+		virtual ComponentOverlappingState IsComponentOverlapping(ComponentFilter const& target_component_filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return ComponentOverlappingState::NoUpdate; };
 
 	protected:
 
-		virtual void TaskFlowNodeExecute(Potato::Task::TaskFlowContext& status) override final;
-
-		virtual void AddTaskFlowNodeRef() const override { AddSystemNodeRef(); }
-		virtual void SubTaskFlowNodeRef() const override { SubSystemNodeRef(); }
+		virtual void TaskExecute(Potato::Task::ContextWrapper& wrapper) override final;
+		virtual void AddTaskNodeRef() const override final { AddSystemNodeRef(); }
+		virtual void SubTaskNodeRef() const override final { SubSystemNodeRef(); }
 		virtual void SystemNodeExecute(ContextWrapper& wrapper) = 0;
 
 
@@ -85,6 +93,21 @@ export namespace Noodles
 		friend struct ParallelExecutor;
 	};
 
+	export struct ContextWrapper
+	{
+		Context& GetContext() const { return context; }
+		void AddTemporarySystemNodeNextFrame(SystemNode& node, Potato::Task::Property property);
+		void AddTemporarySystemNode(SystemNode& node, Potato::Task::Property property);
+		ContextWrapper(Potato::Task::ContextWrapper& wrapper, Context& context, LayerTaskFlow& layer_flow, Potato::TaskGraphic::FlowProcessContext& flow_context)
+			: wrapper(wrapper), context(context), layer_flow(layer_flow), flow_context(flow_context){}
+		Potato::Task::Property& GetTaskProperty() const { return wrapper.GetTaskNodeProperty(); }
+	protected:
+		Potato::Task::ContextWrapper& wrapper;
+		Context& context;
+		LayerTaskFlow& layer_flow;
+		Potato::TaskGraphic::FlowProcessContext& flow_context;
+	};
+
 	enum class Order
 	{
 		MUTEX,
@@ -93,36 +116,36 @@ export namespace Noodles
 		UNDEFINE
 	};
 
-	using OrderFunction = Order(*)(SystemName p1, SystemName p2);
+	using OrderFunction = Order(*)(std::u8string_view p1, std::u8string_view p2);
 
-	struct SystemNodeProperty
+	struct Property
 	{
 		Priority priority;
+		Potato::Task::Property property;
 		OrderFunction order_function = nullptr;
-		Potato::Task::TaskFilter filter;
 	};
 
-
-	export struct LayerTaskFlow : protected Potato::Task::TaskFlow, protected Potato::IR::MemoryResourceRecordIntrusiveInterface
+	export struct LayerTaskFlow : public Potato::TaskGraphic::Flow, protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
-		using Ptr = Potato::Pointer::IntrusivePtr<LayerTaskFlow, Potato::Task::TaskFlow::Wrapper>;
+		using Ptr = Potato::Pointer::IntrusivePtr<LayerTaskFlow, Flow::Wrapper>;
 
-		bool AddTemporaryNodeImmediately(SystemNode::Ptr node, std::u8string_view system_name, Potato::Task::TaskFilter filter);
-		bool AddTemporaryNodeDefer(SystemNode::Ptr node, std::u8string_view system_name, Potato::Task::TaskFilter filter);
+		static void AddTemporaryNode(Context& context, Potato::TaskGraphic::FlowProcessContext& flow_context, SystemNode& node, Potato::Task::Property property);
+		void AddTemporaryNodeNextFrame(SystemNode& node, Potato::Task::Property property);
 
 	protected:
 
-		bool AddTickedNode(SystemNode::Ptr node, SystemName system_name, SystemNodeProperty property, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
-		virtual bool Update_AssumedLocked(std::pmr::memory_resource* resource) override;
-		bool AddTemporaryNodeImmediately_AssumedLocked(SystemNode::Ptr node, std::u8string_view system_name, Potato::Task::TaskFilter filter);
+		bool AddTickedNode(SystemNode& node, Property property);
+		virtual void TaskFlowExecuteBegin(Potato::Task::ContextWrapper& context) override;
+		virtual void PostUpdateFromFlow(Potato::TaskGraphic::FlowProcessContext& context, Potato::Task::ContextWrapper& wrapper) override;
+		static bool TemporaryNodeDetect(Context& context, SystemNode& node, Potato::Task::Node const& t_node, Potato::Task::Property const& property);
 
-		LayerTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout, Potato::Pointer::ObserverPtr<Context> context_ptr)
-			: MemoryResourceRecordIntrusiveInterface(record), layout(layout), context_ptr(context_ptr)
+		LayerTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
+			: MemoryResourceRecordIntrusiveInterface(record), layout(layout)
 		{
 		}
 
-		virtual void AddTaskFlowRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
-		virtual void SubTaskFlowRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
+		virtual void AddTaskGraphicFlowRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
+		virtual void SubTaskGraphicFlowRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
 
 		std::int32_t layout;
 
@@ -133,9 +156,9 @@ export namespace Noodles
 			SystemNode::Ptr node;
 			Priority priority;
 			OrderFunction order_func = nullptr;
-			SystemName name;
-			Potato::Graph::GraphNode worst_graph_node;
 			Potato::Graph::GraphNode task_node;
+			Potato::Graph::GraphNode worst_graph_node;
+			std::u8string_view system_name;
 		};
 
 		struct DynamicEdge
@@ -145,6 +168,7 @@ export namespace Noodles
 			bool singleton_overlapping = false;
 			Potato::Graph::GraphNode pre_process_from;
 			Potato::Graph::GraphNode pre_process_to;
+			bool need_edge = false;
 		};
 
 		std::pmr::vector<SystemNodeInfo> system_infos;
@@ -152,20 +176,18 @@ export namespace Noodles
 
 		struct DeferInfo
 		{
-			SystemNode::Ptr ptr;
-			std::u8string_view system_name;
-			Potato::Task::TaskFilter filter;
+			SystemNode::Ptr node;
+			Potato::Task::Property property;
 		};
 
 		std::pmr::vector<DeferInfo> defer_temporary_system_node;
 
-		Potato::Pointer::ObserverPtr<Context> context_ptr;
-
-		friend struct TaskFlow::Wrapper;
+		friend struct Potato::TaskGraphic::Flow::Wrapper;
 		friend struct Context;
 		friend struct SystemNode;
 		friend struct ContextWrapper;
 		friend struct ParallelExecutor;
+		friend struct LayerTaskFlowProcessContext;
 	};
 
 	struct SystemTemplate
@@ -195,7 +217,7 @@ export namespace Noodles
 		friend struct Context;
 	};
 
-	export struct Context : protected Potato::Task::TaskFlow
+	export struct Context : public Potato::TaskGraphic::Flow
 	{
 		struct Config
 		{
@@ -206,7 +228,15 @@ export namespace Noodles
 			std::size_t max_thread_order_count = 128;
 		};
 
-		using Ptr = Potato::Pointer::IntrusivePtr<Context, TaskFlow::Wrapper>;
+		struct Wrapper
+		{
+			void AddRef(Context const* ptr) { ptr->AddContextRef(); }
+			void SubRef(Context const* ptr) { ptr->SubContextRef(); }
+		};
+
+		using Ptr = Potato::Pointer::IntrusivePtr<Context, Wrapper>;
+
+		static Ptr Create(Config config = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		Entity::Ptr CreateEntity() { return entity_manager.CreateEntity(component_manager); }
 
@@ -248,8 +278,8 @@ export namespace Noodles
 
 		//bool AddSystem(SystemNode::Ptr system, SystemNodeProperty property);
 		//bool RemoveSystem(TaskFlow::Node& node);
-		bool RemoveSystemDefer(SystemName display_name);
-		bool RemoveSystemDeferByGroup(std::u8string_view group_name);
+		bool RemoveSystemDefer(std::u8string_view system_name);
+		//bool RemoveSystemDeferByGroup(std::u8string_view group_name);
 
 		template<typename Func>
 		static SystemTemplate::Ptr CreateAutomaticSystemTemplate(Func&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
@@ -263,14 +293,18 @@ export namespace Noodles
 			return system_template.CreateSystemNode(*this, resource);
 		}
 
-		bool AddTickedSystemNode(SystemNode::Ptr node, SystemName system_name, SystemNodeProperty property);
-		bool AddTemporarySystemNodeDefer(SystemNode::Ptr node, std::int32_t layout, std::u8string_view system_name, Potato::Task::TaskFilter property);
+		bool AddTickedSystemNode(SystemNode& node, Property property);
+		bool AddTemporarySystemNodeNextFrame(SystemNode& node, std::int32_t layout, Potato::Task::Property property);
 
 		template<typename Function>
-		bool CreateAndAddTickedAutomaticSystem(Function&& func, SystemName name, SystemNodeProperty property = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		bool CreateAndAddTickedAutomaticSystem(Function&& func, Property property = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
 		{
 			auto ptr = this->CreateAutomaticSystem(std::forward<Function>(func), resource);
-			return this->AddTickedSystemNode(std::move(ptr), name, property);
+			if (ptr)
+			{
+				return this->AddTickedSystemNode(*ptr, std::move(property));
+			}
+			return false;
 		}
 
 		bool RemoveEntity(Entity::Ptr entity) { return entity_manager.ReleaseEntity(std::move(entity)); }
@@ -300,8 +334,7 @@ export namespace Noodles
 
 		void Quit();
 
-		Context(Config config = {});
-		bool Commited(Potato::Task::TaskContext& context, Potato::Task::TaskFlowNodeProperty property) override;
+		
 		std::chrono::steady_clock::duration GetFramedDuration() const { return framed_duration; }
 		float GetFramedDurationInSecond() const
 		{
@@ -313,16 +346,17 @@ export namespace Noodles
 
 	protected:
 
+		Context(Config config = {});
+
 		LayerTaskFlow* FindSubContextTaskFlow_AssumedLocked(std::int32_t layer);
 		LayerTaskFlow::Ptr FindOrCreateContextTaskFlow_AssumedLocked(std::int32_t layer);
 
-		virtual void TaskFlowExecuteBegin(Potato::Task::TaskFlowContext& context) override;
-		virtual void TaskFlowExecuteEnd(Potato::Task::TaskFlowContext& context) override;
+		virtual void TaskFlowExecuteBegin(Potato::Task::ContextWrapper& context) override;
+		virtual void TaskFlowExecuteEnd(Potato::Task::ContextWrapper& context) override;
 		virtual void AddContextRef() const = 0;
 		virtual void SubContextRef() const = 0;
-		virtual void AddTaskFlowRef() const override { AddContextRef(); }
-		virtual void SubTaskFlowRef() const override { SubContextRef(); }
-		virtual bool Update_AssumedLocked(std::pmr::memory_resource* resource = std::pmr::get_default_resource()) override;
+		virtual void AddTaskGraphicFlowRef() const final { AddContextRef(); }
+		virtual void SubTaskGraphicFlowRef() const final { SubContextRef(); }
 
 		std::atomic<std::chrono::steady_clock::duration> framed_duration;
 
@@ -331,71 +365,16 @@ export namespace Noodles
 		std::mutex mutex;
 		Config config;
 		bool require_quit = false;
-		bool this_frame_singleton_update = false;
 		std::chrono::steady_clock::time_point start_up_tick_lock;
 
 		ComponentManager component_manager;
 		EntityManager entity_manager;
 		SingletonManager singleton_manager;
 
-		friend struct TaskFlow::Wrapper;
+		friend struct Potato::TaskGraphic::Flow::Wrapper;
 		friend struct SystemNode;
 		friend struct ParallelExecutor;
 		friend struct LayerTaskFlow;
-	};
-
-	struct ParallelInfo
-	{
-		enum class Status
-		{
-			None,
-			Parallel,
-			Done
-		};
-		Status status = Status::None;
-		std::size_t total_count = 0;
-		std::size_t current_index = 0;
-		std::size_t user_index = 0;
-	};
-
-	export struct ContextWrapper
-	{
-		ContextWrapper(
-			Potato::Task::TaskContext& task_context,
-			Potato::Task::TaskFlowNodeProperty node_property,
-			Context& noodles_context,
-			LayerTaskFlow& current_layout_flow,
-			SystemNode& current_node,
-			std::size_t node_index,
-			ParallelInfo parallel_info
-		)
-			: task_context(task_context), node_property(node_property),
-			noodles_context(noodles_context), current_layout_flow(current_layout_flow),
-			current_node(current_node), node_index(node_index),
-			parallel_info(parallel_info)
-		{
-		}
-		Potato::Task::TaskContext& GetTaskContext() const { return task_context; }
-		ParallelInfo GetParrallelInfo() const { return parallel_info; }
-		bool CommitParallelTask(std::size_t user_index, std::size_t total_count, std::size_t executor_count, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
-		Potato::Task::TaskFlowNodeProperty GetProperty() const { return node_property; }
-		Context& GetContext() const { return noodles_context; }
-		template<typename Func>
-		SystemNode::Ptr CreateAutomaticSystem(Func&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
-		{
-			return noodles_context.CreateAutomaticSystem(std::forward<Func>(func), resource);
-		}
-		bool AddTemporaryNodeImmediately(SystemNode::Ptr node, std::u8string_view system_name = u8"temporary_system", Potato::Task::TaskFilter filter = {}) { return current_layout_flow.AddTemporaryNodeDefer(std::move(node), system_name, std::move(filter)); }
-		bool AddTemporaryNodeDefer(SystemNode::Ptr node, std::u8string_view system_name = u8"temporary_system", Potato::Task::TaskFilter filter = {}) { return current_layout_flow.AddTemporaryNodeDefer(std::move(node), system_name, std::move(filter)); }
-		void Quit() { return noodles_context.Quit(); }
-	protected:
-		Potato::Task::TaskContext& task_context;
-		Potato::Task::TaskFlowNodeProperty node_property;
-		Context& noodles_context;
-		LayerTaskFlow& current_layout_flow;
-		SystemNode& current_node;
-		std::size_t node_index;
-		ParallelInfo parallel_info;
 	};
 
 
@@ -476,30 +455,34 @@ export namespace Noodles
 			};
 		}
 
-		bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update,  std::span<MarkElement const> component_usage) const
+		SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update,  std::span<MarkElement const> component_usage) const
 		{
 			if (MarkElement::IsOverlapping(filter->GetArchetypeMarkArray(), archetype_update))
 			{
 				return target_node.IsComponentOverlapping(*filter, archetype_update, component_usage);
 			}else
 			{
-				return false;
+				return SystemNode::ComponentOverlappingState::NoUpdate;
 			}
 		}
 
-		bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
+		SystemNode::ComponentOverlappingState IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 		{
 			if (MarkElement::IsOverlapping(this->filter->GetArchetypeMarkArray(), archetype_update))
 			{
-				return MarkElement::IsOverlappingWithMask(
+				if (MarkElement::IsOverlappingWithMask(
 					this->filter->GetArchetypeMarkArray(),
 					filter.GetArchetypeMarkArray(),
 					component_usage
-				) && this->filter->GetRequiredStructLayoutMarks().WriteConfig(filter.GetRequiredStructLayoutMarks());
+				) && this->filter->GetRequiredStructLayoutMarks().WriteConfig(filter.GetRequiredStructLayoutMarks()))
+				{
+					return SystemNode::ComponentOverlappingState::IsOverlapped;
+				}
+				return SystemNode::ComponentOverlappingState::IsNotOverlapped;
 			}
 			else
 			{
-				return false;
+				return SystemNode::ComponentOverlappingState::NoUpdate;
 			}
 		}
 
@@ -610,13 +593,13 @@ export namespace Noodles
 	template<typename Type>
 	concept HasIsComponentOverlappingWithSystemNodeFunctionWrapper = requires(Type const& type)
 	{
-		{ type.IsComponentOverlapping(std::declval<SystemNode const&>(), std::span<MarkElement const>{}, std::span<MarkElement const>{}) } -> std::same_as<bool>;
+		{ type.IsComponentOverlapping(std::declval<SystemNode const&>(), std::span<MarkElement const>{}, std::span<MarkElement const>{}) } -> std::same_as<SystemNode::ComponentOverlappingState>;
 	};
 
 	template<typename Type>
 	concept HasIsComponentOverlappingWithComponentFilterFunctionWrapper = requires(Type const& type)
 	{
-		{ type.IsComponentOverlapping(std::declval<ComponentFilter const&>(), std::span<MarkElement const>{}, std::span<MarkElement const>{}) } -> std::same_as<bool>;
+		{ type.IsComponentOverlapping(std::declval<ComponentFilter const&>(), std::span<MarkElement const>{}, std::span<MarkElement const>{}) } -> std::same_as<SystemNode::ComponentOverlappingState>;
 	};
 
 	struct SystemAutomatic
@@ -681,22 +664,22 @@ export namespace Noodles
 				}
 			}
 
-			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
+			SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 			{
 				if constexpr (HasIsComponentOverlappingWithSystemNodeFunctionWrapper<RealType>)
 				{
 					return data.IsComponentOverlapping(target_node, archetype_update, component_usage);
 				}
-				return false;
+				return SystemNode::ComponentOverlappingState::NoUpdate;
 			}
 
-			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
+			SystemNode::ComponentOverlappingState IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 			{
 				if constexpr (HasIsComponentOverlappingWithComponentFilterFunctionWrapper<RealType>)
 				{
 					return data.IsComponentOverlapping(filter, archetype_update, component_usage);
 				}
-				return false;
+				return SystemNode::ComponentOverlappingState::NoUpdate;
 			}
 		};
 
@@ -742,14 +725,32 @@ export namespace Noodles
 				other_holders.FlushSystemNodeMutex(component, singleton, thread_order);
 			}
 
-			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
+			SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode::ComponentOverlappingState start_update_state, SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 			{
-				return cur_holder.IsComponentOverlapping(target_node, archetype_update, component_usage) || other_holders.IsComponentOverlapping(target_node, archetype_update, component_usage);
+				auto state = cur_holder.IsComponentOverlapping(target_node, archetype_update, component_usage);
+				switch (state)
+				{
+				case SystemNode::ComponentOverlappingState::NoUpdate:
+					return other_holders.IsComponentOverlapping(start_update_state, target_node, archetype_update, component_usage);
+				case SystemNode::ComponentOverlappingState::IsNotOverlapped:
+					return other_holders.IsComponentOverlapping(SystemNode::ComponentOverlappingState::IsNotOverlapped, target_node, archetype_update, component_usage);
+				default:
+					return SystemNode::ComponentOverlappingState::IsOverlapped;
+				}
 			}
 
-			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
+			SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode::ComponentOverlappingState start_update_state, ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 			{
-				return cur_holder.IsComponentOverlapping(filter, archetype_update, component_usage) || other_holders.IsComponentOverlapping(filter, archetype_update, component_usage);
+				auto state = cur_holder.IsComponentOverlapping(filter, archetype_update, component_usage);
+				switch (state)
+				{
+				case SystemNode::ComponentOverlappingState::NoUpdate:
+					return other_holders.IsComponentOverlapping(start_update_state, filter, archetype_update, component_usage);
+				case SystemNode::ComponentOverlappingState::IsNotOverlapped:
+					return other_holders.IsComponentOverlapping(SystemNode::ComponentOverlappingState::IsNotOverlapped, filter, archetype_update, component_usage);
+				default:
+					return SystemNode::ComponentOverlappingState::IsOverlapped;
+				}
 			}
 		};
 
@@ -758,8 +759,8 @@ export namespace Noodles
 		{
 			ParameterHolders(Context& context, std::size_t identity) {}
 			void Reset() {}
-			bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const { return false; }
-			bool IsComponentOverlapping(ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const { return false; }
+			SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode::ComponentOverlappingState start_update_state, SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const { return start_update_state; }
+			SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode::ComponentOverlappingState start_update_state, ComponentFilter const& filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const { return start_update_state; }
 			void FlushSystemNodeMutex(StructLayoutMarksInfos component, StructLayoutMarksInfos singleton, StructLayoutMarksInfos thread_order) const {}
 		};
 
@@ -841,13 +842,13 @@ export namespace Noodles
 
 		void AddSystemNodeRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
 		void SubSystemNodeRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
-		virtual bool IsComponentOverlapping(ComponentFilter const& target_component_filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const override
+		virtual SystemNode::ComponentOverlappingState IsComponentOverlapping(ComponentFilter const& target_component_filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const override
 		{
-			return append_data.IsComponentOverlapping(target_component_filter, archetype_update, archetype_usage_count);
+			return append_data.IsComponentOverlapping(SystemNode::ComponentOverlappingState::NoUpdate, target_component_filter, archetype_update, archetype_usage_count);
 		}
-		virtual bool IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const override
+		virtual SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const override
 		{
-			return append_data.IsComponentOverlapping(target_node, archetype_update, archetype_usage_count);
+			return append_data.IsComponentOverlapping(SystemNode::ComponentOverlappingState::NoUpdate, target_node, archetype_update, archetype_usage_count);
 		}
 		virtual SystemNode::Mutex GetMutex() const override
 		{

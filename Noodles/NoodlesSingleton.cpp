@@ -296,21 +296,21 @@ namespace Noodles
 
 	bool SingletonManager::Flush(std::pmr::memory_resource* temp_resource)
 	{
-		bool update = false;
 		std::lock(mutex, modifier_mutex);
+		has_singleton_update = false;
 		std::lock_guard lg(mutex, std::adopt_lock);
 		std::lock_guard lg2(modifier_mutex, std::adopt_lock);
 
 		if(singleton_archetype && MarkElement::IsReset(modify_mask))
 		{
 			ClearCurrentSingleton_AssumedLocked();
-			update = true;
+			has_singleton_update = true;
 			std::shared_lock sl(filter_mutex);
 			for(auto& ite : filter)
 			{
 				ite.filter->Reset();
 			}
-			return update;
+			return has_singleton_update;
 		}
 
 		if(singleton_archetype && MarkElement::IsSame(singleton_archetype->GetAtomicTypeMark(), modify_mask))
@@ -318,7 +318,7 @@ namespace Noodles
 			auto View = GetSingletonView_AssumedLocked();
 			for (auto& ite : modifier)
 			{
-				update = true;
+				has_singleton_update = true;
 				if (ite.resource)
 				{
 					auto mindex = singleton_archetype->Locate(ite.mark_index);
@@ -335,7 +335,7 @@ namespace Noodles
 				}
 			}
 			modifier.clear();
-			return update;
+			return has_singleton_update;
 		}
 		if(!modifier.empty())
 		{
@@ -379,7 +379,7 @@ namespace Noodles
 				);
 				if(record)
 				{
-					update = true;
+					has_singleton_update = true;
 					MarkElement::Reset(marks);
 					auto new_view = SingletonView{
 						new_archetype,
@@ -432,7 +432,7 @@ namespace Noodles
 					modifier.clear();
 					singleton_archetype = std::move(new_archetype);
 					singleton_record = record;
-					update = true;
+					has_singleton_update = true;
 					assert(singleton_archetype);
 					std::shared_lock lg(filter_mutex);
 					for (auto& ite : filter)
@@ -446,6 +446,6 @@ namespace Noodles
 			}
 			MarkElement::CopyTo(modify_mask, singleton_mark);
 		}
-		return update;
+		return has_singleton_update;
 	}
 }

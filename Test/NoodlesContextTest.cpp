@@ -1,14 +1,13 @@
 import std;
-import PotatoTaskSystem;
+import Potato;
 import NoodlesComponent;
 import NoodlesContext;
-import PotatoEncode;
 
 std::mutex PrintMutex;
 
 void PrintSystemProperty(Noodles::ContextWrapper& wrapper)
 {
-	auto wstr = *Potato::Encode::StrEncoder<char8_t, wchar_t>::EncodeToString(wrapper.GetProperty().display_name);
+	auto wstr = *Potato::Encode::StrEncoder<char8_t, wchar_t>::EncodeToString(wrapper.GetTaskProperty().node_name);
 	auto sstr = *Potato::Encode::StrEncoder<wchar_t, char>::EncodeToString(std::wstring_view{wstr});
 	{
 		std::lock_guard lg(PrintMutex);
@@ -50,10 +49,15 @@ struct Tuple2
 
 struct TestContext : public Noodles::Context
 {
-	using Context::Context;
+	TestContext(Config config) : Context(config) {}
 protected:
 	void AddContextRef() const override {}
 	void SubContextRef() const override {}
+	void TaskFlowExecuteBegin(Potato::Task::ContextWrapper& wrapper) override
+	{
+		Context::TaskFlowExecuteBegin(wrapper);
+		std::println("Context Begin---");
+	}
 };
 
 
@@ -82,7 +86,7 @@ int main()
 
 	TestContext context{fig};
 
-	Potato::Task::TaskContext tcontext;
+	Potato::Task::Context tcontext;
 	TestSystem systm;
 
 	auto ent = context.CreateEntity();
@@ -104,26 +108,28 @@ int main()
 
 
 	auto b1 = context.CreateAndAddTickedAutomaticSystem(Lambda,
-		{ u8"S133", u8"G11" },
-	{
-		{1, 1, 1},
-	});
+		{
+			{1, 1, 1},
+			u8"fun1 1_1_1"
+		}
+	);
 	auto b2 = context.CreateAndAddTickedAutomaticSystem(Lambda,
-		{ u8"S233", u8"G11" },
-	{
-		{1, 2, 1},
-	});
+		{
+			{1, 2, 1},
+			{u8"fun2 1-2-1"}
+		});
 	auto b3 = context.CreateAndAddTickedAutomaticSystem(Lambda,
-		{ u8"S144", u8"G22" },
-	{
-		{2, 1, 1},
+		{
+			{2, 1, 1},
+			u8"fun2 2_1_1"
 	});
 
 	auto b4 = context.CreateAndAddTickedAutomaticSystem([&](Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple> filter)
 	{
 		PrintSystemProperty(context);
-		auto sys = context.CreateAutomaticSystem(Lambda);
-		context.AddTemporaryNodeDefer(sys,u8"Temp", {});
+		auto sys = context.GetContext().CreateAutomaticSystem(Lambda);
+		context.AddTemporarySystemNodeNextFrame(*sys, { u8"defer_func" });
+		context.AddTemporarySystemNode(*sys, {u8"imp func"});
 
 		/*
 		std::size_t ite_index = 0;
@@ -143,17 +149,19 @@ int main()
 		*/
 
 	},
-		{ u8"TempTemp", u8"G22" },
-	{
-		{2, 1, 3},
-	});
+		{
+			{2, 1, 3},
+			u8"TempTemp 2-1-3"
+		});
 	auto b5 = context.CreateAndAddTickedAutomaticSystem(TestFunction,
-		{u8"S4", u8"G11"},
-		{1, 1, 3}
-		);
+		{
+			{1,1,3},
+			u8"fun4 1-1-3"
+		});
 
 	int index2 = 0;
 
+	/*
 	auto b6 = context.CreateAndAddTickedAutomaticSystem([&](Noodles::ContextWrapper& wrapper)
 	{
 		auto info = wrapper.GetParrallelInfo();
@@ -188,10 +196,11 @@ int main()
 		);
 
 	std::size_t index = 0;
+	*/
 
-	tcontext.AddGroupThread({}, 2);
+	tcontext.AddGroupThread({}, 10);
 	bool re = context.Commited(tcontext, {});
-	tcontext.ProcessTaskUntillNoExitsTask({});
+	tcontext.ExecuteContextThreadUntilNoExistTask();
 
 	return 0;
 }

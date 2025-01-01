@@ -5,11 +5,7 @@ module;
 export module NoodlesSingleton;
 
 import std;
-import PotatoTMP;
-import PotatoMisc;
-import PotatoPointer;
-import PotatoIR;
-import PotatoTaskSystem;
+import Potato;
 
 export import NoodlesArchetype;
 import NoodlesComponent;
@@ -131,6 +127,7 @@ export namespace Noodles
 			return { singleton_archetype, singleton_record.GetByte() };
 		}
 		std::span<MarkElement const> GetSingletonUsageMark_AssumedLocked() const { return singleton_mark; }
+		bool HasSingletonUpdate_AssumedLocked() const { return has_singleton_update; }
 		std::shared_mutex& GetMutex() { return mutex; }
 		std::size_t GetSingletonMarkElementStorageCount() const { return manager.GetStorageCount(); }
 
@@ -141,6 +138,7 @@ export namespace Noodles
 		StructLayoutMarkIndexManager manager;
 
 		std::shared_mutex mutex;
+		bool has_singleton_update = false;
 		Archetype::Ptr singleton_archetype;
 		Potato::IR::MemoryResourceRecord singleton_record;
 		std::pmr::unsynchronized_pool_resource singleton_resource;
