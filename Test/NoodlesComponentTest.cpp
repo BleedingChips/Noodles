@@ -40,15 +40,16 @@ struct E
 int main()
 {
 
-	StructLayoutMarkIndexManager manager;
+	auto manager = StructLayoutManager::Create();
+	ComponentManager comp_manager{manager};
 
 
 	auto init_list = std::array{
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<A>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<B>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<C>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<D>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<D>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<E>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<E>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<A>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<B>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<C>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<D>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<D>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<E>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<E>())},
 	};
 
 	auto init_list2 = std::array<StructLayoutWriteProperty, 2>
@@ -64,47 +65,37 @@ int main()
 
 
 	{
-		
-
-		
-
-		auto archetype = Archetype::Create(manager, init_list);
-
-		
-		
-
-		auto filter = ComponentFilter::Create(manager, 2, init_list2, refuse_component);
-
-		filter->OnCreatedArchetype(0, *archetype);
-
-		volatile std::size_t k2 = 0;
-	}
-
-
-	{
 
 
 
-		ComponentManager manager;
+		ComponentManager comp_manager{*manager};
 
 		{
 
-			auto ptr = manager.CreateComponentFilter(
-				init_list2,
-				refuse_component,
-				0
-			);
+			auto filter = ComponentFilter::Create(*manager, init_list2,
+				refuse_component);
 
-			ComponentManager::ArchetypeBuilderRef buildref{manager};
-			buildref.Insert(StructLayout::GetStatic<A>(), *manager.LocateStructLayout(*StructLayout::GetStatic<A>()));
-			buildref.Insert(StructLayout::GetStatic<B>(), *manager.LocateStructLayout(*StructLayout::GetStatic<B>()));
-			buildref.Insert(StructLayout::GetStatic<C>(), *manager.LocateStructLayout(*StructLayout::GetStatic<C>()));
-			buildref.Insert(StructLayout::GetStatic<D>(), *manager.LocateStructLayout(*StructLayout::GetStatic<D>()));
+			ComponentManager::ArchetypeBuilderRef buildref{ comp_manager };
 
-			auto [aptr, index] = manager.FindOrCreateArchetype(buildref);
+			buildref.Insert(StructLayout::GetStatic<A>(), *manager->LocateComponent(*StructLayout::GetStatic<A>()));
+			buildref.Insert(StructLayout::GetStatic<B>(), *manager->LocateComponent(*StructLayout::GetStatic<B>()));
+			buildref.Insert(StructLayout::GetStatic<C>(), *manager->LocateComponent(*StructLayout::GetStatic<C>()));
+			buildref.Insert(StructLayout::GetStatic<D>(), *manager->LocateComponent(*StructLayout::GetStatic<D>()));
 
-			auto [aptr2, index2] = manager.FindOrCreateArchetype(buildref);
+			auto [aptr, index] = comp_manager.FindOrCreateArchetype(buildref);
+
+			auto [aptr2, index2] = comp_manager.FindOrCreateArchetype(buildref);
+
+			comp_manager.UpdateFilter_AssumedLocked(*filter);
+
+			std::array<void*, 100> buffer;
+			ComponentAccessor accessor{buffer};
+			auto re = comp_manager.ReadComponentRow_AssumedLocked(*filter, 0, accessor);
+
+			volatile int i = 0;
 		}
+
+		
 
 	}
 

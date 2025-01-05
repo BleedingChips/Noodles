@@ -7,7 +7,7 @@ std::mutex PrintMutex;
 
 void PrintSystemProperty(Noodles::ContextWrapper& wrapper)
 {
-	auto wstr = *Potato::Encode::StrEncoder<char8_t, wchar_t>::EncodeToString(wrapper.GetTaskProperty().node_name);
+	auto wstr = *Potato::Encode::StrEncoder<char8_t, wchar_t>::EncodeToString(wrapper.GetNodeProperty().node_name);
 	auto sstr = *Potato::Encode::StrEncoder<wchar_t, char>::EncodeToString(std::wstring_view{wstr});
 	{
 		std::lock_guard lg(PrintMutex);

@@ -47,7 +47,7 @@ export namespace Noodles
 		std::size_t user_index = 0;
 	};
 
-	struct SystemNode : public Potato::Task::Node
+	struct SystemNode : public Potato::TaskGraphic::Node
 	{
 
 		struct Wrapper
@@ -79,9 +79,9 @@ export namespace Noodles
 
 	protected:
 
-		virtual void TaskExecute(Potato::Task::ContextWrapper& wrapper) override final;
-		virtual void AddTaskNodeRef() const override final { AddSystemNodeRef(); }
-		virtual void SubTaskNodeRef() const override final { SubSystemNodeRef(); }
+		virtual void TaskGraphicNodeExecute(Potato::TaskGraphic::ContextWrapper& wrapper) override final;
+		virtual void AddTaskGraphicNodeRef() const override final { AddSystemNodeRef(); }
+		virtual void SubTaskGraphicNodeRef() const override final { SubSystemNodeRef(); }
 		virtual void SystemNodeExecute(ContextWrapper& wrapper) = 0;
 
 
@@ -98,14 +98,13 @@ export namespace Noodles
 		Context& GetContext() const { return context; }
 		void AddTemporarySystemNodeNextFrame(SystemNode& node, Potato::Task::Property property);
 		void AddTemporarySystemNode(SystemNode& node, Potato::Task::Property property);
-		ContextWrapper(Potato::Task::ContextWrapper& wrapper, Context& context, LayerTaskFlow& layer_flow, Potato::TaskGraphic::FlowProcessContext& flow_context)
-			: wrapper(wrapper), context(context), layer_flow(layer_flow), flow_context(flow_context){}
-		Potato::Task::Property& GetTaskProperty() const { return wrapper.GetTaskNodeProperty(); }
+		ContextWrapper(Potato::TaskGraphic::ContextWrapper& wrapper, Context& context, LayerTaskFlow& layer_flow)
+			: wrapper(wrapper), context(context), layer_flow(layer_flow) {}
+		Potato::Task::Property& GetNodeProperty() const { return wrapper.GetNodeProperty(); }
 	protected:
-		Potato::Task::ContextWrapper& wrapper;
+		Potato::TaskGraphic::ContextWrapper& wrapper;
 		Context& context;
 		LayerTaskFlow& layer_flow;
-		Potato::TaskGraphic::FlowProcessContext& flow_context;
 	};
 
 	enum class Order
@@ -125,24 +124,28 @@ export namespace Noodles
 		OrderFunction order_function = nullptr;
 	};
 
-	export struct LayerTaskFlow : public Potato::TaskGraphic::Flow, protected Potato::IR::MemoryResourceRecordIntrusiveInterface
+	export struct LayerTaskFlow : protected Potato::TaskGraphic::Flow, protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<LayerTaskFlow, Flow::Wrapper>;
 
-		static void AddTemporaryNode(Context& context, Potato::TaskGraphic::FlowProcessContext& flow_context, SystemNode& node, Potato::Task::Property property);
+		bool AddTemporaryNode(SystemNode& node, Potato::Task::Property property);
 		void AddTemporaryNodeNextFrame(SystemNode& node, Potato::Task::Property property);
 
 	protected:
 
 		bool AddTickedNode(SystemNode& node, Property property);
 		virtual void TaskFlowExecuteBegin(Potato::Task::ContextWrapper& context) override;
-		virtual void PostUpdateFromFlow(Potato::TaskGraphic::FlowProcessContext& context, Potato::Task::ContextWrapper& wrapper) override;
-		static bool TemporaryNodeDetect(Context& context, SystemNode& node, Potato::Task::Node const& t_node, Potato::Task::Property const& property);
+		virtual void TaskFlowPostUpdateProcessNode(Potato::Task::ContextWrapper& wrapper) override;
+		static bool TemporaryNodeDetect(Context& context, SystemNode& node, Potato::Task::Property& property, SystemNode const& t_node, Potato::Task::Property const& target_property);
+
+		bool AddTemporaryNode_AssumedLocked(SystemNode& node, Potato::Task::Property property);
 
 		LayerTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
 			: MemoryResourceRecordIntrusiveInterface(record), layout(layout)
 		{
 		}
+
+		Context& GetContextFromTrigger();
 
 		virtual void AddTaskGraphicFlowRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
 		virtual void SubTaskGraphicFlowRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
@@ -182,7 +185,8 @@ export namespace Noodles
 
 		std::pmr::vector<DeferInfo> defer_temporary_system_node;
 
-		friend struct Potato::TaskGraphic::Flow::Wrapper;
+		friend struct Flow::Wrapper;
+		friend struct Ptr;
 		friend struct Context;
 		friend struct SystemNode;
 		friend struct ContextWrapper;
@@ -209,6 +213,7 @@ export namespace Noodles
 	{
 		StructLayoutMarksInfosView GetStructLayoutMarks() const { return marks; };
 		using Ptr = Potato::Pointer::IntrusivePtr<ThreadOrderFilter>;
+
 	protected:
 		ThreadOrderFilter(Potato::IR::MemoryResourceRecord record, StructLayoutMarksInfos marks)
 			: MemoryResourceRecordIntrusiveInterface(record), marks(marks) {}
@@ -238,7 +243,7 @@ export namespace Noodles
 
 		static Ptr Create(Config config = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
-		Entity::Ptr CreateEntity() { return entity_manager.CreateEntity(component_manager); }
+		Entity::Ptr CreateEntity() { return entity_manager.CreateEntity(); }
 
 		template<typename CurType, typename ...Type>
 		Entity::Ptr CreateEntity(CurType&& ctype, Type&& ...type)
@@ -312,25 +317,10 @@ export namespace Noodles
 		template<typename Type>
 		bool AddSingleton(Type&& type) { return singleton_manager.AddSingleton(std::forward<Type>(type)); }
 
-
-		decltype(auto) CreateComponentFilter(
-			std::span<StructLayoutWriteProperty const> require_struct_layout,
-			std::span<StructLayout::Ptr const> refuse_struct_layout,
-			std::size_t identity
-			)
-		{
-			return component_manager.CreateComponentFilter(require_struct_layout, refuse_struct_layout, identity);
-		}
-
-		decltype(auto) CreateSingletonFilter(std::span<StructLayoutWriteProperty const> require_struct_layout, std::size_t identity)
-		{
-			return singleton_manager.CreateSingletonFilter(require_struct_layout, identity);
-		}
-
 		bool IterateComponent_AssumedLocked(ComponentFilter const& filter, std::size_t ite_index, ComponentAccessor& accessor) const { return component_manager.ReadComponentRow_AssumedLocked(filter, ite_index, accessor); }
 		bool ReadEntity_AssumedLocked(Entity const& entity, ComponentFilter const& filter, ComponentAccessor& accessor) const { { return entity_manager.ReadEntityComponents_AssumedLocked(component_manager, entity, filter, accessor); } }
 		//decltype(auto) ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output, bool prefer_modifier = true) const { return manager.ReadEntityDirect_AssumedLocked(entity, filter, output, prefer_modifier); };
-		bool ReadSingleton_AssumedLocked(SingletonFilter const& filter, SingletonAccessor& accessor) { return singleton_manager.ReadSingleton_AssumedLocked(filter, accessor); }
+		bool ReadSingleton_AssumedLocked(SingletonFilter const& filter, SingletonAccessor& accessor) const { return singleton_manager.ReadSingleton_AssumedLocked(filter, accessor); }
 
 		void Quit();
 
@@ -390,14 +380,10 @@ export namespace Noodles
 			return std::span(temp_buffer);
 		}
 
-		AtomicComponentFilter(Context& context, std::size_t identity)
+		AtomicComponentFilter(StructLayoutManager& manager, std::pmr::memory_resource* resource)
 			: accessor(std::span(buffer))
 		{
-			filter = context.CreateComponentFilter(
-				GetRequire(),
-				{},
-				identity
-			);
+			filter = ComponentFilter::Create(manager, GetRequire(), {}, resource);
 			assert(filter);
 		}
 
@@ -441,7 +427,7 @@ export namespace Noodles
 				return std::span(temp_buffer);
 			}
 
-			WithRefuse(Context& context, std::size_t identity) : AtomicComponentFilter(context, identity) {}
+			WithRefuse(StructLayoutManager& manager, std::pmr::memory_resource* resource) : AtomicComponentFilter(manager, resource) {}
 
 			WithRefuse(WithRefuse const& in) : AtomicComponentFilter(in) {}
 		};

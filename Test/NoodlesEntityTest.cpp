@@ -39,8 +39,9 @@ struct E
 
 int main()
 {
-	ComponentManager component_manager;
-	EntityManager entity_manager;
+	auto manager = StructLayoutManager::Create();
+	ComponentManager component_manager{ *manager };
+	EntityManager entity_manager { *manager };
 
 	auto init_list2 = std::array<StructLayoutWriteProperty, 2>
 	{
@@ -53,31 +54,27 @@ int main()
 		StructLayout::GetStatic<E>()
 	};
 
-	
-	entity_manager.Init(component_manager);
+	auto filter = ComponentFilter::Create(*manager, init_list2, {});
+	auto filter2 = ComponentFilter::Create(*manager, init_list2, {});
 
-	auto filter = component_manager.CreateComponentFilter(
-		init_list2,
-		{},
-		0
-	);
-
-	auto filter2 = component_manager.CreateComponentFilter(
-		init_list2,
-		{},
-		0
-	);
-
-	auto entity = entity_manager.CreateEntity(component_manager);
+	auto entity = entity_manager.CreateEntity();
 
 	auto re1 = entity_manager.AddEntityComponent(
-		component_manager,
 		*entity, A{10086}
 	);
 
 	auto re2 = entity_manager.AddEntityComponent(
-		component_manager,
 		*entity, B{ 10076 }
+	);
+
+	auto entity2 = entity_manager.CreateEntity();
+
+	auto re21 = entity_manager.AddEntityComponent(
+		*entity2, A{ 10086 }
+	);
+
+	auto re22 = entity_manager.AddEntityComponent(
+		*entity2, B{ 10076 }
 	);
 
 	entity_manager.Flush(component_manager);
@@ -85,30 +82,32 @@ int main()
 	auto b1 = filter->IsIsOverlappingRunTime(*filter2, component_manager.GetArchetypeUsageMark_AssumedLocked());
 
 	entity_manager.RemoveEntityComponent(
-		component_manager,
 		*entity, *StructLayout::GetStatic<B>()
 	);
 
 	auto re3 = entity_manager.AddEntityComponent(
-		component_manager,
 		*entity, C{ 10086 }
 	);
 
 	auto re4 = entity_manager.AddEntityComponent(
-		component_manager,
 		*entity, D{ 10076 }
 	);
 
 	entity_manager.Flush(component_manager);
+	component_manager.UpdateFilter_AssumedLocked(*filter);
+	component_manager.UpdateFilter_AssumedLocked(*filter2);
 
 	auto b2 = filter->IsIsOverlappingRunTime(*filter2, component_manager.GetArchetypeUsageMark_AssumedLocked());
 
-	auto k = component_manager.ReadComponentRow_AssumedLocked(*filter, 0);
+	std::array<void*, 100> buffer;
+	ComponentAccessor accessor(buffer);
+
+	auto k = component_manager.ReadComponentRow_AssumedLocked(*filter, 0, accessor);
 
 	if(k)
 	{
-		auto span_a = k->AsSpan<A>(0);
-		auto span_b = k->AsSpan<B>(1);
+		auto span_a = accessor.AsSpan<A>(0);
+		auto span_b = accessor.AsSpan<B>(1);
 		volatile int i = 0;
 	}
 

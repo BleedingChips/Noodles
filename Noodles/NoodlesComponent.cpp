@@ -120,164 +120,33 @@ namespace Noodles
 		}
 	}
 
-	ComponentFilter::Ptr ComponentFilter::Create(
-		StructLayoutMarkIndexManager& manager,
-		std::size_t archetype_storage_count,
-		std::span<StructLayoutWriteProperty const> require_component_type,
-		std::span<StructLayout::Ptr const> refuse_component_type,
-		std::pmr::memory_resource* storage_resource,
-		std::pmr::memory_resource* archetype_info_resource
-	)
+	
+
+	bool ComponentManager::ReadComponentRow_AssumedLocked(ComponentQuery const& query, std::size_t filter_ite, QueryData& accessor) const
 	{
-		auto layout = Potato::MemLayout::MemLayoutCPP::Get<ComponentFilter>();
-		auto require_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetStorageCount()));
-		auto require_write_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetStorageCount()));
-		auto refuse_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetStorageCount()));
-		auto archetype_usable_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(archetype_storage_count));
-		auto atomic_index_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkIndex>(require_component_type.size()));
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(storage_resource, layout.Get());
-		if(re)
-		{
-			std::span<MarkElement> require_mask { new (re.GetByte(require_offset)) MarkElement[manager.GetStorageCount()], manager.GetStorageCount() };
-			std::span<MarkElement> require_write_mask{ new (re.GetByte(require_write_offset)) MarkElement[manager.GetStorageCount()], manager.GetStorageCount() };
-			std::span<MarkElement> archetype_usable{ new (re.GetByte(archetype_usable_offset)) MarkElement[archetype_storage_count], archetype_storage_count };
-			std::span<MarkIndex> require_index { new (re.GetByte(atomic_index_offset)) MarkIndex[require_component_type.size()], require_component_type.size() };
-
-			auto ite_span = require_index;
-
-			for(auto& Ite : require_component_type)
-			{
-				auto loc = manager.LocateOrAdd(*Ite.struct_layout);
-				if(loc.has_value())
-				{
-					MarkElement::Mark(require_mask, *loc);
-					ite_span[0] = *loc;
-					ite_span = ite_span.subspan(1);
-					if(Ite.need_write)
-					{
-						MarkElement::Mark(require_write_mask, *loc);
-					}
-				}else
-				{
-					assert(false);
-				}
-			}
-
-			std::span<MarkElement> refuse_mask{ new (re.GetByte(refuse_offset)) MarkElement[manager.GetStorageCount()], manager.GetStorageCount() };
-
-			for(auto& Ite : refuse_component_type)
-			{
-				auto loc = manager.LocateOrAdd(*Ite);
-				if (loc.has_value())
-				{
-					MarkElement::Mark(refuse_mask, *loc);
-				}
-				else
-				{
-					assert(false);
-				}
-			}
-
-			return new (re.Get()) ComponentFilter { re, require_mask, require_write_mask, refuse_mask, archetype_usable, require_index, archetype_info_resource };
- 		}
-		return {};
-	}
-
-	bool ComponentFilter::OnCreatedArchetype(std::size_t archetype_index, Archetype const& archetype)
-	{
-		std::lock_guard lg(mutex);
-		auto archetype_atomic_id = archetype.GetAtomicTypeMark();
-		if(MarkElement::Inclusion(archetype_atomic_id, GetRequiredStructLayoutMarks().total_marks) && !MarkElement::IsOverlapping(archetype_atomic_id, refuse_component))
-		{
-			auto old_size = archetype_member.size();
-			auto atomic_span = GetMarkIndex();
-			auto atomic_size = atomic_span.size();
-			archetype_member.resize(old_size + 1 + atomic_size);
-			auto span = std::span(archetype_member).subspan(old_size);
-			span[0] = archetype_index;
-			for(std::size_t i = 0; i < atomic_size; ++i)
-			{
-				auto index = archetype.Locate(atomic_span[i]);
-				assert(index.has_value());
-				span[i + 1] = index->index;
-			}
-			auto re = MarkElement::Mark(archetype_usable, MarkIndex{ archetype_index });
-			assert(!re);
-			return true;
-		}
-		return false;
-	}
-
-	std::optional<std::span<std::size_t const>> ComponentFilter::EnumMountPointIndexByArchetypeIndex_AssumedLocked(std::size_t archetype_index) const
-	{
-		auto size = GetMarkIndex().size();
-		auto span = std::span(archetype_member);
-		assert((span.size() % (size + 1)) == 0);
-		while (!span.empty())
-		{
-			if (span[0] == archetype_index)
-			{
-				span = span.subspan(1, size);
-				return span;
-			}
-			else
-			{
-				span = span.subspan(size + 1);
-			}
-		}
-		return std::nullopt;
-	}
-
-	std::optional<std::span<std::size_t const>> ComponentFilter::EnumMountPointIndexByIterator_AssumedLocked(std::size_t ite_index, std::size_t& archetype_index) const
-	{
-		auto size = GetMarkIndex().size();
-		auto span = std::span(archetype_member);
-		assert((span.size() % (size + 1)) == 0);
-
-		auto offset = ite_index * (size + 1);
-		if (offset < span.size())
-		{
-			span = span.subspan(offset);
-			archetype_index = span[0];
-			span = span.subspan(1, size);
-			return span;
-		}
-		
-		return std::nullopt;
-	}
-
-	bool ComponentFilter::IsIsOverlappingRunTime(ComponentFilter const& other, std::span<MarkElement const> archetype_usage) const
-	{
-		std::shared_lock sl(mutex);
-		return
-			MarkElement::IsOverlappingWithMask(archetype_usable, other.archetype_usable, archetype_usage) && (
-			MarkElement::IsOverlapping(require_component, other.require_write_component)
-			|| MarkElement::IsOverlapping(require_write_component, other.require_component)
-			);
-	}
-
-	bool ComponentManager::ReadComponentRow_AssumedLocked(ComponentFilter const& filter, std::size_t filter_ite, ComponentAccessor& accessor) const
-	{
-		std::shared_lock sl(filter.mutex);
+		std::shared_lock sl(query.GetMutex());
 		std::size_t archetype_index = 0;
-		auto re = filter.EnumMountPointIndexByIterator_AssumedLocked(filter_ite, archetype_index);
-		if(re.has_value() && re->size() <= accessor.output_buffer.size())
+		if(filter.component_manager_id == reinterpret_cast<std::size_t>(this))
 		{
-			assert(chunk_infos.size() > archetype_index);
-			auto& ref = chunk_infos[archetype_index];
-			auto view = ref.GetView();
-			if(view)
+			auto re = filter.EnumMountPointIndexByIterator_AssumedLocked(filter_ite, archetype_index);
+			if (re.has_value() && re->size() <= accessor.output_buffer.size())
 			{
-				for (std::size_t i = 0; i < re->size(); ++i)
+				assert(chunk_infos.size() > archetype_index);
+				auto& ref = chunk_infos[archetype_index];
+				auto view = ref.GetView();
+				if (view)
 				{
-					accessor.output_buffer[i] = view.GetComponent(
-						Archetype::Index{(*re)[i]},
-						0
-					);
+					for (std::size_t i = 0; i < re->size(); ++i)
+					{
+						accessor.output_buffer[i] = view.GetComponent(
+							Archetype::Index{ (*re)[i] },
+							0
+						);
+					}
+					accessor.archetype = view.archetype;
+					accessor.array_size = view.current_count;
+					return true;
 				}
-				accessor.archetype = view.archetype;
-				accessor.array_size = view.current_count;
-				return true;
 			}
 		}
 		return false;
@@ -286,53 +155,100 @@ namespace Noodles
 	bool ComponentManager::ReadComponentRow_AssumedLocked(std::size_t archetype_index, ComponentFilter const& filter, ComponentAccessor& accessor) const
 	{
 		std::shared_lock sl(filter.mutex);
-		auto re = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
-		if (re.has_value() && re->size() <= accessor.output_buffer.size())
+		if (filter.component_manager_id == reinterpret_cast<std::size_t>(this))
 		{
-			assert(chunk_infos.size() > archetype_index);
-			auto& ref = chunk_infos[archetype_index];
-			auto view = ref.GetView();
-			if (view)
+			auto re = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
+			if (re.has_value() && re->size() <= accessor.output_buffer.size())
 			{
-				for (std::size_t i = 0; i < re->size(); ++i)
+				assert(chunk_infos.size() > archetype_index);
+				auto& ref = chunk_infos[archetype_index];
+				auto view = ref.GetView();
+				if (view)
 				{
-					accessor.output_buffer[i] = view.GetComponent(
-						Archetype::Index{ (*re)[i] },
-						0
-					);
+					for (std::size_t i = 0; i < re->size(); ++i)
+					{
+						accessor.output_buffer[i] = view.GetComponent(
+							Archetype::Index{ (*re)[i] },
+							0
+						);
+					}
+					accessor.archetype = view.archetype;
+					accessor.array_size = view.current_count;
+					return true;
 				}
-				accessor.archetype = view.archetype;
-				accessor.array_size = view.current_count;
-				return true;
 			}
 		}
 		return false;
 	}
 
-	bool ComponentManager::ReadComponent_AssumedLocked(std::size_t archetype_index, std::size_t column_index, ComponentFilter const& filter, ComponentAccessor& accessor) const
+	bool ComponentManager::ReadComponent_AssumedLocked(std::size_t archetype_index, std::size_t column_index, ComponentFilter& filter, ComponentAccessor& accessor) const
 	{
 		std::shared_lock sl(filter.mutex);
-		auto re = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
-		if (re.has_value() && re->size() <= accessor.output_buffer.size())
+		if (filter.component_manager_id == reinterpret_cast<std::size_t>(this))
 		{
-			auto view = GetChunk_AssumedLocked(archetype_index);
-			if(view)
+			auto re = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
+			if (re.has_value() && re->size() <= accessor.output_buffer.size())
 			{
-				for (std::size_t i = 0; i < re->size(); ++i)
+				auto view = GetChunk_AssumedLocked(archetype_index);
+				if (view)
 				{
-					accessor.output_buffer[i] = view.GetComponent(
-						Archetype::Index{ (*re)[i] },
-						column_index
-					);
+					for (std::size_t i = 0; i < re->size(); ++i)
+					{
+						accessor.output_buffer[i] = view.GetComponent(
+							Archetype::Index{ (*re)[i] },
+							column_index
+						);
+					}
+					accessor.archetype = view.archetype;
+					accessor.array_size = 1;
+					return true;
 				}
-				accessor.archetype = view.archetype;
-				accessor.array_size = 1;
-				return true;
 			}
 		}
 		return false;
 	}
 
+	bool ComponentManager::UpdateFilter_AssumedLocked(ComponentQuery& query) const
+	{
+		std::lock_guard lg(query.GetMutex());
+
+		auto re = query.Update_AssumedLocked(*manager, reinterpret_cast<std::size_t>(this), chunk_infos.size());
+
+		if(re.has_value())
+		{
+			for (std::size_t i = *re; i < chunk_infos.size(); ++i)
+			{
+				query.OnCreatedArchetype_AssumedLocked(i, *chunk_infos[i].archetype);
+			}
+			return true;
+		}
+
+		if(filter.component_manager_id != reinterpret_cast<std::size_t>(this))
+		{
+			if(filter.struct_layout_manager_id == reinterpret_cast<std::size_t>(manager.GetPointer()))
+			{
+				filter.component_manager_id = reinterpret_cast<std::size_t>(this);
+				filter.version = 0;
+				filter.archetype_member.clear();
+				MarkElement::Reset(filter.archetype_usable);
+			}else
+			{
+				return false;
+			}
+		}
+
+		if (filter.version < chunk_infos.size())
+		{
+			for (std::size_t i = filter.version; i < chunk_infos.size(); ++i)
+			{
+				filter.OnCreatedArchetype_AssumedLocked(i, *chunk_infos[i].archetype);
+			}
+			return true;
+		}
+		return false;
+	}
+
+	/*
 	ComponentFilter::Ptr ComponentManager::CreateComponentFilter(
 		std::span<StructLayoutWriteProperty const> require_component,
 		std::span<StructLayout::Ptr const> refuse_component,
@@ -368,18 +284,16 @@ namespace Noodles
 		}
 		return {};
 	}
+	*/
 
-	ComponentManager::ComponentManager(Config config)
+	ComponentManager::ComponentManager(StructLayoutManager& manager, Config config)
 		:
-		archetype_max_count(MarkElement::GetMaxMarkIndexCount(config.archetype_max_count)),
-		archetype_storage_count(MarkElement::GetMarkElementStorageCalculate(config.archetype_max_count)),
-		manager(config.component_max_count, config.resource),
 		archetype_resource(config.archetype_resource),
 		component_resource(config.component_resource),
-		archetype_mask(config.resource),
-		filters(config.resource)
+		archetype_mask(config.resource)
 	{
-		archetype_mask.resize(archetype_storage_count * 2);
+		archetype_mask.resize(manager.GetArchetypeStorageCount() * 2);
+		this->manager = &manager;
 	}
 
 	
@@ -388,11 +302,6 @@ namespace Noodles
 		{
 			std::lock_guard lg2(chunk_mutex);
 			chunk_infos.clear();
-		}
-
-		{
-			std::lock_guard lg(filter_mutex);
-			filters.clear();
 		}
 	}
 
@@ -412,7 +321,7 @@ namespace Noodles
 	ComponentManager::ArchetypeBuilderRef::ArchetypeBuilderRef(ComponentManager& manager, std::pmr::memory_resource* temp_resource)
 		: atomic_type(temp_resource), mark(temp_resource)
 	{
-		mark.resize(manager.GetComponentMarkElementStorageCount());
+		mark.resize(manager.manager->GetComponentStorageCount());
 	}
 
 	bool ComponentManager::ArchetypeBuilderRef::Insert(StructLayout::Ptr ref, MarkIndex index)
@@ -444,13 +353,14 @@ namespace Noodles
 
 	std::tuple<Archetype::OPtr, OptionalIndex> ComponentManager::CreateArchetype_AssumedLocked(ArchetypeBuilderRef const& ref)
 	{
-		if(chunk_infos.size() + 1 >= archetype_max_count)
+		if(chunk_infos.size() + 1 >= manager->GetArchetypeCount())
 			return {{}, {}};
 
 
 		auto ptr = Archetype::Create(
-			manager, ref.atomic_type, &archetype_resource
+			manager->GetComponentStorageCount(), ref.atomic_type, &archetype_resource
 		);
+
 		assert(ptr);
 		auto old_size = chunk_infos.size();
 
@@ -460,17 +370,6 @@ namespace Noodles
 		chunk_infos.emplace_back(
 			std::move(infos)
 		);
-
-		{
-			std::shared_lock sl(filter_mutex);
-			for (auto& ite : filters)
-			{
-				if (ite.identity)
-				{
-					ite.filter->OnCreatedArchetype(old_size, *ptr);
-				}
-			}
-		}
 
 		return {ptr, old_size};
 	}
@@ -547,7 +446,7 @@ namespace Noodles
 						{
 							MarkElement::Mark(GetWriteableArchetypeUpdateMark_AssumedLocked(), MarkIndex{ archetype_index });
 						}
-						return ref.current_count;
+						return ref.current_count - 1;
 					}else
 					{
 						assert(false);
@@ -560,7 +459,7 @@ namespace Noodles
 		return {};
 	}
 
-	void ComponentManager::FixComponentChunkHole_AssumedLocked(std::pmr::vector<RemovedColumn>& holes, void(*func)(ChunkView const& view, std::size_t, std::size_t))
+	void ComponentManager::FixComponentChunkHole_AssumedLocked(std::pmr::vector<RemovedColumn>& holes, void(*func)(void* data, ChunkView const& view, std::size_t, std::size_t), void* data)
 	{
 		std::sort(
 			holes.begin(),
@@ -596,13 +495,15 @@ namespace Noodles
 				{
 					auto source = mm.GetComponent(ite2, chunk.current_count);
 					auto target = mm.GetComponent(ite2, ite.column_index);
-					ite2.layout->CopyConstruction(target, source);
-					ite2.layout->Destruction(source);
+					auto re1 = ite2.layout->MoveConstruction(target, source);
+					auto re2 = ite2.layout->Destruction(source);
+					assert(re1);
+					assert(re2);
 				}
 
 				if(func != nullptr)
 				{
-					(*func)(mm, chunk.current_count, ite.column_index);
+					(*func)(data, mm, chunk.current_count, ite.column_index);
 				}
 			}
 		}

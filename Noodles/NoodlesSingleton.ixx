@@ -59,16 +59,17 @@ export namespace Noodles
 
 		std::span<MarkIndex const> GetMarkIndex() const { return mark_index; }
 
-		bool OnSingletonModify(Archetype const& archetype);
+		
 		void Reset();
 
 		static SingletonFilter::Ptr Create(
-			StructLayoutMarkIndexManager& manager,
+			StructLayoutManager& manager,
 			std::span<StructLayoutWriteProperty const> require_singleton,
 			std::pmr::memory_resource* storage_resource = std::pmr::get_default_resource()
 		);
 
 		std::span<std::size_t const> EnumSingleton_AssumedLocked() const { return archetype_offset; }
+		bool OnSingletonModify_AssumedLocked(Archetype const& archetype);
 
 	protected:
 
@@ -77,21 +78,27 @@ export namespace Noodles
 			std::span<MarkElement> require_singleton,
 			std::span<MarkElement> require_write_singleton,
 			std::span<MarkIndex> mark_index,
-			std::span<std::size_t> archetype_offset
+			std::span<std::size_t> archetype_offset,
+			std::size_t struct_layout_manager_id
 		)
 			:MemoryResourceRecordIntrusiveInterface(record), require_singleton(require_singleton),
 			require_write_singleton(require_write_singleton),
 			mark_index(mark_index),
-			archetype_offset(archetype_offset)
+			archetype_offset(archetype_offset),
+			struct_layout_manager_id(struct_layout_manager_id)
 		{
 		}
 
+
+		std::size_t const struct_layout_manager_id;
 		std::span<MarkElement> require_singleton;
 		std::span<MarkElement> require_write_singleton;
 		std::span<MarkIndex> mark_index;
 
 		mutable std::shared_mutex mutex;
 		std::span<std::size_t> archetype_offset;
+		std::size_t singleton_manager_id = 0;
+		std::size_t archetype_id = 0;
 
 		friend struct SingletonManager;
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
@@ -107,10 +114,8 @@ export namespace Noodles
 			std::pmr::memory_resource* resource = std::pmr::get_default_resource();
 		};
 
-		SingletonManager(Config config = {});
+		SingletonManager(StructLayoutManager& manager, Config config = {});
 		~SingletonManager();
-
-		SingletonFilter::Ptr CreateSingletonFilter(std::span<StructLayoutWriteProperty const> input, std::size_t identity, std::pmr::memory_resource* filter_resource = std::pmr::get_default_resource());
 
 		bool ReadSingleton_AssumedLocked(SingletonFilter const& filter, SingletonAccessor& accessor) const;
 		bool AddSingleton(StructLayout const& struct_layout, void* target_buffer, EntityManager::Operation operation, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
@@ -129,13 +134,14 @@ export namespace Noodles
 		std::span<MarkElement const> GetSingletonUsageMark_AssumedLocked() const { return singleton_mark; }
 		bool HasSingletonUpdate_AssumedLocked() const { return has_singleton_update; }
 		std::shared_mutex& GetMutex() { return mutex; }
-		std::size_t GetSingletonMarkElementStorageCount() const { return manager.GetStorageCount(); }
+		std::size_t GetSingletonMarkElementStorageCount() const { return manager->GetSingletonStorageCount(); }
+		bool UpdateFilter_AssumedLocked(SingletonFilter& filter);
 
 	protected:
 
 		bool ClearCurrentSingleton_AssumedLocked();
 
-		StructLayoutMarkIndexManager manager;
+		StructLayoutManager::Ptr manager;
 
 		std::shared_mutex mutex;
 		bool has_singleton_update = false;
@@ -143,15 +149,6 @@ export namespace Noodles
 		Potato::IR::MemoryResourceRecord singleton_record;
 		std::pmr::unsynchronized_pool_resource singleton_resource;
 		std::pmr::vector<MarkElement> singleton_mark;
-
-		struct FilterTuple
-		{
-			SingletonFilter::Ptr filter;
-			OptionalIndex identity;
-		};
-
-		std::shared_mutex filter_mutex;
-		std::pmr::vector<FilterTuple> filter;
 
 		struct Modify
 		{
@@ -165,5 +162,5 @@ export namespace Noodles
 		std::pmr::vector<MarkElement> modify_mask;
 		std::pmr::vector<Modify> modifier;
 		
-	};
+	}; 
 }

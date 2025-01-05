@@ -158,5 +158,4 @@ export namespace Noodles
 		void Reset() { real_index = std::numeric_limits<std::size_t>::max(); }
 		std::size_t Get() const { return real_index; }
 	};
-
 }

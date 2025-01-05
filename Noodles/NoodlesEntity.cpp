@@ -7,9 +7,6 @@ module NoodlesEntity;
 namespace Noodles
 {
 
-	
-
-
 	void Entity::SetFree_AssumedLocked()
 	{
 		state = State::Free;
@@ -19,23 +16,23 @@ namespace Noodles
 		MarkElement::Reset(modify_component_mask);
 	}
 
-	auto Entity::Create(ComponentManager const& manager, std::pmr::memory_resource* resource)
+	auto Entity::Create(StructLayoutManager const& manager, std::pmr::memory_resource* resource)
 		-> Ptr
 	{
 		auto layout = Potato::MemLayout::MemLayoutCPP::Get<Entity>();
-		auto offset_current_mask = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetComponentMarkElementStorageCount()));
-		auto offset_modify_component = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetComponentMarkElementStorageCount()));
+		auto offset_current_mask = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetComponentStorageCount()));
+		auto offset_modify_component = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetComponentStorageCount()));
 
 		auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
 		if (record)
 		{
 			auto current_mask = std::span{
-				new (record.GetByte(offset_current_mask)) MarkElement[manager.GetComponentMarkElementStorageCount()],
-				manager.GetComponentMarkElementStorageCount()
+				new (record.GetByte(offset_current_mask)) MarkElement[manager.GetComponentStorageCount()],
+				manager.GetComponentStorageCount()
 			};
 			auto modify_component = std::span{
-				new (record.GetByte(offset_modify_component)) MarkElement[manager.GetComponentMarkElementStorageCount()],
-				manager.GetComponentMarkElementStorageCount()
+				new (record.GetByte(offset_modify_component)) MarkElement[manager.GetComponentStorageCount()],
+				manager.GetComponentStorageCount()
 			};
 			return new (record.Get()) Entity{
 				record,
@@ -45,10 +42,6 @@ namespace Noodles
 		}
 
 		return {};
-	}
-
-	Entity::~Entity()
-	{
 	}
 
 	EntityProperty::~EntityProperty()
@@ -75,8 +68,8 @@ namespace Noodles
 		return false;
 	}
 
-	EntityManager::EntityManager(Config config)
-		: entity_modifier(config.resource), entity_modifier_event(config.resource)
+	EntityManager::EntityManager(StructLayoutManager& manager, Config config)
+		: entity_entity_property_index(*manager.LocateComponent(*StructLayout::GetStatic<EntityProperty>())), manager(&manager), entity_modifier(config.resource), entity_modifier_event(config.resource)
 	{
 
 	}
@@ -90,9 +83,9 @@ namespace Noodles
 		entity_modifier_event.clear();
 	}
 
-	Entity::Ptr EntityManager::CreateEntity(ComponentManager& manager, std::pmr::memory_resource* entity_resource, std::pmr::memory_resource* temp_resource)
+	Entity::Ptr EntityManager::CreateEntity(std::pmr::memory_resource* entity_resource, std::pmr::memory_resource* temp_resource)
 	{
-		auto ent = Entity::Create(manager, entity_resource);
+		auto ent = Entity::Create(*manager, entity_resource);
 		if (ent)
 		{
 			EntityProperty entity_property
@@ -100,13 +93,14 @@ namespace Noodles
 				ent
 			};
 
-			auto re = AddEntityComponentImp(manager, *ent, *StructLayout::GetStatic<EntityProperty>(), &entity_property, true, Operation::Move, temp_resource);
+			auto re = AddEntityComponentImp(*ent, *StructLayout::GetStatic<EntityProperty>(), &entity_property, true, Operation::Move, temp_resource);
 			assert(re);
 			return ent;
 		}
 		return {};
 	}
 
+	/*
 	bool EntityManager::Init(ComponentManager& manager)
 	{
 		auto re = manager.LocateStructLayout(*StructLayout::GetStatic<EntityProperty>());
@@ -117,6 +111,7 @@ namespace Noodles
 		assert(false);
 		return false;
 	}
+	*/
 
 	bool EntityManager::EntityModifierEvent::Release()
 	{
@@ -132,12 +127,12 @@ namespace Noodles
 		return false;
 	}
 
-	bool EntityManager::AddEntityComponentImp(ComponentManager& manager, Entity& target_entity, StructLayout const& atomic_type, void* reference_buffer, bool accept_build_in, Operation operation, std::pmr::memory_resource* resource)
+	bool EntityManager::AddEntityComponentImp(Entity& target_entity, StructLayout const& atomic_type, void* reference_buffer, bool accept_build_in, Operation operation, std::pmr::memory_resource* resource)
 	{
 		auto ope = atomic_type.GetOperateProperty();
 		if (!ope.move_construct && !ope.copy_construct)
 			return false;
-		auto loc = manager.LocateStructLayout(atomic_type);
+		auto loc = manager->LocateComponent(atomic_type);
 		if (loc.has_value() && (accept_build_in || *loc != GetEntityPropertyAtomicTypeID()))
 		{
 			std::lock_guard lg(target_entity.mutex);
@@ -240,9 +235,9 @@ namespace Noodles
 		return false;
 	}
 
-	bool EntityManager::RemoveEntityComponentImp(ComponentManager& manager, Entity& target_entity, StructLayout const& atomic_type, bool accept_build_in)
+	bool EntityManager::RemoveEntityComponentImp(Entity& target_entity, StructLayout const& atomic_type, bool accept_build_in)
 	{
-		auto loc = manager.LocateStructLayout(atomic_type);
+		auto loc = manager->LocateComponent(atomic_type);
 		if (loc.has_value() && (accept_build_in || *loc != GetEntityPropertyAtomicTypeID()))
 		{
 			std::lock_guard lg(target_entity.mutex);
@@ -435,7 +430,7 @@ namespace Noodles
 
 										auto re2 = mm.MoveConstructComponent(
 											ite2.index,
-											entity.column_index,
+											index,
 											target_buffer
 										);
 
@@ -465,15 +460,15 @@ namespace Noodles
 			entity_modifier_event.clear();
 		}
 
-		manager.FixComponentChunkHole_AssumedLocked(remove_list, [](ChunkView const& view, std::size_t from, std::size_t to)
+		manager.FixComponentChunkHole_AssumedLocked(remove_list, [](void* data, ChunkView const& view, std::size_t from, std::size_t to)
 		{
-			auto entity_property = reinterpret_cast<EntityProperty*>(view.GetComponent(GetEntityPropertyAtomicTypeID(), to));
+			auto entity_property = reinterpret_cast<EntityProperty*>(view.GetComponent(static_cast<EntityManager*>(data)->GetEntityPropertyAtomicTypeID(), to));
 			assert(entity_property != nullptr);
 			auto entity = entity_property->GetEntity();
 			assert(entity);
 			std::lock_guard lg(entity->mutex);
 			entity->column_index = to;
-		});
+		}, this);
 		assert(remove_list.empty());
 
 		return Updated;

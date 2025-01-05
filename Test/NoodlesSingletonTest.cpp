@@ -58,16 +58,15 @@ int main()
 		StructLayout::GetStatic<E>()
 	};
 
+	auto manager = StructLayoutManager::Create();
 
-	SingletonManager singleton_manager;
+	SingletonManager singleton_manager{*manager };
 
-	auto filter = singleton_manager.CreateSingletonFilter(
-		init_list2,
-		{}
-	);
+	auto filter = SingletonFilter::Create(*manager, init_list2);
 
 	singleton_manager.AddSingleton(A{10086});
 	singleton_manager.AddSingleton(B{ 10071 });
+	singleton_manager.UpdateFilter_AssumedLocked(*filter);
 
 	std::array<void*, 100> buffer1;
 	SingletonAccessor accessor(buffer1);
@@ -78,6 +77,7 @@ int main()
 	auto b = accessor.As<B>(1);
 
 	singleton_manager.Flush();
+	singleton_manager.UpdateFilter_AssumedLocked(*filter);
 
 	std::array<void*, 100> buffer2;
 	SingletonAccessor accessor2(buffer2);
