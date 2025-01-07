@@ -1,7 +1,6 @@
 import std;
 import Potato;
-import NoodlesComponent;
-import NoodlesContext;
+import Noodles;
 
 std::mutex PrintMutex;
 
@@ -49,13 +48,13 @@ struct Tuple2
 
 struct TestContext : public Noodles::Context
 {
-	TestContext(Config config) : Context(config) {}
+	TestContext(Noodles::StructLayoutManager& manager,  Config config) : Context(manager, config) {}
 protected:
 	void AddContextRef() const override {}
 	void SubContextRef() const override {}
-	void TaskFlowExecuteBegin(Potato::Task::ContextWrapper& wrapper) override
+	void TaskFlowExecuteBegin_AssumedLocked(Potato::Task::ContextWrapper& wrapper) override
 	{
-		Context::TaskFlowExecuteBegin(wrapper);
+		Context::TaskFlowExecuteBegin_AssumedLocked(wrapper);
 		std::println("Context Begin---");
 	}
 };
@@ -68,12 +67,12 @@ struct TestSystem : public Noodles::SystemNode
 	void SystemNodeExecute(Noodles::ContextWrapper& context) override { PrintSystemProperty(context); }
 };
 
-void TestFunction(Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple2> fup, Noodles::AtomicSingletonFilter<Tuple2> filter)
+void TestFunction(Noodles::ContextWrapper& wrapper, Noodles::AutoComponentQuery<Tuple2> component_query, Noodles::AutoSingletonQuery<Tuple2> singleton_query)
 {
-
-	filter.GetSingletons(context);
-	auto P = filter.Get<0>();
-	PrintSystemProperty(context);
+	component_query.IterateComponent(wrapper, 0);
+	singleton_query.GetSingletons(wrapper);
+	auto P = component_query.AsSpan<0>();
+	PrintSystemProperty(wrapper);
 }
 
 
@@ -84,7 +83,9 @@ int main()
 	Noodles::Context::Config fig;
 	fig.min_frame_time = std::chrono::seconds{ 1 };
 
-	TestContext context{fig};
+	auto manager = Noodles::StructLayoutManager::Create();
+
+	TestContext context{*manager, fig};
 
 	Potato::Task::Context tcontext;
 	TestSystem systm;
@@ -99,7 +100,7 @@ int main()
 		context.AddEntityComponent(*ent2, Tuple{o});
 	}
 
-	auto Lambda = [](Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple2> filter)
+	auto Lambda = [](Noodles::ContextWrapper& context, Noodles::AutoComponentQuery<Tuple2> query)
 	{
 		PrintSystemProperty(context);
 	};
@@ -107,27 +108,27 @@ int main()
 	auto Ker = context.AddSingleton(Tuple2{ std::u8string{u8"Fff"} });
 
 
-	auto b1 = context.CreateAndAddTickedAutomaticSystem(Lambda,
-		{
+	auto b1 = Noodles::CreateAndAddAutomaticSystem(context, Lambda,
+		Noodles::Property{
 			{1, 1, 1},
-			u8"fun1 1_1_1"
+			{u8"fun1 1_1_1"}
 		}
 	);
-	auto b2 = context.CreateAndAddTickedAutomaticSystem(Lambda,
+	auto b2 = Noodles::CreateAndAddAutomaticSystem(context, Lambda,
 		{
 			{1, 2, 1},
 			{u8"fun2 1-2-1"}
 		});
-	auto b3 = context.CreateAndAddTickedAutomaticSystem(Lambda,
+	auto b3 = Noodles::CreateAndAddAutomaticSystem(context, Lambda,
 		{
 			{2, 1, 1},
 			u8"fun2 2_1_1"
 	});
 
-	auto b4 = context.CreateAndAddTickedAutomaticSystem([&](Noodles::ContextWrapper& context, Noodles::AtomicComponentFilter<Tuple> filter)
+	auto b4 = Noodles::CreateAndAddAutomaticSystem(context, [&](Noodles::ContextWrapper& context, Noodles::AutoComponentQuery<Tuple> query)
 	{
 		PrintSystemProperty(context);
-		auto sys = context.GetContext().CreateAutomaticSystem(Lambda);
+		auto sys = Noodles::CreateAutomaticSystem(context.GetContext().GetStructLayoutManager(), Lambda);
 		context.AddTemporarySystemNodeNextFrame(*sys, { u8"defer_func" });
 		context.AddTemporarySystemNode(*sys, {u8"imp func"});
 
@@ -153,7 +154,7 @@ int main()
 			{2, 1, 3},
 			u8"TempTemp 2-1-3"
 		});
-	auto b5 = context.CreateAndAddTickedAutomaticSystem(TestFunction,
+	auto b5 = Noodles::CreateAndAddAutomaticSystem(context, TestFunction,
 		{
 			{1,1,3},
 			u8"fun4 1-1-3"

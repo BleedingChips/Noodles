@@ -8,8 +8,6 @@ import Potato;
 
 export namespace Noodles
 {
-	struct AtomicTypeMark;
-
 	using StructLayout = Potato::IR::StructLayout;
 
 	struct MarkIndex
@@ -84,19 +82,19 @@ export namespace Noodles
 	};
 
 	template<typename Type>
-	concept IsFilterWriteType = std::is_same_v<Type, std::remove_cvref_t<Type>>;
+	concept IsQueryWriteType = std::is_same_v<Type, std::remove_cvref_t<Type>>;
 
 	template<typename Type>
-	concept IsFilterReadType = std::is_same_v<Type, std::add_const_t<std::remove_cvref_t<Type>>>;
+	concept IsQueryReadType = std::is_same_v<Type, std::add_const_t<std::remove_cvref_t<Type>>>;
 
 	template<typename Type>
-	concept AcceptableFilterType = IsFilterWriteType<Type> || IsFilterReadType<Type>;
+	concept AcceptableQueryType = IsQueryWriteType<Type> || IsQueryReadType<Type>;
 
 	struct StructLayoutWriteProperty
 	{
 		bool need_write = false;
 		StructLayout::Ptr struct_layout;
-		template<AcceptableFilterType Type>
+		template<AcceptableQueryType Type>
 		static StructLayoutWriteProperty GetComponent()
 		{
 			if constexpr (HasRemoveComponentWriteProperty<Type>)
@@ -104,10 +102,10 @@ export namespace Noodles
 				return {false, StructLayout::GetStatic<Type>()};
 			}else
 			{
-				return { IsFilterWriteType<Type>,StructLayout::GetStatic<Type>() };
+				return { IsQueryWriteType<Type>,StructLayout::GetStatic<Type>() };
 			}
 		}
-		template<AcceptableFilterType Type>
+		template<AcceptableQueryType Type>
 		static StructLayoutWriteProperty GetSingleton()
 		{
 			if constexpr (HasRemoveSingletonWriteProperty<Type>)
@@ -116,13 +114,13 @@ export namespace Noodles
 			}
 			else
 			{
-				return { IsFilterWriteType<Type>,StructLayout::GetStatic<Type>() };
+				return { IsQueryWriteType<Type>,StructLayout::GetStatic<Type>() };
 			}
 		}
-		template<AcceptableFilterType Type>
+		template<AcceptableQueryType Type>
 		static StructLayoutWriteProperty Get()
 		{
-			return { IsFilterWriteType<Type>,StructLayout::GetStatic<Type>() };
+			return { IsQueryWriteType<Type>,StructLayout::GetStatic<Type>() };
 		}
 	};
 

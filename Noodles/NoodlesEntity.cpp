@@ -53,7 +53,7 @@ namespace Noodles
 		}
 	}
 
-	bool EntityManager::ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentFilter const& filter, ComponentAccessor& accessor) const
+	bool EntityManager::ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentQuery const& query, QueryData& accessor) const
 	{
 		std::shared_lock sl(ent.mutex);
 		if (ent.state == Entity::State::Normal && ent.archetype_index)
@@ -61,7 +61,7 @@ namespace Noodles
 			return manager.ReadComponent_AssumedLocked(
 				ent.archetype_index,
 				ent.column_index,
-				filter,
+				query,
 				accessor
 			);
 		}

@@ -126,9 +126,9 @@ namespace Noodles
 	{
 		std::shared_lock sl(query.GetMutex());
 		std::size_t archetype_index = 0;
-		if(filter.component_manager_id == reinterpret_cast<std::size_t>(this))
+		if(query.VersionCheck_AssumedLocked(reinterpret_cast<std::size_t>(this), chunk_infos.size()))
 		{
-			auto re = filter.EnumMountPointIndexByIterator_AssumedLocked(filter_ite, archetype_index);
+			auto re = query.EnumMountPointIndexByIterator_AssumedLocked(filter_ite, archetype_index);
 			if (re.has_value() && re->size() <= accessor.output_buffer.size())
 			{
 				assert(chunk_infos.size() > archetype_index);
@@ -152,12 +152,12 @@ namespace Noodles
 		return false;
 	}
 
-	bool ComponentManager::ReadComponentRow_AssumedLocked(std::size_t archetype_index, ComponentFilter const& filter, ComponentAccessor& accessor) const
+	bool ComponentManager::ReadComponentRow_AssumedLocked(std::size_t archetype_index, ComponentQuery const& query, QueryData& accessor) const
 	{
-		std::shared_lock sl(filter.mutex);
-		if (filter.component_manager_id == reinterpret_cast<std::size_t>(this))
+		std::shared_lock sl(query.GetMutex());
+		if (query.VersionCheck_AssumedLocked(reinterpret_cast<std::size_t>(this), chunk_infos.size()))
 		{
-			auto re = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
+			auto re = query.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
 			if (re.has_value() && re->size() <= accessor.output_buffer.size())
 			{
 				assert(chunk_infos.size() > archetype_index);
@@ -181,12 +181,12 @@ namespace Noodles
 		return false;
 	}
 
-	bool ComponentManager::ReadComponent_AssumedLocked(std::size_t archetype_index, std::size_t column_index, ComponentFilter& filter, ComponentAccessor& accessor) const
+	bool ComponentManager::ReadComponent_AssumedLocked(std::size_t archetype_index, std::size_t column_index, ComponentQuery const& query, QueryData& accessor) const
 	{
-		std::shared_lock sl(filter.mutex);
-		if (filter.component_manager_id == reinterpret_cast<std::size_t>(this))
+		std::shared_lock sl(query.GetMutex());
+		if (query.VersionCheck_AssumedLocked(reinterpret_cast<std::size_t>(this), chunk_infos.size()))
 		{
-			auto re = filter.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
+			auto re = query.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
 			if (re.has_value() && re->size() <= accessor.output_buffer.size())
 			{
 				auto view = GetChunk_AssumedLocked(archetype_index);
@@ -222,69 +222,8 @@ namespace Noodles
 			}
 			return true;
 		}
-
-		if(filter.component_manager_id != reinterpret_cast<std::size_t>(this))
-		{
-			if(filter.struct_layout_manager_id == reinterpret_cast<std::size_t>(manager.GetPointer()))
-			{
-				filter.component_manager_id = reinterpret_cast<std::size_t>(this);
-				filter.version = 0;
-				filter.archetype_member.clear();
-				MarkElement::Reset(filter.archetype_usable);
-			}else
-			{
-				return false;
-			}
-		}
-
-		if (filter.version < chunk_infos.size())
-		{
-			for (std::size_t i = filter.version; i < chunk_infos.size(); ++i)
-			{
-				filter.OnCreatedArchetype_AssumedLocked(i, *chunk_infos[i].archetype);
-			}
-			return true;
-		}
 		return false;
 	}
-
-	/*
-	ComponentFilter::Ptr ComponentManager::CreateComponentFilter(
-		std::span<StructLayoutWriteProperty const> require_component,
-		std::span<StructLayout::Ptr const> refuse_component,
-		std::size_t identity,
-		std::pmr::memory_resource* filter_resource,
-		std::pmr::memory_resource* offset_resource
-	)
-	{
-		auto filter = ComponentFilter::Create(
-			manager,
-			archetype_storage_count,
-			require_component,
-			refuse_component,
-			filter_resource,
-			offset_resource
-		);
-		if(filter)
-		{
-			{
-				std::shared_lock sl(chunk_mutex);
-				for(std::size_t i = 0; i < chunk_infos.size(); ++i)
-				{
-					filter->OnCreatedArchetype(i, *chunk_infos[i].archetype);
-				}
-			}
-
-			std::lock_guard lg(filter_mutex);
-			filters.emplace_back(
-				filter,
-				OptionalIndex{identity}
-			);
-			return filter;
-		}
-		return {};
-	}
-	*/
 
 	ComponentManager::ComponentManager(StructLayoutManager& manager, Config config)
 		:

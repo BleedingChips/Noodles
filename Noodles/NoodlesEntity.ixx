@@ -12,6 +12,7 @@ import PotatoMisc;
 
 export import NoodlesArchetype;
 export import NoodlesComponent;
+export import NoodlesQuery;
 
 export namespace Noodles
 {
@@ -124,7 +125,7 @@ export namespace Noodles
 
 		bool Flush(ComponentManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 
-		bool ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentFilter const& filter, ComponentAccessor& accessor) const;
+		bool ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentQuery const& filter, QueryData& accessor) const;
 
 		EntityManager(StructLayoutManager& manager, Config fing = {});
 		~EntityManager();

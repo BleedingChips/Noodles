@@ -215,16 +215,22 @@ namespace Noodles
 		defer_temporary_system_node.emplace_back(&node, std::move(property));
 	}
 
-	void LayerTaskFlow::TaskFlowPostUpdateProcessNode(Potato::Task::ContextWrapper& wrapper)
+	void LayerTaskFlow::TaskFlowPostUpdateProcessNode_AssumedLocked(Potato::Task::ContextWrapper& wrapper)
 	{
-		std::lock_guard lg(preprocess_mutex);
 		if (!defer_temporary_system_node.empty())
 		{
 			Context* context = dynamic_cast<Context*>(wrapper.GetTriggerProperty().trigger.GetPointer());
 			assert(context != nullptr);
+			std::lock_guard lg(process_mutex);
 			for (auto& ite : defer_temporary_system_node)
 			{
-				AddTemporaryNode(*ite.node, std::move(ite.property));
+				if (Flow::AddTemporaryNode_AssumedLocked(*ite.node, [&](Potato::TaskGraphic::Node& node, Potato::Task::Property& property, Potato::TaskGraphic::Node const& target_node, Potato::Task::Property const& target_property, Potato::TaskGraphic::FlowNodeDetectionIndex const&)->bool
+					{
+						return LayerTaskFlow::TemporaryNodeDetect(*context, static_cast<SystemNode&>(node), property, static_cast<SystemNode const&>(target_node), target_property);
+					}, std::move(ite.property)))
+				{
+					ite.node->UpdateQuery(*context);
+				}
 			}
 			defer_temporary_system_node.clear();
 		}
@@ -232,18 +238,20 @@ namespace Noodles
 
 	bool LayerTaskFlow::AddTemporaryNode(SystemNode& node, Potato::Task::Property property)
 	{
-		return Flow::AddTemporaryNode(node, [&](Potato::TaskGraphic::Node& node, Potato::Task::Property& property, Potato::TaskGraphic::Node const& target_node, Potato::Task::Property const& target_property, Potato::TaskGraphic::FlowNodeDetectionIndex const&)->bool
-			{
-				return LayerTaskFlow::TemporaryNodeDetect(GetContextFromTrigger(), static_cast<SystemNode&>(node), property, static_cast<SystemNode const&>(target_node), target_property);
-			}, std::move(property));
+		std::lock_guard lg(process_mutex);
+		return AddTemporaryNode_AssumedLocked(node, std::move(property));
 	}
 
 	bool LayerTaskFlow::AddTemporaryNode_AssumedLocked(SystemNode& node, Potato::Task::Property property)
 	{
-		return Flow::AddTemporaryNode_AssumedLocked(node, [&](Potato::TaskGraphic::Node& node, Potato::Task::Property& property, Potato::TaskGraphic::Node const& target_node, Potato::Task::Property const& target_property, Potato::TaskGraphic::FlowNodeDetectionIndex const&)->bool
+		if (Flow::AddTemporaryNode_AssumedLocked(node, [&](Potato::TaskGraphic::Node& node, Potato::Task::Property& property, Potato::TaskGraphic::Node const& target_node, Potato::Task::Property const& target_property, Potato::TaskGraphic::FlowNodeDetectionIndex const&)->bool
 			{
 				return LayerTaskFlow::TemporaryNodeDetect(GetContextFromTrigger(), static_cast<SystemNode&>(node), property, static_cast<SystemNode const&>(target_node), target_property);
-			}, std::move(property));
+			}, std::move(property)))
+		{
+			node.UpdateQuery(GetContextFromTrigger());
+		}
+		return false;
 	}
 
 	bool LayerTaskFlow::TemporaryNodeDetect(Context& context, SystemNode& node, Potato::Task::Property& property, SystemNode const& target_node, Potato::Task::Property const& target_property)
@@ -283,21 +291,35 @@ namespace Noodles
 		return *context;
 	}
 
-	void LayerTaskFlow::TaskFlowExecuteBegin(Potato::Task::ContextWrapper& wrapper)
+	void LayerTaskFlow::TaskFlowExecuteBegin_AssumedLocked(Potato::Task::ContextWrapper& wrapper)
 	{
 		auto& context = *static_cast<Context*>(wrapper.GetTriggerProperty().trigger.GetPointer());
-		std::lock_guard lg0(preprocess_mutex);
 		std::shared_lock lg(context.component_manager.GetMutex());
 		std::shared_lock lg2(context.singleton_manager.GetMutex());
 		bool has_singleton_update = context.singleton_manager.HasSingletonUpdate_AssumedLocked();
 		bool has_component_update = context.component_manager.HasArchetypeUpdate_AssumedLocked();
 
-		if (has_singleton_update || has_component_update)
+		bool new_system_node = false;
+		for (auto& ite : preprocess_nodes)
+		{
+			if (ite.node)
+			{
+				if (!ite.under_process || has_singleton_update || has_component_update)
+				{
+					static_cast<SystemNode&>(*ite.node).UpdateQuery(context);
+				}
+				new_system_node = new_system_node || !ite.under_process;
+			}
+		}
+
+		if (new_system_node || has_singleton_update || has_component_update)
 		{
 			for (auto& ite : dynamic_edges)
 			{
-				auto from = static_cast<SystemNode*>(preprocess_nodes[ite.pre_process_from].node.GetPointer());
-				auto to = static_cast<SystemNode*>(preprocess_nodes[ite.pre_process_to].node.GetPointer());
+				auto& from_ref = preprocess_nodes[ite.pre_process_from];
+				auto& to_ref = preprocess_nodes[ite.pre_process_to];
+				auto from = static_cast<SystemNode*>(from_ref.node.GetPointer());
+				auto to = static_cast<SystemNode*>(to_ref.node.GetPointer());
 				bool need_edge = false;
 				if (has_singleton_update && ite.singleton_overlapping)
 				{
@@ -313,7 +335,12 @@ namespace Noodles
 				}
 				if (!need_edge && has_component_update && ite.component_overlapping)
 				{
-					auto state = from->IsComponentOverlapping(*to, context.component_manager.GetArchetypeUpdateMark_AssumedLocked(), context.component_manager.GetArchetypeUsageMark_AssumedLocked());
+					auto state = from->IsComponentOverlapping(*to, 
+						(from_ref.under_process || to_ref.under_process) ? 
+							context.component_manager.GetArchetypeUsageMark_AssumedLocked()
+							:context.component_manager.GetArchetypeUpdateMark_AssumedLocked(),
+						context.component_manager.GetArchetypeUsageMark_AssumedLocked()
+					);
 					switch (state)
 					{
 					case SystemNode::ComponentOverlappingState::NoUpdate:
@@ -361,10 +388,9 @@ namespace Noodles
 		require_quit = true;
 	}
 
-	Context::Context(Config config)
-		: config(config)
+	Context::Context(StructLayoutManager& manager, Config config)
+		: manager(&manager), config(config), component_manager(manager), entity_manager(manager), singleton_manager(manager)
 	{
-		entity_manager.Init(component_manager);
 	}
 
 	LayerTaskFlow* Context::FindSubContextTaskFlow_AssumedLocked(std::int32_t layer)
@@ -439,7 +465,7 @@ namespace Noodles
 		return false;
 	}
 
-	void Context::TaskFlowExecuteBegin(Potato::Task::ContextWrapper& wrapper)
+	void Context::TaskFlowExecuteBegin_AssumedLocked(Potato::Task::ContextWrapper& wrapper)
 	{
 		{
 			std::lock_guard lg(mutex);
@@ -453,7 +479,7 @@ namespace Noodles
 		singleton_manager.Flush();
 	}
 
-	void Context::TaskFlowExecuteEnd(Potato::Task::ContextWrapper& wrapper)
+	void Context::TaskFlowExecuteEnd_AssumedLocked(Potato::Task::ContextWrapper& wrapper)
 	{
 		std::chrono::steady_clock::time_point now_time = std::chrono::steady_clock::now();
 		std::chrono::steady_clock::time_point require_time;
@@ -466,62 +492,23 @@ namespace Noodles
 			}
 			require_time = start_up_tick_lock + config.min_frame_time;
 		}
-		Commited(wrapper, std::move(wrapper.GetTaskNodeProperty()), {}, require_time);
-	}
-
-	ThreadOrderFilter::Ptr Context::CreateThreadOrderFilter(std::span<StructLayoutWriteProperty const> info, std::pmr::memory_resource* resource)
-	{
-		auto layout = Potato::MemLayout::MemLayoutCPP::Get<ThreadOrderFilter>();
-		auto offset = layout.Insert(Potato::MemLayout::Layout::Get<MarkElement>(), thread_order_manager.GetStorageCount() * 2);
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
-		if (re)
-		{
-			std::span<MarkElement> write_span = {
-				new(re.GetByte(offset)) MarkElement[thread_order_manager.GetStorageCount()],
-				thread_order_manager.GetStorageCount()
-			};
-
-			std::span<MarkElement> total_span = {
-				new(re.GetByte(offset) + sizeof(MarkElement) * thread_order_manager.GetStorageCount()) MarkElement[thread_order_manager.GetStorageCount()],
-				thread_order_manager.GetStorageCount()
-			};
-
-			for (auto& ite : info)
-			{
-				auto loc = thread_order_manager.LocateOrAdd(*ite.struct_layout);
-				if (!loc)
-				{
-					re.Deallocate();
-					return {};
-				}else
-				{
-					if (ite.need_write)
-					{
-						MarkElement::Mark(write_span, *loc);
-					}
-					MarkElement::Mark(total_span, *loc);
-				}
-			}
-
-			return new (re.Get()) ThreadOrderFilter{ re, {write_span, total_span} };
-		}
-		return {};
+		Commited_AssumedLocked(wrapper, std::move(wrapper.GetTaskNodeProperty()), {}, require_time);
 	}
 
 	struct ContextImplement : public Context, public Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
 	public:
-		ContextImplement(Potato::IR::MemoryResourceRecord record, Config fig) :Context(fig), MemoryResourceRecordIntrusiveInterface(record) {}
+		ContextImplement(Potato::IR::MemoryResourceRecord record, StructLayoutManager& manager, Config fig) :Context(manager, fig), MemoryResourceRecordIntrusiveInterface(record) {}
 		virtual void AddContextRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
 		virtual void SubContextRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
 	};
 
-	auto Context::Create(Config config, std::pmr::memory_resource* resource) -> Ptr
+	auto Context::Create(StructLayoutManager& manager, Config config, std::pmr::memory_resource* resource) -> Ptr
 	{
 		auto re = Potato::IR::MemoryResourceRecord::Allocate<Context>(resource);
 		if (re)
 		{
-			return new (re.Get()) ContextImplement{re, std::move(config)};
+			return new (re.Get()) ContextImplement{re, manager, std::move(config)};
 		}
 		return {};
 	}

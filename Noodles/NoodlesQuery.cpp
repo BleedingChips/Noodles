@@ -89,7 +89,7 @@ namespace Noodles
 		}
 		return std::nullopt;
 	}
-	bool ComponentQuery::VersionCheck_AssumedLocked(StructLayoutManager& manager, std::size_t chunk_id, std::size_t chunk_size) const
+	bool ComponentQuery::VersionCheck_AssumedLocked(std::size_t chunk_id, std::size_t chunk_size) const
 	{
 		if(this->chunk_id == chunk_id && this->chunk_size_last_update == chunk_size)
 		{
@@ -171,5 +171,148 @@ namespace Noodles
 				MarkElement::IsOverlapping(require_component, other.require_write_component)
 				|| MarkElement::IsOverlapping(require_write_component, other.require_component)
 				);
+	}
+
+	SingletonQuery::Ptr SingletonQuery::Create(
+		StructLayoutManager& manager,
+		std::span<StructLayoutWriteProperty const> require_singleton,
+		std::pmr::memory_resource* storage_resource
+	)
+	{
+		auto layout = Potato::MemLayout::MemLayoutCPP::Get<SingletonQuery>();
+		auto require_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetSingletonStorageCount()));
+		auto require_write_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetSingletonStorageCount()));
+		auto atomic_index_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkIndex>(require_singleton.size()));
+		auto reference_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<std::size_t>(require_singleton.size()));
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(storage_resource, layout.Get());
+		if (re)
+		{
+			std::span<MarkElement> require_mask{ new (re.GetByte(require_offset)) MarkElement[manager.GetSingletonStorageCount()], manager.GetSingletonStorageCount() };
+			std::span<MarkElement> require_write_mask{ new (re.GetByte(require_write_offset)) MarkElement[manager.GetSingletonStorageCount()], manager.GetSingletonStorageCount() };
+			std::span<MarkIndex> require_index{ new (re.GetByte(atomic_index_offset)) MarkIndex[require_singleton.size()], require_singleton.size() };
+			std::span<std::size_t> reference_span{ new (re.GetByte(reference_offset)) std::size_t[require_singleton.size()], require_singleton.size() };
+
+			for (auto& ite : reference_span)
+			{
+				ite = std::numeric_limits<std::size_t>::max();
+			}
+
+			auto ite_span = require_index;
+
+			for (auto& Ite : require_singleton)
+			{
+				auto loc = manager.LocateSingleton(*Ite.struct_layout);
+				if (loc.has_value())
+				{
+					MarkElement::Mark(require_mask, *loc);
+					ite_span[0] = *loc;
+					ite_span = ite_span.subspan(1);
+					if (Ite.need_write)
+					{
+						MarkElement::Mark(require_write_mask, *loc);
+					}
+				}
+				else
+				{
+					assert(false);
+				}
+			}
+
+			return new (re.Get()) SingletonQuery{ re, require_mask, require_write_mask, require_index, reference_span, &manager };
+		}
+		return {};
+	}
+
+	bool SingletonQuery::OnSingletonModify_AssumedLocked(Archetype const& archetype)
+	{
+		auto span = GetMarkIndex();
+		auto ref = archetype_offset;
+		for (auto& ite : span)
+		{
+			auto loc = archetype.Locate(ite);
+			if (loc.has_value())
+			{
+				ref[0] = archetype[loc->index].offset;
+			}
+			else
+			{
+				ref[0] = std::numeric_limits<std::size_t>::max();
+			}
+			ref = ref.subspan(1);
+		}
+		archetype_id = reinterpret_cast<std::size_t>(&archetype);
+		return true;
+	}
+
+	bool SingletonQuery::Update_AssumedLocked(StructLayoutManager& manager, std::size_t archetype_id)
+	{
+		if (this->archetype_id != archetype_id)
+		{
+			if (this->manager != &manager)
+			{
+				return false;
+			}
+			this->archetype_id = 0;
+			for (auto& ite : archetype_offset)
+			{
+				ite = std::numeric_limits<std::size_t>::max();
+			}
+			return true;
+		}
+		return false;
+	}
+
+	bool SingletonQuery::VersionCheck_AssumedLocked(std::size_t archetype_id) const
+	{
+		return this->archetype_id == archetype_id;
+	}
+
+	void SingletonQuery::Reset()
+	{
+		std::lock_guard lg(mutex);
+		for (auto& ite : archetype_offset)
+		{
+			ite = std::numeric_limits<std::size_t>::max();
+		}
+	}
+
+	ThreadOrderQuery::Ptr ThreadOrderQuery::Create(StructLayoutManager& manager, std::span<StructLayoutWriteProperty const> info, std::pmr::memory_resource* resource)
+	{
+		auto layout = Potato::MemLayout::MemLayoutCPP::Get<ThreadOrderQuery>();
+		auto offset = layout.Insert(Potato::MemLayout::Layout::Get<MarkElement>(), manager.GetThreadOrderStorageCount() * 2);
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
+		if (re)
+		{
+			std::span<MarkElement> write_span = {
+				new(re.GetByte(offset)) MarkElement[manager.GetThreadOrderStorageCount()],
+				manager.GetThreadOrderStorageCount()
+			};
+
+			std::span<MarkElement> total_span = {
+				new(re.GetByte(offset) + sizeof(MarkElement) * manager.GetThreadOrderStorageCount()) MarkElement[manager.GetThreadOrderStorageCount()],
+				manager.GetThreadOrderStorageCount()
+			};
+
+			for (auto& ite : info)
+			{
+				auto loc = manager.LocateThreadOrder(*ite.struct_layout);
+				if (!loc)
+				{
+					re.Deallocate();
+					return {};
+				}
+				else
+				{
+					if (ite.need_write)
+					{
+						MarkElement::Mark(write_span, *loc);
+					}
+					MarkElement::Mark(total_span, *loc);
+				}
+			}
+
+			return new (re.Get()) ThreadOrderQuery{ re, {write_span, total_span} };
+		}
+		return {};
 	}
 }

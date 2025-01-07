@@ -40,86 +40,6 @@ namespace Noodles
 	}
 
 
-	SingletonFilter::Ptr SingletonFilter::Create(
-		StructLayoutManager& manager,
-		std::span<StructLayoutWriteProperty const> require_singleton,
-		std::pmr::memory_resource* storage_resource
-	)
-	{
-		auto layout = Potato::MemLayout::MemLayoutCPP::Get<SingletonFilter>();
-		auto require_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetSingletonStorageCount()));
-		auto require_write_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetSingletonStorageCount()));
-		auto atomic_index_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkIndex>(require_singleton.size()));
-		auto reference_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<std::size_t>(require_singleton.size()));
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(storage_resource, layout.Get());
-		if (re)
-		{
-			std::span<MarkElement> require_mask{ new (re.GetByte(require_offset)) MarkElement[manager.GetSingletonStorageCount()], manager.GetSingletonStorageCount() };
-			std::span<MarkElement> require_write_mask{ new (re.GetByte(require_write_offset)) MarkElement[manager.GetSingletonStorageCount()], manager.GetSingletonStorageCount() };
-			std::span<MarkIndex> require_index{ new (re.GetByte(atomic_index_offset)) MarkIndex[require_singleton.size()], require_singleton.size() };
-			std::span<std::size_t> reference_span{ new (re.GetByte(reference_offset)) std::size_t[require_singleton.size()], require_singleton.size() };
-
-			for (auto& ite : reference_span)
-			{
-				ite = std::numeric_limits<std::size_t>::max();
-			}
-
-			auto ite_span = require_index;
-
-			for (auto& Ite : require_singleton)
-			{
-				auto loc = manager.LocateSingleton(*Ite.struct_layout);
-				if (loc.has_value())
-				{
-					MarkElement::Mark(require_mask, *loc);
-					ite_span[0] = *loc;
-					ite_span = ite_span.subspan(1);
-					if (Ite.need_write)
-					{
-						MarkElement::Mark(require_write_mask, *loc);
-					}
-				}
-				else
-				{
-					assert(false);
-				}
-			}
-
-			return new (re.Get()) SingletonFilter{ re, require_mask, require_write_mask, require_index, reference_span, reinterpret_cast<std::size_t>(&manager)};
-		}
-		return {};
-	}
-
-	bool SingletonFilter::OnSingletonModify_AssumedLocked(Archetype const& archetype)
-	{
-		auto span = GetMarkIndex();
-		auto ref = archetype_offset;
-		for (auto& ite : span)
-		{
-			auto loc = archetype.Locate(ite);
-			if (loc.has_value())
-			{
-				ref[0] = archetype[loc->index].offset;
-			}
-			else
-			{
-				ref[0] = std::numeric_limits<std::size_t>::max();
-			}
-			ref = ref.subspan(1);
-		}
-		return true;
-	}
-
-	void SingletonFilter::Reset()
-	{
-		std::lock_guard lg(mutex);
-		for(auto& ite : archetype_offset)
-		{
-			ite = std::numeric_limits<std::size_t>::max();
-		}
-	}
-
-
 	bool SingletonManager::Modify::Release()
 	{
 		if(resource)
@@ -153,27 +73,32 @@ namespace Noodles
 		ClearCurrentSingleton_AssumedLocked();
 	}
 
-	bool SingletonManager::ReadSingleton_AssumedLocked(SingletonFilter const& filter, SingletonAccessor& accessor) const
+	bool SingletonManager::ReadSingleton_AssumedLocked(SingletonQuery const& query, QueryData& accessor) const
 	{
-		std::shared_lock lg(filter.mutex);
-		if (filter.singleton_manager_id == reinterpret_cast<std::size_t>(this) && filter.archetype_id == reinterpret_cast<std::size_t>(singleton_archetype.GetPointer()))
+		std::shared_lock lg(query.GetMutex());
+		if (query.VersionCheck_AssumedLocked(reinterpret_cast<std::size_t>(singleton_archetype.GetPointer())))
 		{
-			auto span = filter.EnumSingleton_AssumedLocked();
+			auto span = query.EnumSingleton_AssumedLocked();
 			auto view = GetSingletonView_AssumedLocked();
-			if (span.size() <= accessor.buffers.size())
+			std::size_t min = std::min(span.size(), accessor.output_buffer.size());
+			accessor.array_size = 1;
+			if (singleton_record)
 			{
-				std::size_t  i = 0;
-				for (auto ite : span)
+				for (std::size_t i = 0; i < min; ++i)
 				{
-					if (ite != std::numeric_limits<std::size_t>::max() && singleton_record)
+					if (span[i] != std::numeric_limits<std::size_t>::max())
 					{
-						accessor.buffers[i] = singleton_record.GetByte(ite);
-					}
-					else
+						accessor.output_buffer[i] = singleton_record.GetByte(i);
+					}else
 					{
-						accessor.buffers[i] = nullptr;
+						accessor.output_buffer[i] = nullptr;
 					}
-					i += 1;
+				}
+			}else
+			{
+				for (std::size_t i = 0; i < min; ++i)
+				{
+					accessor.output_buffer[i] = nullptr;
 				}
 			}
 			return true;
@@ -181,26 +106,14 @@ namespace Noodles
 		return false;
 	}
 
-	bool SingletonManager::UpdateFilter_AssumedLocked(SingletonFilter& filter)
+	bool SingletonManager::UpdateFilter_AssumedLocked(SingletonQuery& query) const
 	{
-		std::lock_guard lg(filter.mutex);
-		if(filter.singleton_manager_id != reinterpret_cast<std::size_t>(this))
+		std::lock_guard lg(query.GetMutex());
+		if (query.Update_AssumedLocked(*manager, reinterpret_cast<std::size_t>(singleton_archetype.GetPointer())))
 		{
-			if(filter.struct_layout_manager_id != reinterpret_cast<std::size_t>(manager.GetPointer()))
-				return false;
-			filter.singleton_manager_id = reinterpret_cast<std::size_t>(this);
-			filter.archetype_id = 0;
-			for(auto& ite : filter.archetype_offset)
+			if (singleton_archetype)
 			{
-				ite = std::numeric_limits<std::size_t>::max();
-			}
-		}
-		if(filter.archetype_id != reinterpret_cast<std::size_t>(singleton_archetype.GetPointer()))
-		{
-			filter.archetype_id = reinterpret_cast<std::size_t>(singleton_archetype.GetPointer());
-			if(singleton_archetype)
-			{
-				filter.OnSingletonModify_AssumedLocked(*singleton_archetype);
+				query.OnSingletonModify_AssumedLocked(*singleton_archetype);
 			}
 			return true;
 		}
@@ -363,7 +276,7 @@ namespace Noodles
 				}
 			}
 			auto new_archetype = Archetype::Create(
-				manager,
+				manager->GetSingletonStorageCount(),
 				init_list,
 				&singleton_resource
 			);

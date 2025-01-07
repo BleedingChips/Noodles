@@ -8,3 +8,5 @@ export import NoodlesComponent;
 export import NoodlesEntity;
 export import NoodlesSingleton;
 export import NoodlesContext;
+export import NoodlesQuery;
+export import NoodlesAutomaticSystem;

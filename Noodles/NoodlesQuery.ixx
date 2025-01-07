@@ -62,7 +62,7 @@ export namespace Noodles
 		std::shared_mutex& GetMutex() const { return mutex; }
 
 		std::optional<std::size_t> Update_AssumedLocked(StructLayoutManager& manager, std::size_t chunk_id, std::size_t chunk_size);
-		bool VersionCheck_AssumedLocked(StructLayoutManager& manager, std::size_t chunk_id, std::size_t chunk_size) const;
+		bool VersionCheck_AssumedLocked(std::size_t chunk_id, std::size_t chunk_size) const;
 		bool OnCreatedArchetype_AssumedLocked(std::size_t archetype_index, Archetype const& archetype);
 
 	protected:
@@ -99,6 +99,83 @@ export namespace Noodles
 		StructLayoutManager::Ptr const manager;
 		std::size_t chunk_id = 0;
 		std::size_t chunk_size_last_update = 0;
+
+		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
+	};
+
+	struct SingletonQuery : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
+	{
+
+		using Ptr = Potato::Pointer::IntrusivePtr<SingletonQuery>;
+
+		StructLayoutMarksInfosView GetRequiredStructLayoutMarks() const
+		{
+			return { require_write_singleton, require_singleton };
+		}
+
+		std::span<MarkIndex const> GetMarkIndex() const { return mark_index; }
+
+
+		void Reset();
+
+		static SingletonQuery::Ptr Create(
+			StructLayoutManager& manager,
+			std::span<StructLayoutWriteProperty const> require_singleton,
+			std::pmr::memory_resource* storage_resource = std::pmr::get_default_resource()
+		);
+
+		std::span<std::size_t const> EnumSingleton_AssumedLocked() const { return archetype_offset; }
+		bool OnSingletonModify_AssumedLocked(Archetype const& archetype);
+		bool Update_AssumedLocked(StructLayoutManager& manager, std::size_t archetype_id);
+		bool VersionCheck_AssumedLocked(std::size_t archetype_id) const;
+		std::shared_mutex& GetMutex() const { return mutex; }
+
+	protected:
+
+		SingletonQuery(
+			Potato::IR::MemoryResourceRecord record,
+			std::span<MarkElement> require_singleton,
+			std::span<MarkElement> require_write_singleton,
+			std::span<MarkIndex> mark_index,
+			std::span<std::size_t> archetype_offset,
+			StructLayoutManager::Ptr manager
+		)
+			:MemoryResourceRecordIntrusiveInterface(record), require_singleton(require_singleton),
+			require_write_singleton(require_write_singleton),
+			mark_index(mark_index),
+			archetype_offset(archetype_offset),
+			manager(std::move(manager))
+		{
+		}
+
+
+		StructLayoutManager::Ptr const manager;
+		std::span<MarkElement> require_singleton;
+		std::span<MarkElement> require_write_singleton;
+		std::span<MarkIndex> mark_index;
+
+		mutable std::shared_mutex mutex;
+		std::span<std::size_t> archetype_offset;
+		std::size_t archetype_id = 0;
+
+		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
+	};
+
+	struct ThreadOrderQuery : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
+	{
+		StructLayoutMarksInfosView GetStructLayoutMarks() const { return marks; };
+		using Ptr = Potato::Pointer::IntrusivePtr<ThreadOrderQuery>;
+
+		static Ptr Create(StructLayoutManager& manager, std::span<StructLayoutWriteProperty const> info, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+
+	protected:
+		ThreadOrderQuery(Potato::IR::MemoryResourceRecord record, StructLayoutMarksInfos marks)
+			: MemoryResourceRecordIntrusiveInterface(record), marks(marks) {
+		}
+		StructLayoutMarksInfos marks;
+
+
+
 
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
 	};
