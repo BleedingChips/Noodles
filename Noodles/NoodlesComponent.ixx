@@ -142,7 +142,7 @@ export namespace Noodles
 		std::span<MarkElement const> GetArchetypeUpdateMark_AssumedLocked() const { return std::span(archetype_mask).subspan(manager->GetArchetypeStorageCount()); }
 		void ClearArchetypeUpdateMark_AssumedLocked() { MarkElement::Reset(GetWriteableArchetypeUpdateMark_AssumedLocked()); }
 		bool HasArchetypeUpdate_AssumedLocked() const { return !MarkElement::IsReset(GetArchetypeUpdateMark_AssumedLocked()); }
-
+		bool CheckVersion_AssumedLocked(ComponentQuery const& query) const;
 		bool UpdateFilter_AssumedLocked(ComponentQuery& query) const;
 
 	protected:

@@ -70,15 +70,15 @@ export namespace Noodles
 	};
 
 	template<typename Type>
-	concept HasRemoveComponentWriteProperty = requires(Type type)
+	concept HasRemoveComponentWriteProperty = requires(Type)
 	{
-		{ Type::RemoveComponentWriteProperty }->std::same_as<std::true_type>;
+		std::is_same_v<typename Type::RemoveComponentWriteProperty, std::true_type>;
 	};
 
 	template<typename Type>
-	concept HasRemoveSingletonWriteProperty = requires(Type type)
+	concept HasRemoveSingletonWriteProperty = requires(Type)
 	{
-		{ Type::RemoveSingletonWriteProperty }->std::same_as<std::true_type>;
+		std::is_same_v<typename Type::RemoveSingletonWriteProperty, std::true_type>;
 	};
 
 	template<typename Type>

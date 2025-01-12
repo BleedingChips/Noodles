@@ -63,6 +63,7 @@ export namespace Noodles
 
 		std::optional<std::size_t> Update_AssumedLocked(StructLayoutManager& manager, std::size_t chunk_id, std::size_t chunk_size);
 		bool VersionCheck_AssumedLocked(std::size_t chunk_id, std::size_t chunk_size) const;
+		bool VersionCheck_AssumedLocked(std::size_t chunk_id) const;
 		bool OnCreatedArchetype_AssumedLocked(std::size_t archetype_index, Archetype const& archetype);
 
 	protected:

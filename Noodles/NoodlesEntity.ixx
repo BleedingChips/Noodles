@@ -126,7 +126,6 @@ export namespace Noodles
 		bool Flush(ComponentManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 
 		bool ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentQuery const& filter, QueryData& accessor) const;
-
 		EntityManager(StructLayoutManager& manager, Config fing = {});
 		~EntityManager();
 		MarkIndex GetEntityPropertyAtomicTypeID() { return entity_entity_property_index; }

@@ -18,75 +18,37 @@ import NoodlesEntity;
 
 export namespace Noodles
 {
+	export template<AcceptableQueryType ...ComponentT>
+	struct AutoComponentQuery;
 
-	template<AcceptableQueryType ...ComponentT>
-	struct AutoComponentQuery
+	template<AcceptableQueryType Require, AcceptableQueryType Refuse>
+	struct AutoComponentQueryStorage;
+
+	template<AcceptableQueryType ...Require, AcceptableQueryType ...Refuse>
+	struct AutoComponentQueryStorage<Potato::TMP::TypeTuple<Require...>, Potato::TMP::TypeTuple<Refuse...>>
 	{
 		
 		static std::span<StructLayoutWriteProperty const> GetRequire()
 		{
-			static std::array<StructLayoutWriteProperty, sizeof...(ComponentT)> temp_buffer = {
-				StructLayoutWriteProperty::GetComponent<ComponentT>()...
+			static std::array<StructLayoutWriteProperty, sizeof...(Require)> temp_buffer = {
+				StructLayoutWriteProperty::GetComponent<Require>()...
 			};
 			return std::span(temp_buffer);
 		}
-
-		AutoComponentQuery(StructLayoutManager& manager, std::pmr::memory_resource* resource)
-			: accessor(std::span(buffer))
+		static std::span<StructLayout::Ptr const> GetRefuse()
 		{
-			query = ComponentQuery::Create(manager, GetRequire(), {}, resource);
+			static std::array<StructLayout::Ptr, sizeof...(Refuse)> temp_buffer = {
+				Potato::IR::StructLayout::GetStatic<Refuse>()...
+			};
+			return std::span(temp_buffer);
+		}
+		AutoComponentQueryStorage(StructLayoutManager& manager, std::pmr::memory_resource* resource)
+		{
+			query = ComponentQuery::Create(
+				manager, GetRequire(), GetRefuse(), resource
+			);
 			assert(query);
 		}
-
-		AutoComponentQuery(AutoComponentQuery const& in)
-			: query(in.query), accessor(in.accessor, std::span(buffer))
-		{
-			
-		}
-
-		AutoComponentQuery(AutoComponentQuery&&) = delete;
-
-		template<std::size_t index>
-		decltype(auto) AsSpan() const
-		{
-			static_assert(index < sizeof...(ComponentT));
-			using Type = Potato::TMP::FindByIndex<index, ComponentT...>::Type;
-			return accessor.AsSpan<Type>(index);
-		}
-
-		template<typename Type>
-		decltype(auto) AsSpan() const
-		{
-			static_assert(Potato::TMP::IsOneOfV<Type, ComponentT...>);
-			constexpr std::size_t index = Potato::TMP::LocateByType<Type, ComponentT...>::Value;
-			return accessor.AsSpan<Type>(index);
-		}
-
-		bool IterateComponent(Context& context, std::size_t ite_index) { return context.IterateComponent_AssumedLocked(*query, ite_index, accessor); }
-		bool IterateComponent(ContextWrapper& context_wrapper, std::size_t ite_index) { return IterateComponent(context_wrapper.GetContext(), ite_index); }
-		bool ReadEntity(Context& context, Entity const& entity) { return context.ReadEntity_AssumedLocked(entity, *query, accessor); }
-		bool ReadEntity(ContextWrapper& context_wrapper, Entity const& entity) { return ReadEntity(context_wrapper.GetContext(), entity); }
-		//decltype(auto) ReadEntityDirect_AssumedLocked(Context& context, Entity const& entity, std::span<void*> output, bool prefer_modifier = true) const { return context.ReadEntityDirect_AssumedLocked(entity, *filter, output, prefer_modifier); };
-
-		template<AcceptableQueryType ...RefuseComponent>
-		struct WithRefuse : public AutoComponentQuery<ComponentT...>
-		{
-			static std::span<StructLayout::Ptr const> GetResuse()
-			{
-				static std::array<StructLayout::Ptr, sizeof...(ComponentT)> temp_buffer = {
-					Potato::IR::StructLayout::GetStatic<ComponentT>()...
-				};
-				return std::span(temp_buffer);
-			}
-
-			WithRefuse(
-				StructLayoutManager& manager, std::pmr::memory_resource* resource) : AutoComponentQuery(
-				ComponentQuery::Create(manager, GetRequire(), GetResuse(), resource)
-				) {}
-
-			WithRefuse(WithRefuse const& in) : AutoComponentQuery(in) {}
-		};
-
 		SystemNode::Mutex GetSystemNodeMutex() const
 		{
 			return {
@@ -96,12 +58,13 @@ export namespace Noodles
 			};
 		}
 
-		SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update,  std::span<MarkElement const> component_usage) const
+		SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 		{
 			if (MarkElement::IsOverlapping(query->GetArchetypeMarkArray(), archetype_update))
 			{
 				return target_node.IsComponentOverlapping(*query, archetype_update, component_usage);
-			}else
+			}
+			else
 			{
 				return SystemNode::ComponentOverlappingState::NoUpdate;
 			}
@@ -109,6 +72,8 @@ export namespace Noodles
 
 		SystemNode::ComponentOverlappingState IsComponentOverlapping(ComponentQuery const& query, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
 		{
+			std::shared_lock sl(query.GetMutex());
+			std::shared_lock sl2(this->query->GetMutex());
 			if (MarkElement::IsOverlapping(this->query->GetArchetypeMarkArray(), archetype_update))
 			{
 				if (MarkElement::IsOverlappingWithMask(
@@ -131,20 +96,74 @@ export namespace Noodles
 		{
 			return context.UpdateQuery(*query);
 		}
+	protected:
+		ComponentQuery::Ptr query;
+
+		template<AcceptableQueryType ...ComponentT>
+		friend struct AutoComponentQuery;
+	};
+
+
+	export template<AcceptableQueryType ...ComponentT>
+	struct AutoComponentQuery
+	{
+		
+		using Storage = AutoComponentQueryStorage<Potato::TMP::TypeTuple<ComponentT...>, Potato::TMP::TypeTuple<>>;
+
+		AutoComponentQuery(Storage const& storage)
+			: query(*storage.query), accessor(buffer)
+		{
+		}
+
+		template<std::size_t index>
+		decltype(auto) AsSpan() const
+		{
+			static_assert(index < sizeof...(ComponentT));
+			using Type = Potato::TMP::FindByIndex<index, ComponentT...>::Type;
+			return accessor.AsSpan<Type>(index);
+		}
+
+		template<typename Type>
+		decltype(auto) AsSpan() const
+		{
+			static_assert(Potato::TMP::IsOneOfV<Type, ComponentT...>);
+			constexpr std::size_t index = Potato::TMP::LocateByType<Type, ComponentT...>::Value;
+			return accessor.AsSpan<Type>(index);
+		}
+
+		bool IterateComponent(Context& context, std::size_t ite_index) { return context.IterateComponent_AssumedLocked(query, ite_index, accessor); }
+		bool IterateComponent(ContextWrapper& context_wrapper, std::size_t ite_index) { return IterateComponent(context_wrapper.GetContext(), ite_index); }
+		bool ReadEntity(Context& context, Entity const& entity) { return context.ReadEntity_AssumedLocked(entity, query, accessor); }
+		bool ReadEntity(ContextWrapper& context_wrapper, Entity const& entity) { return ReadEntity(context_wrapper.GetContext(), entity); }
+		//decltype(auto) ReadEntityDirect_AssumedLocked(Context& context, Entity const& entity, std::span<void*> output, bool prefer_modifier = true) const { return context.ReadEntityDirect_AssumedLocked(entity, *filter, output, prefer_modifier); };
+
+		template<AcceptableQueryType ...RefuseComponent>
+		struct WithRefuse : public AutoComponentQuery
+		{
+			using Storage = AutoComponentQueryStorage<Potato::TMP::TypeTuple<ComponentT...>, Potato::TMP::TypeTuple<RefuseComponent...>>;
+
+			WithRefuse(Storage& storage) : AutoComponentQuery<ComponentT...>(storage.query) {};
+		};
 
 	protected:
 
-		AutoComponentQuery(ComponentQuery::Ptr query) : query(query) {}
+		AutoComponentQuery(ComponentQuery const& storage)
+			: query(query), accessor(buffer)
+		{
+		}
 
-		ComponentQuery::Ptr query;
+		ComponentQuery const& query;
 		std::array<void*, sizeof...(ComponentT)> buffer;
 		QueryData accessor;
 
 		friend struct Context;
 	};
 
+
+	export template<AcceptableQueryType ...ComponentT> struct AutoSingletonQuery;
+
 	template<AcceptableQueryType ...ComponentT>
-	struct AutoSingletonQuery
+	struct AutoSingletonQueryStorage
 	{
 		static std::span<StructLayoutWriteProperty const> GetRequire()
 		{
@@ -154,24 +173,36 @@ export namespace Noodles
 			return std::span(temp_buffer);
 		}
 
-		AutoSingletonQuery(StructLayoutManager& manager, std::pmr::memory_resource* resource)
-			: accessor(std::span(buffers))
+		AutoSingletonQueryStorage(StructLayoutManager& manager, std::pmr::memory_resource* resource)
 		{
-			query = SingletonQuery::Create(
-				manager,
-				GetRequire(),
-				resource
-			);
+			query = SingletonQuery::Create(manager, GetRequire(), resource);
 			assert(query);
 		}
-
-		AutoSingletonQuery(AutoSingletonQuery const& other)
-			: query(other.query), accessor(other.accessor, std::span(buffers))
+		SystemNode::Mutex GetSystemNodeMutex() const
 		{
-			assert(query);
+			return {
+				{},
+				query->GetRequiredStructLayoutMarks(),
+				{}
+			};
 		}
 
-		decltype(auto) GetSingletons(Context& context) { return context.ReadSingleton_AssumedLocked(*query, accessor); }
+		bool UpdateQuery(Context& context) { return context.UpdateQuery(*query); }
+	protected:
+		SingletonQuery::Ptr query;
+		template<AcceptableQueryType ...ComponentT> friend struct AutoSingletonQuery;
+	};
+
+
+	export template<AcceptableQueryType ...ComponentT>
+	struct AutoSingletonQuery
+	{
+		using Storage = AutoSingletonQueryStorage<ComponentT...>;
+
+		AutoSingletonQuery(Storage const& storage)
+			: query(*storage.query), accessor(buffers) {}
+
+		decltype(auto) GetSingletons(Context& context) { return context.ReadSingleton_AssumedLocked(query, accessor); }
 		decltype(auto) GetSingletons(ContextWrapper& context_wrapper) { return GetSingletons(context_wrapper.GetContext()); }
 
 		template<std::size_t index> auto Get() const
@@ -186,54 +217,51 @@ export namespace Noodles
 			return accessor.AsSpan<Type>(index).data();
 		}
 
-		SystemNode::Mutex GetSystemNodeMutex() const
-		{
-			return {
-				{},
-				query->GetRequiredStructLayoutMarks(),
-				{}
-			};
-		}
-
-		bool UpdateQuery(Context& context)
-		{
-			return context.UpdateQuery(*query);
-		}
-
 	protected:
 
-		SingletonQuery::Ptr query;
+		SingletonQuery const& query;
 		std::array<void*, sizeof...(ComponentT)> buffers;
 		QueryData accessor;
 		friend struct Context;
 	};
 
+	export template<AcceptableQueryType ...ComponentT> struct AutoThreadOrderQuery;
+
 	template<AcceptableQueryType ...ComponentT>
-	struct AutoThreadOrderQuery
+	struct AutoThreadOrderQueryStorage
 	{
-		AutoThreadOrderQuery(StructLayoutManager& manager, std::pmr::memory_resource* resource)
+		static std::span<StructLayoutWriteProperty const> GetRequire()
 		{
 			static std::array<StructLayoutWriteProperty, sizeof...(ComponentT)> temp_buffer = {
 				StructLayoutWriteProperty::Get<ComponentT>()...
 			};
-			query = ThreadOrderQuery::Create(manager, std::span(temp_buffer), resource);
+			return std::span(temp_buffer);
 		}
-		AutoThreadOrderQuery(AutoThreadOrderQuery const&) = default;
-		AutoThreadOrderQuery(AutoThreadOrderQuery&&) = default;
+
+		AutoThreadOrderQueryStorage(StructLayoutManager& manager, std::pmr::memory_resource* resource)
+		{
+			query = ThreadOrderQuery::Create(manager, GetRequire(), resource);
+		}
 		SystemNode::Mutex GetSystemNodeMutex() const
 		{
 			return { {}, {}, query->GetStructLayoutMarks() };
 		}
+
 	protected:
 		ThreadOrderQuery::Ptr query;
+	};
+
+	template<AcceptableQueryType ...ComponentT>
+	struct AutoThreadOrderQuery
+	{
+		using Storage = AutoThreadOrderQueryStorage<ComponentT...>;
+
+		AutoThreadOrderQuery(Storage& storage) {}
 	};
 
 
 	template<typename Type>
 	concept IsContextWrapper = std::is_same_v<std::remove_cvref_t<Type>, ContextWrapper>;
-
-	template<typename Type>
-	concept IsCoverFromContextWrapper = std::is_constructible_v<std::remove_cvref_t<Type>, ContextWrapper&>;
 
 	template<typename Type>
 	concept HasSystemMutexFunctionWrapper = requires(Type const& type)
@@ -259,20 +287,35 @@ export namespace Noodles
 		{ type.UpdateQuery(std::declval<Context&>()) } -> std::same_as<bool>;
 	};
 
+	template<typename Type>
+	concept HasStorage = requires(Type)
+	{
+		typename Type::Storage;
+	};
+
+	template<typename DetectT>
+	struct RemoveStorage
+	{
+		using Type = typename DetectT;
+	};
+
+	template<HasStorage DetectT>
+	struct RemoveStorage<DetectT>
+	{
+		using Type = typename DetectT::Storage;
+	};
+
 	struct SystemAutomatic
 	{
 
 		template<typename Type>
 		struct ParameterHolder
 		{
+
 			using RealType = std::conditional_t<
 				IsContextWrapper<Type>,
 				Potato::TMP::ItSelf<void>,
-				std::conditional_t<
-				IsCoverFromContextWrapper<Type>,
-				std::optional<std::remove_cvref_t<Type>>,
-				std::remove_cvref_t<Type>
-				>
+				typename RemoveStorage<std::remove_cvref_t<Type>>::Type
 			>;
 
 			RealType data;
@@ -291,14 +334,10 @@ export namespace Noodles
 			{
 				if constexpr (IsContextWrapper<Type>)
 					return context;
-				else if constexpr (IsCoverFromContextWrapper<Type>)
-				{
-					assert(!data.has_value());
-					data.emplace(context);
-					return *data;
-				}
+				else if constexpr (std::is_const_v<Type>)
+					return  static_cast<RealType const&>(data);
 				else
-					return std::ref(data);
+					return  static_cast<RealType&>(data);
 			}
 
 			SystemNode::Mutex GetSystemNodeMutex() const
@@ -309,15 +348,6 @@ export namespace Noodles
 				}else
 				{
 					return {};
-				}
-			}
-
-			void Reset()
-			{
-				if constexpr (!IsContextWrapper<Type> && IsCoverFromContextWrapper<Type>)
-				{
-					assert(data.has_value());
-					data.reset();
 				}
 			}
 
@@ -366,12 +396,6 @@ export namespace Noodles
 			decltype(auto) Get(std::integral_constant<std::size_t, 0>, ContextWrapper& context) { return cur_holder.Translate(context); }
 			template<std::size_t i>
 			decltype(auto) Get(std::integral_constant<std::size_t, i>, ContextWrapper& context) { return other_holders.Get(std::integral_constant<std::size_t, i - 1>{}, context); }
-
-			void Reset()
-			{
-				cur_holder.Reset();
-				other_holders.Reset();
-			}
 
 			void FlushSystemNodeMutex(StructLayoutMarksInfos component, StructLayoutMarksInfos singleton, StructLayoutMarksInfos thread_order) const
 			{
@@ -431,7 +455,6 @@ export namespace Noodles
 		struct ParameterHolders<>
 		{
 			ParameterHolders(StructLayoutManager& manager, std::pmr::memory_resource* resource) {}
-			void Reset() {}
 			SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode::ComponentOverlappingState start_update_state, SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const { return start_update_state; }
 			SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode::ComponentOverlappingState start_update_state, ComponentQuery const& query, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const { return start_update_state; }
 			void FlushSystemNodeMutex(StructLayoutMarksInfos component, StructLayoutMarksInfos singleton, StructLayoutMarksInfos thread_order) const {}
@@ -454,19 +477,13 @@ export namespace Noodles
 
 			static auto Execute(ContextWrapper& context, AppendDataT& append_data, Func& func)
 			{
-				return Execute(context, append_data, func, typename Extract::Index{});
+				return ExtractTickSystem::Execute(context, append_data, func, typename Extract::Index{});
 			}
 
 			template<std::size_t ...i>
 			static auto Execute(ContextWrapper& context, AppendDataT& append_data, Func& func, std::index_sequence<i...>)
 			{
-				struct Scope
-				{
-					AppendDataT& ref;
-					~Scope() { ref.Reset(); }
-				}Scope{ append_data };
-				return std::invoke(
-					func,
+				func(
 					append_data.Get(std::integral_constant<std::size_t, i>{}, context)...
 				);
 			}
@@ -588,33 +605,4 @@ export namespace Noodles
 		}
 		return {};
 	}
-
-	/*
-	template<typename Func>
-	struct SystemTemplateHolder : public SystemTemplate, public Potato::IR::MemoryResourceRecordIntrusiveInterface
-	{
-		Func func;
-		virtual SystemNode::Ptr CreateSystemNode(Context& context, std::pmr::memory_resource* resource) const override
-		{
-			return context.CreateAutomaticSystem(func, resource);
-		}
-		SystemTemplateHolder(Potato::IR::MemoryResourceRecord record, Func&& func) : MemoryResourceRecordIntrusiveInterface(record), func(std::move(func)) {}
-	protected:
-		virtual void AddSystemTemplateRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
-		virtual void SubSystemTemplateRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
-	};
-	*/
-
-	/*
-	template<typename Func>
-	SystemTemplate::Ptr Context::CreateAutomaticSystemTemplate(Func&& func, std::pmr::memory_resource* resource)
-		requires(std::is_copy_constructible_v<Func>)
-	{
-		using Type = std::remove_cvref_t<Func>;
-		return Potato::IR::MemoryResourceRecord::AllocateAndConstruct<SystemTemplateHolder<Type>>(
-			resource,
-			std::forward<Func>(func)
-		);
-	}
-	*/
 }

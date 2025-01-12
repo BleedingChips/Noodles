@@ -155,7 +155,7 @@ namespace Noodles
 	bool ComponentManager::ReadComponentRow_AssumedLocked(std::size_t archetype_index, ComponentQuery const& query, QueryData& accessor) const
 	{
 		std::shared_lock sl(query.GetMutex());
-		if (query.VersionCheck_AssumedLocked(reinterpret_cast<std::size_t>(this), chunk_infos.size()))
+		if (CheckVersion_AssumedLocked(query))
 		{
 			auto re = query.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
 			if (re.has_value() && re->size() <= accessor.output_buffer.size())
@@ -181,10 +181,15 @@ namespace Noodles
 		return false;
 	}
 
+	bool ComponentManager::CheckVersion_AssumedLocked(ComponentQuery const& query) const
+	{
+		return query.VersionCheck_AssumedLocked(reinterpret_cast<std::size_t>(this));
+	}
+
 	bool ComponentManager::ReadComponent_AssumedLocked(std::size_t archetype_index, std::size_t column_index, ComponentQuery const& query, QueryData& accessor) const
 	{
 		std::shared_lock sl(query.GetMutex());
-		if (query.VersionCheck_AssumedLocked(reinterpret_cast<std::size_t>(this), chunk_infos.size()))
+		if (CheckVersion_AssumedLocked(query))
 		{
 			auto re = query.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
 			if (re.has_value() && re->size() <= accessor.output_buffer.size())

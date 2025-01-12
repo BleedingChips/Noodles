@@ -98,6 +98,15 @@ namespace Noodles
 		return false;
 	}
 
+	bool ComponentQuery::VersionCheck_AssumedLocked(std::size_t chunk_id) const
+	{
+		if (this->chunk_id == chunk_id)
+		{
+			return true;
+		}
+		return false;
+	}
+
 	bool ComponentQuery::OnCreatedArchetype_AssumedLocked(std::size_t archetype_index, Archetype const& archetype)
 	{
 		assert(archetype_index == chunk_size_last_update);
