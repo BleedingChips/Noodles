@@ -116,17 +116,15 @@ export namespace Noodles
 		}
 
 		template<std::size_t index>
-		decltype(auto) AsSpan() const
+		decltype(auto) AsSpan() const requires(index < sizeof...(ComponentT))
 		{
-			static_assert(index < sizeof...(ComponentT));
 			using Type = Potato::TMP::FindByIndex<index, ComponentT...>::Type;
 			return accessor.AsSpan<Type>(index);
 		}
 
 		template<typename Type>
-		decltype(auto) AsSpan() const
+		decltype(auto) AsSpan() const requires(Potato::TMP::IsOneOfV<Type, ComponentT...>)
 		{
-			static_assert(Potato::TMP::IsOneOfV<Type, ComponentT...>);
 			constexpr std::size_t index = Potato::TMP::LocateByType<Type, ComponentT...>::Value;
 			return accessor.AsSpan<Type>(index);
 		}
@@ -205,7 +203,7 @@ export namespace Noodles
 		decltype(auto) GetSingletons(Context& context) { return context.ReadSingleton_AssumedLocked(query, accessor); }
 		decltype(auto) GetSingletons(ContextWrapper& context_wrapper) { return GetSingletons(context_wrapper.GetContext()); }
 
-		template<std::size_t index> auto Get() const
+		template<std::size_t index> auto Get() const requires(index < sizeof...(ComponentT))
 		{
 			using Type = typename Potato::TMP::FindByIndex<index, ComponentT...>::Type;
 			return accessor.AsSpan<Type>(index);
