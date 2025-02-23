@@ -41,6 +41,7 @@ namespace Noodles
 
 				new (&MV[i]) MemberView{
 					ref.ptr,
+					ref.ptr->GetLayout(),
 					ref.index,
 					offset,
 				};

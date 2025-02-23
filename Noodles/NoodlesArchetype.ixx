@@ -16,7 +16,8 @@ export namespace Noodles
 
 		struct MemberView
 		{
-			Potato::IR::StructLayout::Ptr layout;
+			Potato::IR::StructLayout::Ptr struct_layout;
+			Potato::IR::Layout layout;
 			MarkIndex index;
 			std::size_t offset;
 		};
@@ -43,7 +44,7 @@ export namespace Noodles
 		std::size_t GetAtomicTypeCount() const { return GetMemberView().size(); }
 
 		Potato::IR::Layout GetLayout() const { return archetype_layout.Get(); }
-		Potato::IR::Layout GetArchetypeLayout() { return archetype_layout.GetRawLayout(); }
+		Potato::IR::Layout GetArchetypeLayout() const { return archetype_layout.GetRawLayout(); }
 
 		std::span<MemberView const> GetMemberView() const { return member_view; }
 		MemberView const& GetMemberView(Archetype::Index index) const { return member_view[index.index]; };

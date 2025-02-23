@@ -10,6 +10,7 @@ import Potato;
 export import NoodlesMisc;
 export import NoodlesArchetype;
 import NoodlesQuery;
+import Noo
 
 export namespace Noodles
 {
