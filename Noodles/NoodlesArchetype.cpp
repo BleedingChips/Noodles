@@ -9,12 +9,11 @@ import PotatoMemLayout;
 namespace Noodles
 {
 
-	auto Archetype::Create(std::size_t component_storage_count, std::span<Init const> atomic_type, std::pmr::memory_resource* resource)
+	auto Archetype::Create(std::size_t class_bitflag_container_count, std::span<Init const> atomic_type, std::pmr::memory_resource* resource)
 	->Ptr
 	{
-		auto storage_count = component_storage_count;
 		auto tol_layout = Potato::MemLayout::MemLayoutCPP::Get<Archetype>();
-		auto index_offset = tol_layout.Insert(Potato::IR::Layout::GetArray<MarkElement>(storage_count));
+		auto index_offset = tol_layout.Insert(Potato::IR::Layout::GetArray<BitFlagContainer::Element>(class_bitflag_container_count));
 		auto offset = tol_layout.Insert(Potato::IR::Layout::GetArray<MemberView>(atomic_type.size()));
 
 		auto layout = tol_layout.Get();
@@ -23,11 +22,11 @@ namespace Noodles
 		if(re)
 		{
 			std::span<MemberView> MV = std::span(reinterpret_cast<MemberView*>(re.GetByte() + offset), atomic_type.size());
-			std::span<MarkElement> archetype_index{
-				new (re.GetByte(index_offset)) MarkElement[storage_count],
-				storage_count
+			std::span<BitFlagContainer::Element> class_bitflag_container_span{
+				new (re.GetByte(index_offset)) BitFlagContainer::Element[class_bitflag_container_count],
+				class_bitflag_container_count
 			};
-			;
+			BitFlagContainer class_flag_container{ class_bitflag_container_span };
 			Potato::MemLayout::MemLayoutCPP total_layout;
 			for (std::size_t i = 0; i < atomic_type.size(); ++i)
 			{
@@ -42,28 +41,29 @@ namespace Noodles
 				new (&MV[i]) MemberView{
 					ref.ptr,
 					ref.ptr->GetLayout(),
-					ref.index,
-					offset,
+					ref.flag,
+					offset
 				};
 
-				MarkElement::Mark(archetype_index, ref.index);
+				auto result = class_flag_container.SetValue(ref.flag);
+				assert(result.has_value());
 			}
 			auto archetype_layout = total_layout.GetRawLayout();
 			return new(re.Get()) Archetype{
-				re,  total_layout, MV, archetype_index
+				re,  total_layout, MV, class_flag_container
 			};
 		}
 		return {};
 	}
 
-	std::optional<Archetype::Index> Archetype::Locate(MarkIndex id) const
+	Archetype::MemberIndex Archetype::FindMemberIndex(BitFlag id) const
 	{
 		for(std::size_t i =0; i < member_view.size(); ++i)
 		{
-			if(member_view[i].index == id)
-				return Index{i};
+			if(member_view[i].bit_flag == id)
+				return MemberIndex{i};
 		}
-		return std::nullopt;
+		return {};
 	}
 
 	Archetype::~Archetype()
@@ -74,29 +74,30 @@ namespace Noodles
 		}
 	}
 
-	StructLayoutManager::StructLayoutManager(Potato::IR::MemoryResourceRecord record, Config config) :
-	MemoryResourceRecordIntrusiveInterface(record),
-	component_manager(config.component_count, config.resource),
-	singleton_manager(config.singleton_count, config.resource),
-	thread_order_manager(config.thread_order_count, config.resource),
-	archetype_count(MarkElement::GetMaxMarkIndexCount(config.archetype_count))
+	/*
+	StructBitFlagMapping::StructBitFlagMapping(Potato::IR::MemoryResourceRecord record, Config config) :
+		MemoryResourceRecordIntrusiveInterface(record),
+		component_bit_flag(config.component_count, config.resource),
+	singleton_bit_flag(config.singleton_count, config.resource),
+	thread_order_bit_flag(config.thread_order_count, config.resource),
+	archetype_bit_flag_count(BitFlagContainer::GetMaxBitFlagContainer(config.archetype_count))
 	{
 		
 	}
 
-	std::size_t StructLayoutManager::GetArchetypeStorageCount() const
+	std::size_t StructBitFlagMapping::GetArchetypeBitContainerCount() const
 	{
-		return MarkElement::GetMarkElementStorageCalculate(archetype_count);
+		return BitFlagContainer::GetBitFlagContainerCount(archetype_bit_flag_count);
 	}
 
-	auto StructLayoutManager::Create(Config config, std::pmr::memory_resource* resource) -> Ptr
+	auto StructBitFlagMapping::Create(Config config, std::pmr::memory_resource* resource) -> Ptr
 	{
-		auto re = Potato::IR::MemoryResourceRecord::Allocate<StructLayoutManager>(resource);
+		auto re = Potato::IR::MemoryResourceRecord::Allocate<StructBitFlagMapping>(resource);
 		if(re)
 		{
-			return new(re.Get()) StructLayoutManager{ re, std::move(config)};
+			return new(re.Get()) StructBitFlagMapping{ re, std::move(config)};
 		}
 		return {};
 	}
-
+	*/
 }

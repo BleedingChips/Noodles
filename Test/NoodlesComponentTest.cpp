@@ -41,9 +41,9 @@ int main()
 {
 
 	auto manager = StructLayoutManager::Create();
-	ComponentManager comp_manager{manager};
+	ComponentManager comp_manager{*manager};
 
-
+	/*
 	auto init_list = std::array{
 		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<A>())},
 		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<B>())},
@@ -101,6 +101,7 @@ int main()
 
 
 	volatile int i = 0;
+	*/
 
 	return 0;
 }

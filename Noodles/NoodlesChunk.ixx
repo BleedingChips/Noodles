@@ -1,7 +1,5 @@
 module;
 
-#include <cassert>
-
 export module NoodlesChunk;
 
 import std;
@@ -9,7 +7,6 @@ import Potato;
 
 export import NoodlesMisc;
 export import NoodlesArchetype;
-import NoodlesQuery;
 
 export namespace Noodles
 {
@@ -23,8 +20,8 @@ export namespace Noodles
 		void DestructComponent(Archetype const& target_archetype, std::size_t component_index);
 		void MoveConstructComponent(Archetype const& target_archetype,  std::size_t self_component_index, Chunk& source_chunk, std::size_t source_component_index);
 		void DestructAllComponent(Archetype const& target_archetype);
-		OptionalIndex AllocateComponentWithoutConstruct();
-		OptionalIndex PopComponentWithoutDestruct();
+		OptionalSizeT AllocateComponentWithoutConstruct();
+		OptionalSizeT PopComponentWithoutDestruct();
 		Ptr MoveNextChunk() { return std::move(next_chunk); }
 		void ReleaseLastChunk() {last_chunk.Reset();}
 
@@ -47,6 +44,8 @@ export namespace Noodles
 		std::byte* buffer = nullptr;
 		Ptr next_chunk;
 		OPtr last_chunk;
+
+		friend struct Potato::Pointer::DefaultUniqueWrapper;
 	};
 
 

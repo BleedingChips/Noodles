@@ -3,7 +3,6 @@ module;
 #include <cassert>
 
 module NoodlesChunk;
-import PotatoMemLayout;
 
 constexpr std::size_t manager_size = 10;
 
@@ -15,7 +14,6 @@ constexpr std::size_t component_page_huge_multiply = 4;
 
 namespace Noodles
 {
-
 	Chunk::Ptr Chunk::Create(Archetype const& target_archetype, std::size_t suggest_component_count, std::pmr::memory_resource* resource)
 	{
 		auto archetype_layout = target_archetype.GetArchetypeLayout();
@@ -51,7 +49,7 @@ namespace Noodles
 		auto chunk_layout = Potato::MemLayout::MemLayoutCPP::Get<Chunk>();
 		std::optional<std::size_t> offset;
 
-		for(auto& ite : target_archetype)
+		for(auto& ite : target_archetype.GetMemberView())
 		{
 			auto mer_offset = chunk_layout.Insert(ite.struct_layout->GetLayout(suggest_component_count));
 			if(!offset.has_value())
@@ -116,7 +114,7 @@ namespace Noodles
 		re.Deallocate();
 	}
 
-	OptionalIndex Chunk::AllocateComponentWithoutConstruct()
+	OptionalSizeT Chunk::AllocateComponentWithoutConstruct()
 	{
 		if(current_count < max_count)
 		{
@@ -125,7 +123,7 @@ namespace Noodles
 		return {};
 	}
 
-	OptionalIndex Chunk::PopComponentWithoutDestruct()
+	OptionalSizeT Chunk::PopComponentWithoutDestruct()
 	{
 		if(current_count > 0)
 		{
@@ -152,7 +150,7 @@ namespace Noodles
 		if(top_chunk)
 		{
 			assert(archetype);
-			Chunk::OPtr cur = top_chunk;
+			Chunk::Ptr cur = std::move(top_chunk);
 			while(cur)
 			{
 				cur->DestructAllComponent(*archetype);

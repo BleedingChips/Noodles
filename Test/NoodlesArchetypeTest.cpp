@@ -29,7 +29,7 @@ struct E
 int main()
 {
 
-	StructLayoutMarkIndexManager manager;
+	StructLayoutBitFlagMapping manager;
 
 	auto init_list = std::array{
 		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *manager.LocateOrAdd(*StructLayout::GetStatic<A>())},
@@ -39,7 +39,7 @@ int main()
 
 	
 
-	auto ptr = Archetype::Create(manager, std::span(init_list));
+	auto ptr = Archetype::Create(manager.GetBitFlagCount(), std::span(init_list));
 
 	Tot temp;
 
@@ -61,7 +61,7 @@ int main()
 		);
 	c->i = 86;
 
-	auto re_ad4 = ptr->Locate(*manager.LocateOrAdd(*StructLayout::GetStatic<D>()));
+	auto re_ad4 = ptr->FindMemberIndex(*manager.LocateOrAdd(*StructLayout::GetStatic<D>()));
 
 	return 0;
 }
