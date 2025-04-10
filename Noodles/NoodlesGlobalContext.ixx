@@ -4,7 +4,7 @@ export module NoodlesGlobalContext;
 
 import std;
 import Potato;
-import NoodlesClassBitFlag;
+import NoodlesBitFlag;
 
 export namespace Noodles
 {
@@ -23,9 +23,14 @@ export namespace Noodles
 
 		static Ptr Create(Config config = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
+		std::size_t GetComponentBitFlagContainerElementCount() const { return component_bigflag_map.GetBitFlagContainerElementCount(); }
+
+
 	protected:
 
 		GlobalContext(Potato::IR::MemoryResourceRecord record, Config config);
+
+		std::size_t GetBitFlagContainerElementCount(std::shared_mutex& mutex, StructLayoutBitFlagMapping const& map) const;
 
 		mutable std::shared_mutex component_bigflag_map_mutex;
 		StructLayoutBitFlagMapping component_bigflag_map;

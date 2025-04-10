@@ -5,7 +5,7 @@ export module NoodlesArchetype;
 
 import std;
 import Potato;
-import NoodlesClassBitFlag;
+import NoodlesBitFlag;
 
 export namespace Noodles
 {

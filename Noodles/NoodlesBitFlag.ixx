@@ -1,6 +1,6 @@
 module;
 
-export module NoodlesClassBitFlag;
+export module NoodlesBitFlag;
 
 import std;
 import Potato;
@@ -21,6 +21,7 @@ export namespace Noodles
 	{
 		using Element = std::size_t;
 
+		BitFlagConstContainer() = default;
 		BitFlagConstContainer(std::span<Element const> container) : container(container) {}
 		BitFlagConstContainer(BitFlagConstContainer const&) = default;
 		std::optional<bool> GetValue(BitFlag flag) const;
@@ -42,6 +43,7 @@ export namespace Noodles
 
 	export struct BitFlagContainer : BitFlagConstContainer
 	{
+		BitFlagContainer() = default;
 		BitFlagContainer(std::span<Element> container) : BitFlagConstContainer(container) {}
 		BitFlagContainer(BitFlagContainer const&) = default;
 		std::optional<bool> SetValue(BitFlag flag, bool value = true);
@@ -64,7 +66,7 @@ export namespace Noodles
 		}
 
 		std::size_t GetBitFlagContainerElementCount() const { return bit_flag_container_count; }
-		BitFlag GetBitFlagCount() const { return max_bit_flag; }
+		BitFlag GetMaxBitFlag() const { return max_bit_flag; }
 
 	protected:
 

@@ -54,6 +54,7 @@ export namespace Noodles
 		ComponentChunk(ComponentChunk&& chunk);
 		ComponentChunk(Archetype::Ptr archetype);
 		~ComponentChunk();
+
 	protected:
 		Archetype::Ptr archetype;
 		Chunk::Ptr top_chunk;

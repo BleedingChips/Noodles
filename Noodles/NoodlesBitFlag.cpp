@@ -1,6 +1,6 @@
 module;
 
-module NoodlesClassBitFlag;
+module NoodlesBitFlag;
 
 namespace Noodles
 {
