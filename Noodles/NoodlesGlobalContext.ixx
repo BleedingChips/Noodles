@@ -24,13 +24,14 @@ export namespace Noodles
 		static Ptr Create(Config config = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		std::size_t GetComponentBitFlagContainerElementCount() const { return component_bigflag_map.GetBitFlagContainerElementCount(); }
-
+		std::optional<BitFlag> GetComponentBitFlag(StructLayout const& struct_layout) { return LocateBitFlag(struct_layout, component_bigflag_map_mutex, component_bigflag_map); }
 
 	protected:
 
 		GlobalContext(Potato::IR::MemoryResourceRecord record, Config config);
 
-		std::size_t GetBitFlagContainerElementCount(std::shared_mutex& mutex, StructLayoutBitFlagMapping const& map) const;
+		static std::optional<BitFlag> LocateBitFlag(StructLayout const& struct_layout, std::shared_mutex& mutex, StructLayoutBitFlagMapping& mapping);
+
 
 		mutable std::shared_mutex component_bigflag_map_mutex;
 		StructLayoutBitFlagMapping component_bigflag_map;

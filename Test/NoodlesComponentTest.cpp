@@ -1,6 +1,9 @@
 import std;
 
+#include <cassert>;
+
 import NoodlesComponent;
+import NoodlesGlobalContext;
 
 import PotatoIR;
 
@@ -40,68 +43,34 @@ struct E
 int main()
 {
 
-	auto manager = StructLayoutManager::Create();
-	ComponentManager comp_manager{*manager};
+	auto global_context = GlobalContext::Create();
+	ComponentChunkManager manager{global_context };
 
-	/*
+	std::pmr::vector<BitFlagConstContainer::Element> elements;
+	elements.resize(global_context->GetComponentBitFlagContainerElementCount());
+
 	auto init_list = std::array{
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<A>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<B>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<C>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<D>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<D>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<E>::Create(), *manager->LocateComponent(*StructLayout::GetStatic<E>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *global_context->GetComponentBitFlag(*StructLayout::GetStatic<A>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *global_context->GetComponentBitFlag(*StructLayout::GetStatic<B>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *global_context->GetComponentBitFlag(*StructLayout::GetStatic<C>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<D>::Create(), *global_context->GetComponentBitFlag(*StructLayout::GetStatic<D>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<E>::Create(), *global_context->GetComponentBitFlag(*StructLayout::GetStatic<E>())},
 	};
 
-	auto init_list2 = std::array<StructLayoutWriteProperty, 2>
+	for (auto& ite : init_list)
 	{
-		StructLayoutWriteProperty::Get<A>(),
-		StructLayoutWriteProperty::Get<A const>()
-	};
-
-	auto refuse_component = std::array<StructLayout::Ptr, 1>
-	{
-		StructLayout::GetStatic<E>()
-	};
-
-
-	{
-
-
-
-		ComponentManager comp_manager{*manager};
-
-		{
-
-			auto filter = ComponentFilter::Create(*manager, init_list2,
-				refuse_component);
-
-			ComponentManager::ArchetypeBuilderRef buildref{ comp_manager };
-
-			buildref.Insert(StructLayout::GetStatic<A>(), *manager->LocateComponent(*StructLayout::GetStatic<A>()));
-			buildref.Insert(StructLayout::GetStatic<B>(), *manager->LocateComponent(*StructLayout::GetStatic<B>()));
-			buildref.Insert(StructLayout::GetStatic<C>(), *manager->LocateComponent(*StructLayout::GetStatic<C>()));
-			buildref.Insert(StructLayout::GetStatic<D>(), *manager->LocateComponent(*StructLayout::GetStatic<D>()));
-
-			auto [aptr, index] = comp_manager.FindOrCreateArchetype(buildref);
-
-			auto [aptr2, index2] = comp_manager.FindOrCreateArchetype(buildref);
-
-			comp_manager.UpdateFilter_AssumedLocked(*filter);
-
-			std::array<void*, 100> buffer;
-			ComponentAccessor accessor{buffer};
-			auto re = comp_manager.ReadComponentRow_AssumedLocked(*filter, 0, accessor);
-
-			volatile int i = 0;
-		}
-
-		
-
+		auto re = BitFlagContainer{elements}.SetValue(ite.flag);
+		assert(re);
 	}
 
+	auto find = manager.LocateComponentChunk(BitFlagContainer{ elements });
 
-	volatile int i = 0;
-	*/
+	if (!find)
+	{
+		find = manager.CreateComponentChunk(init_list);
+	}
+
+	auto find2 = manager.LocateComponentChunk(BitFlagContainer{ elements });
 
 	return 0;
 }
