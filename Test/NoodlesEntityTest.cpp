@@ -1,6 +1,9 @@
 import std;
 
 import NoodlesEntity;
+import NoodlesComponent;
+import NoodlesGlobalContext;
+import NoodlesBitFlag;
 
 import PotatoIR;
 
@@ -39,6 +42,19 @@ struct E
 
 int main()
 {
+
+	auto global_context = GlobalContext::Create();
+
+	ComponentManager c_manager{global_context};
+	EntityManager e_manager{global_context};
+
+	auto entity = e_manager.CreateEntity();
+
+	e_manager.AddEntityComponent(*entity, A{10086});
+
+	e_manager.Flush(c_manager);
+
+	/*
 	auto manager = StructLayoutManager::Create();
 	ComponentManager component_manager{ *manager };
 	EntityManager entity_manager { *manager };
@@ -110,6 +126,7 @@ int main()
 		auto span_b = accessor.AsSpan<B>(1);
 		volatile int i = 0;
 	}
+	*/
 
 	
 

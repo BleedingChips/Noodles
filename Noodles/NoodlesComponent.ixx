@@ -21,9 +21,11 @@ export namespace Noodles
 
 		static Ptr Create(Archetype const& target_archetype, std::size_t suggest_component_count, std::pmr::memory_resource* resource);
 		std::byte* GetComponent(Archetype::MemberView const& member, std::size_t component_index);
-		void DestructComponent(Archetype const& target_archetype, std::size_t component_index);
+		bool DestructComponent(Archetype const& target_archetype, std::size_t component_index);
 		void MoveConstructComponent(Archetype const& target_archetype, std::size_t self_component_index, Chunk& source_chunk, std::size_t source_component_index);
 		void DestructAllComponent(Archetype const& target_archetype);
+		bool DestructSingleComponent(Archetype const& target_archetype, std::size_t component_index, BitFlag target_component);
+		bool ConstructComponent(Archetype const& target_archetype, std::size_t component_index, BitFlag target_component, std::byte* target_buffer, bool is_move_construction, bool need_destruct_before_construct);
 		OptionalSizeT AllocateComponentWithoutConstruct();
 		OptionalSizeT PopComponentWithoutDestruct();
 
@@ -67,8 +69,17 @@ export namespace Noodles
 	};
 	*/
 
-	struct ComponentChunkManager
+	struct ComponentManager
 	{
+
+		struct Index
+		{
+			OptionalSizeT archetype_index;
+			std::size_t chunk_index;
+			std::size_t component_index;
+			operator bool() const { return archetype_index; }
+		};
+
 		struct Config
 		{
 			std::size_t max_archetype_count = 128;
@@ -88,8 +99,8 @@ export namespace Noodles
 		OptionalSizeT CreateComponentChunk(std::span<Archetype::Init const> archetype_init);
 		*/
 
-		ComponentChunkManager(GlobalContext::Ptr global_context, Config config = {});
-		~ComponentChunkManager();
+		ComponentManager(GlobalContext::Ptr global_context, Config config = {});
+		~ComponentManager();
 		
 		//std::shared_mutex& GetMutex() const { return chunk_mutex; }
 
@@ -104,20 +115,48 @@ export namespace Noodles
 		//bool CheckVersion_AssumedLocked(ComponentQuery const& query) const;
 		//bool UpdateFilter_AssumedLocked(ComponentQuery& query) const;
 		*/
+
+		bool DestructionComponent(Index index);
+
+		struct Init
+		{
+			BitFlag component_class = BitFlag{std::numeric_limits<std::size_t>::max()};
+			bool move_construct = false;
+			std::byte* data = nullptr;
+		};
+
+		struct ConstructOption
+		{
+			bool description_before_construction = false;
+			bool full_construction = false;
+		};
+
+		bool ConstructComponent(Index index, std::span<Init const> component_init, ConstructOption option);
+
+		struct ArchetypeMember
+		{
+			BitFlag component_class;
+			std::size_t offset;
+		};
+
+		std::optional<std::size_t> GetComponentCountInArchetype(std::size_t archetype_index);
+
+		std::size_t FlushComponentInitWithComponent(Index index, BitFlagConstContainer component_class, std::span<Init> in_out);
+
 	protected:
 
 		//std::tuple<Archetype::OPtr, OptionalIndex> CreateArchetype_AssumedLocked(ArchetypeBuilderRef const& ref);
 
 		GlobalContext::Ptr global_context;
 
-		struct ChunkInfo
+		struct ArchetypeInfo
 		{
 			Archetype::Ptr archtype;
 			Potato::Misc::IndexSpan<> chunk_span;
 			std::size_t total_components = 0;
 		};
 
-		std::pmr::vector<ChunkInfo> component_chunks_info;
+		std::pmr::vector<ArchetypeInfo> archetype_info;
 		std::pmr::vector<Chunk::Ptr> chunks;
 
 		std::pmr::unsynchronized_pool_resource archetype_resource;

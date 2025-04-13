@@ -38,7 +38,7 @@ export namespace Noodles
 
 	protected:
 
-		static Ptr Create(GlobalContext const& global_context, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		static Ptr Create(GlobalContext& global_context, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		void SetFree_AssumedLocked();
 
@@ -55,9 +55,9 @@ export namespace Noodles
 		mutable std::shared_mutex mutex;
 		State state = State::PreInit;
 
-		OptionalSizeT chunk_infos_index;
-		std::size_t chunk_index = 0;
-		std::size_t component_index = 0;
+		ComponentManager::Index component_index;
+
+		OptionalSizeT modify_index;
 
 		BitFlagContainer component_bitflag;
 		BitFlagContainer modify_component_bitflag;
@@ -93,7 +93,7 @@ export namespace Noodles
 			std::pmr::memory_resource* resource = std::pmr::get_default_resource();
 		};
 
-		EntityManager(GlobalContext& global_context, Config fing = {});
+		EntityManager(GlobalContext::Ptr global_context, Config config = {});
 		~EntityManager();
 
 		Entity::Ptr CreateEntity(std::pmr::memory_resource* entity_resource = std::pmr::get_default_resource(), std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
@@ -120,12 +120,11 @@ export namespace Noodles
 
 		bool RemoveEntityComponent(Entity& target_entity, StructLayout const& struct_layout) { return RemoveEntityComponentImp(target_entity, struct_layout, false); }
 
-		//bool Flush(ComponentManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
+		bool Flush(ComponentManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 
 		//bool ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentQuery const& filter, QueryData& accessor) const;
-		
-		~EntityManager();
-		//MarkIndex GetEntityPropertyAtomicTypeID() { return entity_entity_property_index; }
+
+		BitFlag GetEntityPropertyBitFlag() { return entity_property_bitflag; }
 		bool ReleaseEntity(Entity::Ptr entity);
 
 	protected:
@@ -150,10 +149,9 @@ export namespace Noodles
 			bool Release();
 		};
 
-		BitFlag const entity_property_bitflag;
+		BitFlag entity_property_bitflag;
 		GlobalContext::Ptr global_context;
 
-		std::mutex entity_mutex;
 		std::pmr::vector<EntityModifierInfo> entity_modifier;
 		std::pmr::vector<EntityModifierEvent> entity_modifier_event;
 	};

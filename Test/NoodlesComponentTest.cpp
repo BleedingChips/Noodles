@@ -4,6 +4,8 @@ import std;
 
 import NoodlesComponent;
 import NoodlesGlobalContext;
+import NoodlesBitFlag;
+import NoodlesArchetype;
 
 import PotatoIR;
 
@@ -44,7 +46,7 @@ int main()
 {
 
 	auto global_context = GlobalContext::Create();
-	ComponentChunkManager manager{global_context };
+	ComponentManager manager{global_context };
 
 	std::pmr::vector<BitFlagConstContainer::Element> elements;
 	elements.resize(global_context->GetComponentBitFlagContainerElementCount());

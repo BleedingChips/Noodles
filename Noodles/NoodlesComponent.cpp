@@ -78,14 +78,19 @@ namespace Noodles
 		return buffer + member.offset * max_count + member.layout.size * component_index;
 	}
 
-	void Chunk::DestructComponent(Archetype const& target_archetype, std::size_t component_index)
+	bool Chunk::DestructComponent(Archetype const& target_archetype, std::size_t component_index)
 	{
-		for (auto& ite : target_archetype)
+		if(component_index < current_count)
 		{
-			auto buffer = GetComponent(ite, component_index);
-			auto result = ite.struct_layout->Destruction(buffer);
-			assert(result);
+			for (auto& ite : target_archetype)
+			{
+				auto buffer = GetComponent(ite, component_index);
+				auto result = ite.struct_layout->Destruction(buffer);
+				assert(result);
+			}
+			return true;
 		}
+		return false;
 	}
 
 	void Chunk::MoveConstructComponent(Archetype const& target_archetype, std::size_t self_component_index, Chunk& source_chunk, std::size_t source_component_index)
@@ -111,6 +116,56 @@ namespace Noodles
 			current_count = 0;
 		}
 	}
+
+	bool Chunk::DestructSingleComponent(Archetype const& target_archetype, std::size_t component_index, BitFlag target_component)
+	{
+		auto loc = target_archetype.FindMemberIndex(target_component);
+		if(loc)
+		{
+			auto& mem_view = target_archetype[loc];
+			auto target_offset = GetComponent(mem_view, component_index) + mem_view.offset * max_count;
+			auto re = mem_view.struct_layout->Destruction(target_offset);
+			assert(re);
+			return true;
+		}
+		return false;
+	}
+
+	bool Chunk::ConstructComponent(Archetype const& target_archetype, std::size_t component_index, BitFlag target_component, std::byte* target_buffer, bool move_construct, bool need_destruct_before_construct)
+	{
+		auto loc = target_archetype.FindMemberIndex(target_component);
+		if (loc)
+		{
+			auto& mem_view = target_archetype[loc];
+			auto ope = mem_view.struct_layout->GetOperateProperty();
+
+			if(
+				ope.copy_construct && !move_construct
+				|| ope.move_construct && move_construct
+				)
+			{
+				auto target_offset = GetComponent(mem_view, component_index) + mem_view.offset * max_count;
+				if (need_destruct_before_construct)
+				{
+					auto re = mem_view.struct_layout->Destruction(target_offset);
+					assert(re);
+				}
+
+				if (move_construct)
+				{
+					auto re = mem_view.struct_layout->MoveConstruction(target_offset, target_buffer);
+					assert(re);
+				}else
+				{
+					auto re = mem_view.struct_layout->CopyConstruction(target_offset, target_buffer);
+					assert(re);
+				}
+				return true;
+			}
+		}
+		return false;
+	}
+
 
 	void Chunk::Release()
 	{
@@ -138,9 +193,9 @@ namespace Noodles
 	}
 
 
-	ComponentChunkManager::ComponentChunkManager(GlobalContext::Ptr global_context, Config config)
+	ComponentManager::ComponentManager(GlobalContext::Ptr global_context, Config config)
 		:
-		component_chunks_info(config.resource),
+		archetype_info(config.resource),
 		chunks(config.resource),
 		archetype_resource(config.component_resource),
 		component_resource(config.component_resource),
@@ -167,9 +222,9 @@ namespace Noodles
 		*/
 	}
 
-	ComponentChunkManager::~ComponentChunkManager()
+	ComponentManager::~ComponentManager()
 	{
-		for (auto& ite : component_chunks_info)
+		for (auto& ite : archetype_info)
 		{
 			auto span = ite.chunk_span.Slice(std::span(chunks));
 
@@ -179,13 +234,13 @@ namespace Noodles
 			}
 		}
 		chunks.clear();
-		component_chunks_info.clear();
+		archetype_info.clear();
 	}
 
-	OptionalSizeT ComponentChunkManager::LocateComponentChunk(BitFlagConstContainer component_bitflag) const
+	OptionalSizeT ComponentManager::LocateComponentChunk(BitFlagConstContainer component_bitflag) const
 	{
 		std::size_t index = 0;
-		for (auto& ite : component_chunks_info)
+		for (auto& ite : archetype_info)
 		{
 			assert(ite.archtype);
 			if (ite.archtype->GetClassBitFlagContainer().IsSame(component_bitflag))
@@ -208,23 +263,58 @@ namespace Noodles
 	}
 	*/
 
-	OptionalSizeT ComponentChunkManager::CreateComponentChunk(std::span<Archetype::Init const> archetype_init)
+	OptionalSizeT ComponentManager::CreateComponentChunk(std::span<Archetype::Init const> archetype_init)
 	{
-		auto old_info_size = component_chunks_info.size();
+		auto old_info_size = archetype_info.size();
 		auto old_chunk_size = chunks.size();
 
 		auto archtype = Archetype::Create(global_context->GetComponentBitFlagContainerElementCount(), archetype_init, &archetype_resource);
 		if (archtype)
 		{
 
-			ChunkInfo info;
+			ArchetypeInfo info;
 			info.archtype = std::move(archtype);
 			info.chunk_span = { old_chunk_size, old_chunk_size };
 
-			component_chunks_info.emplace_back(std::move(info));
+			archetype_info.emplace_back(std::move(info));
 			return old_info_size;
 		}
 		return {};
+	}
+
+	bool ComponentManager::DestructionComponent(Index index)
+	{
+		if(index.archetype_index.Get() < archetype_info.size())
+		{
+			auto& archetype = archetype_info[index.archetype_index.Get()];
+			if(index.chunk_index < archetype.chunk_span.Size())
+			{
+				auto& target_chunk = chunks[index.chunk_index];
+				assert(target_chunk);
+				return target_chunk->DestructComponent(*archetype.archtype, index.component_index);
+			}
+		}
+		return false;
+	}
+
+	bool ComponentManager::ConstructComponent(Index index, std::span<Init const> component_init, ConstructOption option)
+	{
+		if (index.archetype_index.Get() < archetype_info.size())
+		{
+			auto& archetype = archetype_info[index.archetype_index.Get()];
+
+			if (index.chunk_index < archetype.chunk_span.Size())
+			{
+				auto& target_chunk = chunks[index.chunk_index];
+				for(auto ite : component_init)
+				{
+					bool re = target_chunk->ConstructComponent(*archetype.archtype, index.component_index, ite.component_class, ite.data, ite.move_construct, option.description_before_construction);
+					assert(re);
+				}
+				return true;
+			}
+		}
+		return false;
 	}
 
 
