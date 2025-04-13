@@ -17,7 +17,7 @@ export namespace Noodles
 		{
 			Potato::IR::StructLayout::Ptr struct_layout;
 			Potato::IR::Layout layout;
-			BitFlag bit_flag;
+			BitFlag bitflag;
 			std::size_t offset;
 		};
 
@@ -34,7 +34,7 @@ export namespace Noodles
 
 		static Ptr Create(std::size_t class_bitflag_container_count, std::span<Init const> atomic_type, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
-		MemberIndex FindMemberIndex(BitFlag index) const;
+		MemberIndex FindMemberIndex(BitFlag class_bitflag) const;
 		std::size_t GetAtomicTypeCount() const { return GetMemberView().size(); }
 
 		Potato::IR::Layout GetLayout() const { return archetype_layout.Get(); }

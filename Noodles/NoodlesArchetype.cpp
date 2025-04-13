@@ -56,11 +56,11 @@ namespace Noodles
 		return {};
 	}
 
-	Archetype::MemberIndex Archetype::FindMemberIndex(BitFlag id) const
+	Archetype::MemberIndex Archetype::FindMemberIndex(BitFlag class_bitflag) const
 	{
 		for(std::size_t i =0; i < member_view.size(); ++i)
 		{
-			if(member_view[i].bit_flag == id)
+			if(member_view[i].bitflag == class_bitflag)
 				return MemberIndex{i};
 		}
 		return {};

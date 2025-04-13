@@ -308,7 +308,7 @@ namespace Noodles
 				auto& target_chunk = chunks[index.chunk_index];
 				for(auto ite : component_init)
 				{
-					bool re = target_chunk->ConstructComponent(*archetype.archtype, index.component_index, ite.component_class, ite.data, ite.move_construct, option.description_before_construction);
+					bool re = target_chunk->ConstructComponent(*archetype.archtype, index.component_index, ite.component_class, ite.data, ite.move_construct, option.destruct_before_construct);
 					assert(re);
 				}
 				return true;
@@ -317,6 +317,87 @@ namespace Noodles
 		return false;
 	}
 
+	std::size_t ComponentManager::FlushComponentInitWithComponent(Index index, BitFlagConstContainer component_class, std::span<Init> in_out, std::span<Archetype::Init> in_out_archetype)
+	{
+		if (index.archetype_index.Get() < archetype_info.size())
+		{
+			auto& archetype = archetype_info[index.archetype_index.Get()];
+
+			if (index.chunk_index < archetype.chunk_span.Size())
+			{
+				auto& target_chunk = chunks[index.chunk_index];
+				std::size_t output_index = 0;
+
+				if (output_index < in_out.size())
+				{
+					for (Archetype::MemberView const& ite : *archetype.archtype)
+					{
+						auto re = component_class.GetValue(ite.bitflag);
+						assert(re.has_value());
+						if (*re)
+						{
+							if (output_index < in_out_archetype.size())
+							{
+								auto& ref2 = in_out_archetype[output_index];
+								ref2.flag = ite.bitflag;
+								ref2.ptr = ite.struct_layout;
+							}
+							
+							auto& ref = in_out[output_index];
+							ref.component_class = ite.bitflag;
+							ref.data = target_chunk->GetComponent(ite, index.component_index);
+							++output_index;
+							if (output_index < in_out.size())
+							{
+								break;
+							}
+						}
+					}
+					return output_index;
+				}
+			}
+		}
+		return 0;
+	}
+
+	ComponentManager::Index ComponentManager::AllocateNewComponentWithoutConstruct(std::size_t archetype_index)
+	{
+		if (archetype_index < archetype_info.size())
+		{
+			auto& archetype = archetype_info[archetype_index];
+
+			auto span = archetype.chunk_span.Slice(std::span(chunks));
+
+			if (!span.empty())
+			{
+				auto& chunk_ref = *span.rbegin();
+				auto component_index = chunk_ref->AllocateComponentWithoutConstruct();
+				if (component_index)
+				{
+					++archetype.total_components;
+					return { archetype_index, archetype.chunk_span.End() - 1, component_index};
+				}
+			}
+
+			auto new_chunk = Chunk::Create(*archetype.archtype, 10, &component_resource);
+			if (new_chunk)
+			{
+				auto new_component_index = new_chunk->AllocateComponentWithoutConstruct();
+				if (new_component_index)
+				{
+					++archetype.total_components;
+					chunks.insert(chunks.begin() + archetype.chunk_span.End(), std::move(new_chunk));
+					archetype.chunk_span.BackwardEnd(1);
+					for (std::size_t i = archetype_index + 1; i < archetype_info.size(); ++i)
+					{
+						archetype_info[i].chunk_span.WholeOffset(1);
+					}
+					return { archetype_index, archetype.chunk_span.End() - 1, new_component_index };
+				}
+			}
+		}
+		return {};
+	}
 
 
 	/*

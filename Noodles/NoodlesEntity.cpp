@@ -10,9 +10,7 @@ namespace Noodles
 	void Entity::SetFree_AssumedLocked()
 	{
 		state = State::Free;
-		archetype_index.Reset();
-		component_bitflag.Reset();
-		modify_index.Reset();
+		component_index.archetype_index.Reset();
 		modify_component_bitflag.Reset();
 	}
 
@@ -31,6 +29,11 @@ namespace Noodles
 				new (record.GetByte(offset_flag)) BitFlagConstContainer::Element[element_count * 2],
 				element_count * 2
 			};
+
+			for (auto& ite : flag_span)
+			{
+				ite = 0;
+			}
 
 			return new (record.Get()) Entity{
 				record,
@@ -245,6 +248,7 @@ namespace Noodles
 						if (ite.need_add && ite.bitflag == *loc)
 						{
 							ite.Release();
+							ite.need_add = false;
 							break;
 						}
 					}
@@ -257,7 +261,7 @@ namespace Noodles
 
 	bool EntityManager::Flush(ComponentManager& manager, std::pmr::memory_resource* temp_resource)
 	{
-		bool Updated = false;
+		bool has_been_update = false;
 
 		std::pmr::vector<ComponentManager::Index> removed_list(temp_resource);
 
@@ -265,11 +269,11 @@ namespace Noodles
 		{
 			if (ite.entity && ite.need_remove)
 			{
-				Updated = true;
+				has_been_update = true;
 				auto& entity = *ite.entity;
 				std::lock_guard lg(entity.mutex);
 				assert(entity.state == Entity::State::PendingDestroy);
-				if(entity.component_index)
+				if (entity.component_index)
 				{
 					manager.DestructionComponent(
 						entity.component_index
@@ -283,19 +287,21 @@ namespace Noodles
 		std::pmr::vector<ComponentManager::Init> component_init_list{ temp_resource };
 		std::pmr::vector<Archetype::Init> init_list{ temp_resource };
 
-		for(auto& ite : entity_modifier)
+		for (auto& ite : entity_modifier)
 		{
-			if (ite.entity)
+			if (ite.entity && !ite.need_remove)
 			{
-				Updated = true;
+				has_been_update = true;
 				auto& entity = *ite.entity;
 				std::lock_guard lg(entity.mutex);
-				if(entity.modify_component_bitflag.IsSame(entity.component_bitflag))
+				auto bitflag_is_same = entity.modify_component_bitflag.IsSame(entity.component_bitflag);
+				assert(bitflag_is_same.has_value());
+				if (*bitflag_is_same)
 				{
 					assert(entity.component_index);
 					auto span = ite.infos.Slice(std::span{ entity_modifier_event });
 					component_init_list.clear();
-					for (auto& ite2 : span)
+					for (EntityModifierEvent const& ite2 : span)
 					{
 						if (ite2.need_add)
 						{
@@ -303,124 +309,106 @@ namespace Noodles
 						}
 					}
 					ComponentManager::ConstructOption option;
-					option.description_before_construction = true;
+					option.destruct_before_construct = true;
 					auto re = manager.ConstructComponent(entity.component_index, std::span(component_init_list), option);
-					assert(re == component_init_list.size());
-				}else{
-					
-				}
+					assert(re);
 
-				/*
-				if (MarkElement::IsSame(entity.modify_component_mask, entity.current_component_mask))
-				{
-					
 				}
-				else
-				{
-					auto [archetype, archetype_index] = manager.FindArchetype_AssumedLocked(
-						entity.modify_component_mask
-					);
+				else {
 
-					if (!archetype)
+					auto archetype_component_count = entity.modify_component_bitflag.GetBitFlagCount();
+					auto archetype_index = manager.LocateComponentChunk(entity.modify_component_bitflag);
+
+					init_list.clear();
+					component_init_list.resize(archetype_component_count);
+					std::size_t offset = 0;
+					if (!archetype_index)
 					{
-						builder.Clear();
-						auto span = ite.infos.Slice(std::span{ entity_modifier_event });
-						for (auto& ite2 : span)
-						{
-							if (ite2.need_add)
-							{
-								auto re = builder.Insert(ite2.struct_layout, ite2.index);
-								assert(re);
-							}
-						}
-
-						if (entity.archetype_index)
-						{
-							auto mm = manager.GetChunk_AssumedLocked(entity.archetype_index);
-							for (auto& ite2 : mm.archetype->GetMemberView())
-							{
-								auto re = MarkElement::CheckIsMark(entity.modify_component_mask, ite2.index);
-								if (re)
-								{
-									builder.Insert(ite2.layout, ite2.index);
-								}
-							}
-						}
-
-						assert(MarkElement::IsSame(builder.GetMarks(), entity.modify_component_mask));
-
-						std::tie(archetype, archetype_index) = manager.FindOrCreateArchetype_AssumedLocked(builder);
-
-						assert(archetype && archetype_index);
+						init_list.resize(archetype_component_count);
+						offset = manager.FlushComponentInitWithComponent(entity.component_index, entity.modify_component_bitflag, std::span(component_init_list), std::span(init_list));
+					}
+					else {
+						offset = manager.FlushComponentInitWithComponent(entity.component_index, entity.modify_component_bitflag, std::span(component_init_list), {});
 					}
 
-					auto index = manager.AllocateComponentColumn_AssumedLocked(archetype_index, remove_list);
-
-					assert(index);
-
-					auto mm = manager.GetChunk_AssumedLocked(archetype_index);
-					builder.Clear();
-
 					auto span = ite.infos.Slice(std::span{ entity_modifier_event });
-					for (auto& ite2 : span)
+					component_init_list.clear();
+					std::size_t new_component_start_index = offset;
+					for (EntityModifierEvent const& ite2 : span)
 					{
 						if (ite2.need_add)
 						{
-							auto re = mm.MoveConstructComponent(
-								ite2.index,
-								index,
-								ite2.resource.GetByte()
-							);
-							assert(re);
-							auto re2 = MarkElement::Mark(builder.GetMarks(), ite2.index);
-							assert(!re2);
-						}
-					}
-
-					if (entity.archetype_index)
-					{
-						auto old_mm = manager.GetChunk_AssumedLocked(entity.archetype_index);
-						assert(old_mm);
-						for (auto& ite2 : old_mm.archetype->GetMemberView())
-						{
-							auto re = MarkElement::CheckIsMark(entity.modify_component_mask, ite2.index);
-							if (re)
+							bool modify = false;
+							for (std::size_t i = 0; i < offset; ++i)
 							{
-								re = MarkElement::Mark(builder.GetMarks(), ite2.index);
-								if (!re)
+								auto& cur = component_init_list[i];
+								if (cur.component_class == ite2.bitflag)
 								{
-									auto target_buffer = old_mm.GetComponent(
-										ite2.index,
-										entity.column_index
-									);
-
-									assert(target_buffer != nullptr);
-
-									auto re2 = mm.MoveConstructComponent(
-										ite2.index,
-										index,
-										target_buffer
-									);
-
-									assert(re2);
+									cur.data = ite2.resource.GetByte();
+									modify = true;
+									break;
 								}
 							}
+							if (!modify)
+							{
+								auto& cur = component_init_list[new_component_start_index];
+								cur.component_class = ite2.bitflag;
+								cur.data = ite2.resource.GetByte();
+								if (!archetype_index)
+								{
+									auto& cur2 = init_list[new_component_start_index];
+									cur2.flag = ite2.bitflag;
+									cur2.ptr = ite2.struct_layout;
+								}
+								++new_component_start_index;
+							}
+							component_init_list.emplace_back(ite2.bitflag, true, ite2.resource.GetByte());
 						}
-						auto re = manager.ReleaseComponentColumn_AssumedLocked(entity.archetype_index, entity.column_index, remove_list);
-						assert(re);
 					}
 
+					for (auto& ite : component_init_list)
+					{
+						ite.move_construct = true;
+					}
+
+					if (!archetype_index)
+					{
+						archetype_index = manager.CreateComponentChunk(std::span(init_list));
+						assert(archetype_index);
+						if (!archetype_index)
+						{
+							continue;
+						}
+					}
+
+					auto new_component_index = manager.AllocateNewComponentWithoutConstruct(archetype_index);
+					if (!new_component_index)
+					{
+						continue;
+					}
+
+
+
+					ComponentManager::ConstructOption option;
+					option.destruct_before_construct = false;
+
+					auto re = manager.ConstructComponent(new_component_index, std::span(component_init_list), option);
+					assert(re);
+
+					if (entity.component_index)
+					{
+						re = manager.DestructionComponent(entity.component_index);
+						assert(re);
+						removed_list.emplace_back(entity.component_index);
+					}
+					
+					entity.component_index = new_component_index;
+					entity.component_bitflag.CopyFrom(entity.modify_component_bitflag);
 					entity.state = Entity::State::Normal;
 					entity.modify_index.Reset();
-					entity.archetype_index = archetype_index;
-					entity.column_index = index;
-					MarkElement::CopyTo(entity.modify_component_mask, entity.current_component_mask);
-					
 				}
-				*/
 			}
 		}
-
 
 		for (auto& ite : entity_modifier_event)
 		{
@@ -429,8 +417,8 @@ namespace Noodles
 
 		entity_modifier.clear();
 		entity_modifier_event.clear();
-
-
+		return has_been_update;
+	}
 
 	/*
 	

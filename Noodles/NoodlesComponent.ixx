@@ -127,21 +127,14 @@ export namespace Noodles
 
 		struct ConstructOption
 		{
-			bool description_before_construction = false;
+			bool destruct_before_construct = false;
 			bool full_construction = false;
 		};
 
 		bool ConstructComponent(Index index, std::span<Init const> component_init, ConstructOption option);
 
-		struct ArchetypeMember
-		{
-			BitFlag component_class;
-			std::size_t offset;
-		};
-
-		std::optional<std::size_t> GetComponentCountInArchetype(std::size_t archetype_index);
-
-		std::size_t FlushComponentInitWithComponent(Index index, BitFlagConstContainer component_class, std::span<Init> in_out);
+		std::size_t FlushComponentInitWithComponent(Index index, BitFlagConstContainer component_class, std::span<Init> in_out, std::span<Archetype::Init> in_out_archetype);
+		Index AllocateNewComponentWithoutConstruct(std::size_t archetype_index);
 
 	protected:
 

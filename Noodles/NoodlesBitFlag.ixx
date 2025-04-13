@@ -29,6 +29,7 @@ export namespace Noodles
 		std::optional<bool> IsOverlapping(BitFlagConstContainer target) const;
 		std::optional<bool> IsOverlappingWithMask(BitFlagConstContainer target, BitFlagConstContainer mask) const;
 		std::optional<bool> IsSame(BitFlagConstContainer target) const;
+		std::size_t GetBitFlagCount() const;
 		bool IsReset() const;
 
 		static std::size_t GetBitFlagContainerElementCount(std::size_t max_bit_flag);

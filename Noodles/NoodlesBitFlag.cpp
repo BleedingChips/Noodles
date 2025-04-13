@@ -122,6 +122,48 @@ namespace Noodles
 		return true;
 	}
 
+	std::size_t BitFlagConstContainer::GetBitFlagCount() const
+	{
+		static auto bitflag_count_map = std::array<std::size_t, 16>{
+			0, // 0000
+			1, // 0001
+			1, // 0010
+			2, // 0011
+			1, // 0100
+			2, // 0101
+			2, // 0110
+			3, // 0111
+			1, // 1000
+			2, // 1001
+			2, // 1010
+			3, // 1011
+			2, // 1100
+			3, // 1101
+			3, // 1110
+			4  // 1111
+		};
+
+		std::size_t count = 0;
+
+		for (auto ite : container)
+		{
+			if (ite != 0)
+			{
+				std::span<std::uint8_t> detect_span = {reinterpret_cast<std::uint8_t*>(&ite), sizeof(Element)};
+				for (auto ite : detect_span)
+				{
+					if (ite != 0)
+					{
+						count += bitflag_count_map[(ite % 16)];
+						count += bitflag_count_map[(ite / 16)];
+					}
+				}
+			}
+		}
+
+		return count;
+	}
+
 	std::optional<bool> BitFlagContainer::SetValue(BitFlag flag, bool value)
 	{
 		auto [e_index, b_index] = LocatedBitFlag(flag);
