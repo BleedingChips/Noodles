@@ -28,8 +28,9 @@ export namespace Noodles
 		bool ConstructComponent(Archetype const& target_archetype, std::size_t component_index, BitFlag target_component, std::byte* target_buffer, bool is_move_construction, bool need_destruct_before_construct);
 		OptionalSizeT AllocateComponentWithoutConstruct();
 		OptionalSizeT PopComponentWithoutDestruct();
-
+		std::size_t GetComponentCount() const { return current_count; }
 		~Chunk() = default;
+		OptionalSizeT PopBack(Archetype const& target_archetype);
 
 	protected:
 
@@ -78,6 +79,7 @@ export namespace Noodles
 			std::size_t chunk_index;
 			std::size_t component_index;
 			operator bool() const { return archetype_index; }
+			std::strong_ordering operator<=>(Index const&) const noexcept = default;
 		};
 
 		struct Config
@@ -87,8 +89,8 @@ export namespace Noodles
 			std::pmr::memory_resource* resource = std::pmr::get_default_resource();
 		};
 
-		BitFlagConstContainer GetComponentChunkUpdateBitFlag() const { return component_chunk_update_bitflag; }
-		BitFlagConstContainer GetComponentChunkNotEmptyBitFlag() const { return component_chunk_not_empty_bitflag; }
+		BitFlagConstContainer GetArchetypeUpdateBitFlag() const { return archetype_update_bitflag; }
+		BitFlagConstContainer GetArchetypeNotEmptyBitFlag() const { return archetype_not_empty_bitflag; }
 
 		OptionalSizeT LocateComponentChunk(BitFlagConstContainer component_bitflag) const;
 		OptionalSizeT CreateComponentChunk(std::span<Archetype::Init const> archetype_init);
@@ -136,6 +138,9 @@ export namespace Noodles
 		std::size_t FlushComponentInitWithComponent(Index index, BitFlagConstContainer component_class, std::span<Init> in_out, std::span<Archetype::Init> in_out_archetype);
 		Index AllocateNewComponentWithoutConstruct(std::size_t archetype_index);
 
+		std::optional<bool> PopBackComponentToFillHole(Index hole_index, Index pop_back_limited);
+		void ClearBitFlag();
+
 	protected:
 
 		//std::tuple<Archetype::OPtr, OptionalIndex> CreateArchetype_AssumedLocked(ArchetypeBuilderRef const& ref);
@@ -156,8 +161,8 @@ export namespace Noodles
 		std::pmr::unsynchronized_pool_resource component_resource;
 
 		std::pmr::vector<BitFlagContainer::Element> bit_flag_container;
-		BitFlagContainer component_chunk_update_bitflag;
-		BitFlagContainer component_chunk_not_empty_bitflag;
+		BitFlagContainer archetype_update_bitflag;
+		BitFlagContainer archetype_not_empty_bitflag;
 		std::size_t max_archtype_count = 0;
 	};
 }

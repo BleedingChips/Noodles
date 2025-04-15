@@ -104,6 +104,7 @@ export namespace Noodles
 		operator bool() const { return real_index != std::numeric_limits<std::size_t>::max(); }
 		operator std::size_t() const { assert(*this); return real_index; }
 		OptionalSizeT& operator=(OptionalSizeT const&) = default;
+		std::strong_ordering operator<=>(OptionalSizeT const&) const noexcept = default;
 		OptionalSizeT& operator=(std::size_t input) { assert(input != std::numeric_limits<std::size_t>::max()); real_index = input; return *this; }
 		OptionalSizeT() = default;
 		OptionalSizeT(OptionalSizeT const&) = default;

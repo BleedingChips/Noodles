@@ -332,7 +332,6 @@ namespace Noodles
 					}
 
 					auto span = ite.infos.Slice(std::span{ entity_modifier_event });
-					component_init_list.clear();
 					std::size_t new_component_start_index = offset;
 					for (EntityModifierEvent const& ite2 : span)
 					{
@@ -362,7 +361,6 @@ namespace Noodles
 								}
 								++new_component_start_index;
 							}
-							component_init_list.emplace_back(ite2.bitflag, true, ite2.resource.GetByte());
 						}
 					}
 
@@ -370,6 +368,9 @@ namespace Noodles
 					{
 						ite.move_construct = true;
 					}
+
+					ComponentManager::ConstructOption option;
+					option.destruct_before_construct = false;
 
 					if (!archetype_index)
 					{
@@ -381,16 +382,27 @@ namespace Noodles
 						}
 					}
 
-					auto new_component_index = manager.AllocateNewComponentWithoutConstruct(archetype_index);
-					if (!new_component_index)
+					ComponentManager::Index new_component_index;
+
 					{
-						continue;
+						auto find = std::find_if(removed_list.begin(), removed_list.end(), [=](ComponentManager::Index const& index) {
+							return index.archetype_index.Get() == archetype_index.Get();
+						});
+						if (find != removed_list.end())
+						{
+							new_component_index = *find;
+							removed_list.erase(find);
+						}
 					}
 
-
-
-					ComponentManager::ConstructOption option;
-					option.destruct_before_construct = false;
+					if (!new_component_index)
+					{
+						new_component_index = manager.AllocateNewComponentWithoutConstruct(archetype_index);
+						if (!new_component_index)
+						{
+							continue;
+						}
+					}
 
 					auto re = manager.ConstructComponent(new_component_index, std::span(component_init_list), option);
 					assert(re);
@@ -413,6 +425,35 @@ namespace Noodles
 		for (auto& ite : entity_modifier_event)
 		{
 			ite.Release();
+		}
+
+		if (!removed_list.empty())
+		{
+			std::sort(removed_list.begin(), removed_list.end());
+			std::span<ComponentManager::Index> span = std::span(removed_list);
+			while (!span.empty())
+			{
+				std::size_t index = 1;
+				for (std::size_t index = 1; index < span.size(); ++index)
+				{
+					if (span[index].archetype_index != span[0].archetype_index)
+						break;
+				}
+				auto ite = span.subspan(0, index);
+				span = span.subspan(index);
+				while (!ite.empty())
+				{
+					auto re = manager.PopBackComponentToFillHole(*ite.begin(), *ite.rbegin());
+					assert(re.has_value());
+					if (*re)
+					{
+						ite = ite.subspan(1);
+					}
+					else {
+						ite = ite.subspan(0, ite.size() - 1);
+					}
+				}
+			}
 		}
 
 		entity_modifier.clear();

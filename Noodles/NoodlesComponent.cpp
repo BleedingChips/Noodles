@@ -192,6 +192,22 @@ namespace Noodles
 		return {};
 	}
 
+	OptionalSizeT Chunk::PopBack(Archetype const& target_archetype)
+	{
+		if (current_count > 0)
+		{
+			for (auto& ite : target_archetype)
+			{
+				auto buffer = GetComponent(ite, current_count);
+				auto result = ite.struct_layout->Destruction(buffer);
+				assert(result);
+			}
+			--current_count;
+			return current_count;
+		}
+		return {};
+	}
+
 
 	ComponentManager::ComponentManager(GlobalContext::Ptr global_context, Config config)
 		:
@@ -210,8 +226,8 @@ namespace Noodles
 
 		bit_flag_container.resize(archtype_container_count * 2);
 
-		component_chunk_not_empty_bitflag = std::span(bit_flag_container).subspan(0, archtype_container_count);
-		component_chunk_update_bitflag = std::span(bit_flag_container).subspan(archtype_container_count);
+		archetype_not_empty_bitflag = std::span(bit_flag_container).subspan(0, archtype_container_count);
+		archetype_update_bitflag = std::span(bit_flag_container).subspan(archtype_container_count);
 
 		/*
 		archetype_mask.resize(manager.GetArchetypeStorageCount() * 2);
@@ -265,19 +281,27 @@ namespace Noodles
 
 	OptionalSizeT ComponentManager::CreateComponentChunk(std::span<Archetype::Init const> archetype_init)
 	{
-		auto old_info_size = archetype_info.size();
-		auto old_chunk_size = chunks.size();
-
-		auto archtype = Archetype::Create(global_context->GetComponentBitFlagContainerElementCount(), archetype_init, &archetype_resource);
-		if (archtype)
+		if (archetype_info.size() < max_archtype_count)
 		{
+			auto old_info_size = archetype_info.size();
+			auto old_chunk_size = chunks.size();
 
-			ArchetypeInfo info;
-			info.archtype = std::move(archtype);
-			info.chunk_span = { old_chunk_size, old_chunk_size };
+			auto archtype = Archetype::Create(global_context->GetComponentBitFlagContainerElementCount(), archetype_init, &archetype_resource);
+			if (archtype && max_archtype_count)
+			{
 
-			archetype_info.emplace_back(std::move(info));
-			return old_info_size;
+				ArchetypeInfo info;
+				info.archtype = std::move(archtype);
+				info.chunk_span = { old_chunk_size, old_chunk_size };
+
+				archetype_info.emplace_back(std::move(info));
+
+				BitFlag archtype_bitflag = BitFlag{ old_info_size };
+
+				auto re = archetype_update_bitflag.SetValue(archtype_bitflag);
+				assert(re.has_value());
+				return old_info_size;
+			}
 		}
 		return {};
 	}
@@ -375,6 +399,11 @@ namespace Noodles
 				if (component_index)
 				{
 					++archetype.total_components;
+					if (archetype.total_components == 1)
+					{
+						auto re = archetype_not_empty_bitflag.SetValue({ archetype_index });
+						assert(re && !*re);
+					}
 					return { archetype_index, archetype.chunk_span.End() - 1, component_index};
 				}
 			}
@@ -392,11 +421,76 @@ namespace Noodles
 					{
 						archetype_info[i].chunk_span.WholeOffset(1);
 					}
+					if (archetype.total_components == 1)
+					{
+						auto re = archetype_not_empty_bitflag.SetValue({ archetype_index });
+						assert(re && !*re);
+					}
 					return { archetype_index, archetype.chunk_span.End() - 1, new_component_index };
 				}
 			}
 		}
 		return {};
+	}
+
+	std::optional<bool> ComponentManager::PopBackComponentToFillHole(Index hole_index, Index max_hole)
+	{
+		assert(hole_index.archetype_index == max_hole.archetype_index && hole_index <= max_hole);
+		if (hole_index.archetype_index.Get() < archetype_info.size())
+		{
+			auto& archetype = archetype_info[hole_index.archetype_index.Get()];
+
+			if (hole_index.chunk_index < archetype.chunk_span.Size())
+			{
+				std::span<Chunk::Ptr> span = archetype.chunk_span.Slice(std::span(chunks));
+				auto index_end = Index{ hole_index.archetype_index, span.size() - 1, (*span.rbegin())->GetComponentCount() - 1};
+				
+				OptionalSizeT PopBackResult;
+				std::optional<bool> result;
+				if (index_end == max_hole)
+				{
+					PopBackResult = (*span.rbegin())->PopBack(*archetype.archtype);
+					result = false;
+				}
+				else {
+
+					auto& tar = span[hole_index.chunk_index];
+					auto& sour = (*span.rbegin());
+
+					auto re = tar->DestructComponent(*archetype.archtype, hole_index.component_index);
+					assert(re);
+					tar->MoveConstructComponent(*archetype.archtype, hole_index.component_index, *sour, sour->GetComponentCount() - 1);
+					sour->PopBack(*archetype.archtype);
+					result = true;
+				}
+
+				--archetype.total_components;
+
+				if (archetype.total_components == 1)
+				{
+					auto re = archetype_not_empty_bitflag.SetValue({ hole_index.archetype_index.Get() }, false);
+					assert(re && *re);
+				}
+
+				if ((*span.rbegin())->GetComponentCount() == 0)
+				{
+					chunks.erase(chunks.begin() + archetype.chunk_span.End() - 1);
+					archetype.chunk_span.SubIndex(0, archetype.chunk_span.Size() - 1);
+					for (std::size_t i = hole_index.archetype_index.Get() + 1; i < archetype_info.size(); ++i)
+					{
+						archetype_info[i].chunk_span.WholeForward(1);
+					}
+				}
+				return result;
+			}
+
+		}
+		return std::nullopt;
+	}
+
+	void ComponentManager::ClearBitFlag()
+	{
+		archetype_update_bitflag.Reset();
 	}
 
 
