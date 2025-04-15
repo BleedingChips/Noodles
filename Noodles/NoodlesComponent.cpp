@@ -71,20 +71,34 @@ namespace Noodles
 		return {};
 	}
 
-	std::byte* Chunk::GetComponent(Archetype::MemberView const& member, std::size_t component_index)
+	void* Chunk::GetComponent(Archetype::MemberView const& member, std::size_t entity_index)
 	{
-		assert(component_index < current_count);
-		assert(buffer != nullptr);
-		return buffer + member.offset * max_count + member.layout.size * component_index;
+		return GetComponent(member.offset, member.layout.size, entity_index);
 	}
 
-	bool Chunk::DestructComponent(Archetype const& target_archetype, std::size_t component_index)
+	void* Chunk::GetComponent(std::size_t member_offset, std::size_t member_size, std::size_t entity_index)
 	{
-		if(component_index < current_count)
+		assert(buffer != nullptr);
+		if (entity_index < current_count)
+		{
+			return buffer + member_offset * max_count + member_size * entity_index;
+		}
+		return nullptr;
+	}
+
+	void* Chunk::GetComponentArray(std::size_t member_offset)
+	{
+		assert(buffer != nullptr);
+		return buffer + member_offset * max_count;
+	}
+
+	bool Chunk::DestructEntity(Archetype const& target_archetype, std::size_t entity_index)
+	{
+		if(entity_index < current_count)
 		{
 			for (auto& ite : target_archetype)
 			{
-				auto buffer = GetComponent(ite, component_index);
+				auto buffer = GetComponent(ite, entity_index);
 				auto result = ite.struct_layout->Destruction(buffer);
 				assert(result);
 			}
@@ -93,17 +107,17 @@ namespace Noodles
 		return false;
 	}
 
-	void Chunk::MoveConstructComponent(Archetype const& target_archetype, std::size_t self_component_index, Chunk& source_chunk, std::size_t source_component_index)
+	void Chunk::MoveConstructEntity(Archetype const& target_archetype, std::size_t self_entity_index, Chunk& source_chunk, std::size_t source_entity_index)
 	{
 		for (auto& ite : target_archetype)
 		{
-			auto buffer = GetComponent(ite, self_component_index);
-			auto result = ite.struct_layout->MoveConstruction(buffer, source_chunk.GetComponent(ite, source_component_index));
+			auto buffer = GetComponent(ite, self_entity_index);
+			auto result = ite.struct_layout->MoveConstruction(buffer, source_chunk.GetComponent(ite, source_entity_index));
 			assert(result);
 		}
 	}
 
-	void Chunk::DestructAllComponent(Archetype const& target_archetype)
+	void Chunk::DestructAll(Archetype const& target_archetype)
 	{
 		if (current_count != 0)
 		{
@@ -117,13 +131,13 @@ namespace Noodles
 		}
 	}
 
-	bool Chunk::DestructSingleComponent(Archetype const& target_archetype, std::size_t component_index, BitFlag target_component)
+	bool Chunk::DestructComponent(Archetype const& target_archetype, std::size_t entity_index, BitFlag target_component)
 	{
 		auto loc = target_archetype.FindMemberIndex(target_component);
 		if(loc)
 		{
 			auto& mem_view = target_archetype[loc];
-			auto target_offset = GetComponent(mem_view, component_index) + mem_view.offset * max_count;
+			auto target_offset = GetComponent(mem_view, entity_index);
 			auto re = mem_view.struct_layout->Destruction(target_offset);
 			assert(re);
 			return true;
@@ -131,7 +145,7 @@ namespace Noodles
 		return false;
 	}
 
-	bool Chunk::ConstructComponent(Archetype const& target_archetype, std::size_t component_index, BitFlag target_component, std::byte* target_buffer, bool move_construct, bool need_destruct_before_construct)
+	bool Chunk::ConstructComponent(Archetype const& target_archetype, std::size_t entity_index, BitFlag target_component, void* target_buffer, bool move_construct, bool need_destruct_before_construct)
 	{
 		auto loc = target_archetype.FindMemberIndex(target_component);
 		if (loc)
@@ -144,7 +158,7 @@ namespace Noodles
 				|| ope.move_construct && move_construct
 				)
 			{
-				auto target_offset = GetComponent(mem_view, component_index) + mem_view.offset * max_count;
+				auto target_offset = GetComponent(mem_view, entity_index);
 				if (need_destruct_before_construct)
 				{
 					auto re = mem_view.struct_layout->Destruction(target_offset);
@@ -174,7 +188,7 @@ namespace Noodles
 		re.Deallocate();
 	}
 
-	OptionalSizeT Chunk::AllocateComponentWithoutConstruct()
+	OptionalSizeT Chunk::AllocateEntityWithoutConstruct()
 	{
 		if (current_count < max_count)
 		{
@@ -183,7 +197,7 @@ namespace Noodles
 		return {};
 	}
 
-	OptionalSizeT Chunk::PopComponentWithoutDestruct()
+	OptionalSizeT Chunk::PopEntityWithoutDestruct()
 	{
 		if (current_count > 0)
 		{
@@ -198,7 +212,7 @@ namespace Noodles
 		{
 			for (auto& ite : target_archetype)
 			{
-				auto buffer = GetComponent(ite, current_count);
+				auto buffer = GetComponent(ite, current_count - 1);
 				auto result = ite.struct_layout->Destruction(buffer);
 				assert(result);
 			}
@@ -228,14 +242,6 @@ namespace Noodles
 
 		archetype_not_empty_bitflag = std::span(bit_flag_container).subspan(0, archtype_container_count);
 		archetype_update_bitflag = std::span(bit_flag_container).subspan(archtype_container_count);
-
-		/*
-		archetype_mask.resize(manager.GetArchetypeStorageCount() * 2);
-		this->manager = &manager;
-		auto temp_span = std::span(archetype_mask);
-		archetype_usage_mask = temp_span.subspan(0, manager.GetArchetypeStorageCount());
-		archetype_update_mask = temp_span.subspan(manager.GetArchetypeStorageCount());
-		*/
 	}
 
 	ComponentManager::~ComponentManager()
@@ -246,7 +252,7 @@ namespace Noodles
 
 			for (Chunk::Ptr& ite2 : span)
 			{
-				ite2->DestructAllComponent(*ite.archtype);
+				ite2->DestructAll(*ite.archtype);
 			}
 		}
 		chunks.clear();
@@ -267,17 +273,6 @@ namespace Noodles
 		}
 		return {};
 	}
-
-	/*
-	auto ComponentChunkManager::GetComponentChunk(std::size_t component_chunk_index) const -> ComponentChunkOPtr
-	{
-		if (component_chunk_index < component_chunks.size())
-		{
-			auto result = &component_chunks[component_chunk_index];
-		}
-		return {};
-	}
-	*/
 
 	OptionalSizeT ComponentManager::CreateComponentChunk(std::span<Archetype::Init const> archetype_init)
 	{
@@ -306,7 +301,7 @@ namespace Noodles
 		return {};
 	}
 
-	bool ComponentManager::DestructionComponent(Index index)
+	bool ComponentManager::DestructionEntity(Index index)
 	{
 		if(index.archetype_index.Get() < archetype_info.size())
 		{
@@ -315,13 +310,13 @@ namespace Noodles
 			{
 				auto& target_chunk = chunks[index.chunk_index];
 				assert(target_chunk);
-				return target_chunk->DestructComponent(*archetype.archtype, index.component_index);
+				return target_chunk->DestructEntity(*archetype.archtype, index.entity_index);
 			}
 		}
 		return false;
 	}
 
-	bool ComponentManager::ConstructComponent(Index index, std::span<Init const> component_init, ConstructOption option)
+	bool ComponentManager::ConstructEntity(Index index, std::span<Init const> component_init, ConstructOption option)
 	{
 		if (index.archetype_index.Get() < archetype_info.size())
 		{
@@ -332,7 +327,7 @@ namespace Noodles
 				auto& target_chunk = chunks[index.chunk_index];
 				for(auto ite : component_init)
 				{
-					bool re = target_chunk->ConstructComponent(*archetype.archtype, index.component_index, ite.component_class, ite.data, ite.move_construct, option.destruct_before_construct);
+					bool re = target_chunk->ConstructComponent(*archetype.archtype, index.entity_index, ite.component_class, ite.data, ite.move_construct, option.destruct_before_construct);
 					assert(re);
 				}
 				return true;
@@ -341,7 +336,7 @@ namespace Noodles
 		return false;
 	}
 
-	std::size_t ComponentManager::FlushComponentInitWithComponent(Index index, BitFlagConstContainer component_class, std::span<Init> in_out, std::span<Archetype::Init> in_out_archetype)
+	std::size_t ComponentManager::FlushInitWithComponent(Index index, BitFlagConstContainer component_class, std::span<Init> in_out, std::span<Archetype::Init> in_out_archetype)
 	{
 		if (index.archetype_index.Get() < archetype_info.size())
 		{
@@ -369,7 +364,7 @@ namespace Noodles
 							
 							auto& ref = in_out[output_index];
 							ref.component_class = ite.bitflag;
-							ref.data = target_chunk->GetComponent(ite, index.component_index);
+							ref.data = target_chunk->GetComponent(ite, index.entity_index);
 							++output_index;
 							if (output_index < in_out.size())
 							{
@@ -384,7 +379,7 @@ namespace Noodles
 		return 0;
 	}
 
-	ComponentManager::Index ComponentManager::AllocateNewComponentWithoutConstruct(std::size_t archetype_index)
+	ComponentManager::Index ComponentManager::AllocateEntityWithoutConstruct(std::size_t archetype_index)
 	{
 		if (archetype_index < archetype_info.size())
 		{
@@ -395,7 +390,7 @@ namespace Noodles
 			if (!span.empty())
 			{
 				auto& chunk_ref = *span.rbegin();
-				auto component_index = chunk_ref->AllocateComponentWithoutConstruct();
+				auto component_index = chunk_ref->AllocateEntityWithoutConstruct();
 				if (component_index)
 				{
 					++archetype.total_components;
@@ -411,7 +406,7 @@ namespace Noodles
 			auto new_chunk = Chunk::Create(*archetype.archtype, 10, &component_resource);
 			if (new_chunk)
 			{
-				auto new_component_index = new_chunk->AllocateComponentWithoutConstruct();
+				auto new_component_index = new_chunk->AllocateEntityWithoutConstruct();
 				if (new_component_index)
 				{
 					++archetype.total_components;
@@ -433,7 +428,7 @@ namespace Noodles
 		return {};
 	}
 
-	std::optional<bool> ComponentManager::PopBackComponentToFillHole(Index hole_index, Index max_hole)
+	std::optional<bool> ComponentManager::PopBackEntityToFillHole(Index hole_index, Index max_hole)
 	{
 		assert(hole_index.archetype_index == max_hole.archetype_index && hole_index <= max_hole);
 		if (hole_index.archetype_index.Get() < archetype_info.size())
@@ -443,7 +438,7 @@ namespace Noodles
 			if (hole_index.chunk_index < archetype.chunk_span.Size())
 			{
 				std::span<Chunk::Ptr> span = archetype.chunk_span.Slice(std::span(chunks));
-				auto index_end = Index{ hole_index.archetype_index, span.size() - 1, (*span.rbegin())->GetComponentCount() - 1};
+				auto index_end = Index{ hole_index.archetype_index, span.size() - 1, (*span.rbegin())->GetEntityCount() - 1};
 				
 				OptionalSizeT PopBackResult;
 				std::optional<bool> result;
@@ -457,9 +452,9 @@ namespace Noodles
 					auto& tar = span[hole_index.chunk_index];
 					auto& sour = (*span.rbegin());
 
-					auto re = tar->DestructComponent(*archetype.archtype, hole_index.component_index);
+					auto re = tar->DestructEntity(*archetype.archtype, hole_index.entity_index);
 					assert(re);
-					tar->MoveConstructComponent(*archetype.archtype, hole_index.component_index, *sour, sour->GetComponentCount() - 1);
+					tar->MoveConstructEntity(*archetype.archtype, hole_index.entity_index, *sour, sour->GetEntityCount() - 1);
 					sour->PopBack(*archetype.archtype);
 					result = true;
 				}
@@ -472,7 +467,7 @@ namespace Noodles
 					assert(re && *re);
 				}
 
-				if ((*span.rbegin())->GetComponentCount() == 0)
+				if ((*span.rbegin())->GetEntityCount() == 0)
 				{
 					chunks.erase(chunks.begin() + archetype.chunk_span.End() - 1);
 					archetype.chunk_span.SubIndex(0, archetype.chunk_span.Size() - 1);
@@ -493,137 +488,18 @@ namespace Noodles
 		archetype_update_bitflag.Reset();
 	}
 
-
-	/*
-	std::tuple<std::size_t, std::size_t> CalculateChunkSize(Potato::IR::Layout archetype_layout, std::size_t min_count, std::size_t min_size)
+	bool ComponentManager::IsArchetypeAcceptQuery(std::size_t archetype_index, BitFlagConstContainer query_class, BitFlagConstContainer refuse_qurey_class) const
 	{
-		std::size_t suggest_size = min_size;
-		std::size_t suggest_count = suggest_size / archetype_layout.size;
-		while(suggest_count < min_count)
+		if (archetype_index < archetype_info.size())
 		{
-			if(suggest_size < component_page_huge_multiply_max_size)
+			auto& archetype = archetype_info[archetype_index];
+			auto container = archetype.archtype->GetClassBitFlagContainer();
+			auto re = container.Inclusion(query_class);
+			if (re.has_value() && *re)
 			{
-				suggest_size *= component_page_huge_multiply;
-			}else
-			{
-				suggest_size *= 2;
-			}
-			suggest_count = suggest_size / archetype_layout.size;
-		}
-		return { suggest_size, suggest_count };
-	}
-
-
-	std::byte* ChunkView::GetComponent(
-		Archetype::MemberView const& view,
-		std::size_t column_index
-	) const
-	{
-		if(buffer != nullptr)
-		{
-			return
-				buffer +
-				view.offset * max_count + view.layout->GetLayout().size * column_index;
-		}
-		return nullptr;
-	}
-
-	std::byte* ChunkView::GetComponent(
-		MarkIndex index,
-		std::size_t column_index
-	) const
-	{
-		auto mindex = archetype->Locate(index);
-		if(mindex.has_value())
-		{
-			return GetComponent(*mindex, column_index);
-		}
-		return nullptr;
-	}
-
-	std::byte* ChunkView::GetComponent(
-		Archetype::Index index,
-		std::size_t column_index
-	) const
-	{
-		auto& mm = archetype->GetMemberView(index);
-		return GetComponent(mm, column_index);
-	}
-
-	bool ChunkView::MoveConstructComponent(
-		MarkIndex index,
-		std::size_t column_index,
-		std::byte* target_buffer
-	) const
-	{
-		auto mindex = archetype->Locate(index);
-		if(mindex.has_value())
-		{
-			auto& mm = archetype->GetMemberView(*mindex);
-			auto target = GetComponent(mm, column_index);
-			auto re = mm.layout->MoveConstruction(
-				target, target_buffer
-			);
-			assert(re);
-			return true;
-		}
-		return false;
-	}
-
-	ChunkInfo::ChunkInfo(ChunkInfo&& other)
-		: archetype(std::move(other.archetype)), record(other.record), current_count(other.current_count), max_count(other.max_count), column_size(other.column_size)
-	{
-		other.archetype.Reset();
-		other.record = {};
-		other.current_count = 0;
-		other.max_count = 0;
-	}
-
-	ChunkInfo::~ChunkInfo()
-	{
-		if(record)
-		{
-			for(auto& ite : archetype->GetMemberView())
-			{
-				ite.layout->Destruction(
-					record.GetByte() + ite.offset * ite.layout->GetLayout().size,
-					current_count
-				);
-			}
-			record.Deallocate();
-			archetype.Reset();
-			record = {};
-			current_count = 0;
-			max_count = 0;
-			column_size = 0;
-		}
-	}
-
-	
-
-	bool ComponentManager::ReadComponentRow_AssumedLocked(ComponentQuery const& query, std::size_t filter_ite, QueryData& accessor) const
-	{
-		std::shared_lock sl(query.GetMutex());
-		std::size_t archetype_index = 0;
-		if(query.VersionCheck_AssumedLocked(reinterpret_cast<std::size_t>(this), chunk_infos.size()))
-		{
-			auto re = query.EnumMountPointIndexByIterator_AssumedLocked(filter_ite, archetype_index);
-			if (re.has_value() && re->size() <= accessor.output_buffer.size())
-			{
-				assert(chunk_infos.size() > archetype_index);
-				auto& ref = chunk_infos[archetype_index];
-				auto view = ref.GetView();
-				if (view)
+				re = container.Inclusion(refuse_qurey_class);
+				if (!re.has_value() || !*re)
 				{
-					for (std::size_t i = 0; i < re->size(); ++i)
-					{
-						accessor.output_buffer[i] = view.GetComponent(
-							Archetype::Index{ (*re)[i] },
-							0
-						);
-					}
-					accessor.archetype = view.archetype;
-					accessor.array_size = view.current_count;
 					return true;
 				}
 			}
@@ -631,300 +507,74 @@ namespace Noodles
 		return false;
 	}
 
-	bool ComponentManager::ReadComponentRow_AssumedLocked(std::size_t archetype_index, ComponentQuery const& query, QueryData& accessor) const
+	bool ComponentManager::TranslateClassToComponentOffsetAndSize(std::size_t archetype_index, std::span<BitFlag const> target_class, std::span<std::size_t> outoput) const
 	{
-		std::shared_lock sl(query.GetMutex());
-		if (CheckVersion_AssumedLocked(query))
+		if (archetype_index < archetype_info.size() && outoput.size() >= target_class.size() * 2)
 		{
-			auto re = query.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
-			if (re.has_value() && re->size() <= accessor.output_buffer.size())
+			auto& archetype = archetype_info[archetype_index];
+
+			for (auto ite : target_class)
 			{
-				assert(chunk_infos.size() > archetype_index);
-				auto& ref = chunk_infos[archetype_index];
-				auto view = ref.GetView();
-				if (view)
+				auto loc = archetype.archtype->FindMemberIndex(ite);
+				if (loc)
 				{
-					for (std::size_t i = 0; i < re->size(); ++i)
-					{
-						accessor.output_buffer[i] = view.GetComponent(
-							Archetype::Index{ (*re)[i] },
-							0
-						);
-					}
-					accessor.archetype = view.archetype;
-					accessor.array_size = view.current_count;
-					return true;
+					auto& mm = (*archetype.archtype)[loc.Get()];
+					outoput[0] = mm.offset;
+					outoput[1] = mm.layout.size;
+					outoput = outoput.subspan(2);
 				}
-			}
-		}
-		return false;
-	}
-
-	bool ComponentManager::CheckVersion_AssumedLocked(ComponentQuery const& query) const
-	{
-		return query.VersionCheck_AssumedLocked(reinterpret_cast<std::size_t>(this));
-	}
-
-	bool ComponentManager::ReadComponent_AssumedLocked(std::size_t archetype_index, std::size_t column_index, ComponentQuery const& query, QueryData& accessor) const
-	{
-		std::shared_lock sl(query.GetMutex());
-		if (CheckVersion_AssumedLocked(query))
-		{
-			auto re = query.EnumMountPointIndexByArchetypeIndex_AssumedLocked(archetype_index);
-			if (re.has_value() && re->size() <= accessor.output_buffer.size())
-			{
-				auto view = GetChunk_AssumedLocked(archetype_index);
-				if (view)
-				{
-					for (std::size_t i = 0; i < re->size(); ++i)
-					{
-						accessor.output_buffer[i] = view.GetComponent(
-							Archetype::Index{ (*re)[i] },
-							column_index
-						);
-					}
-					accessor.archetype = view.archetype;
-					accessor.array_size = 1;
-					return true;
+				else {
+					return false;
 				}
-			}
-		}
-		return false;
-	}
-
-	bool ComponentManager::UpdateFilter_AssumedLocked(ComponentQuery& query) const
-	{
-		std::lock_guard lg(query.GetMutex());
-
-		auto re = query.Update_AssumedLocked(*manager, reinterpret_cast<std::size_t>(this), chunk_infos.size());
-
-		if(re.has_value())
-		{
-			for (std::size_t i = *re; i < chunk_infos.size(); ++i)
-			{
-				query.OnCreatedArchetype_AssumedLocked(i, *chunk_infos[i].archetype);
 			}
 			return true;
 		}
 		return false;
 	}
 
-	ComponentManager::ComponentManager(StructLayoutManager& manager, Config config)
-		:
-		archetype_resource(config.archetype_resource),
-		component_resource(config.component_resource),
-		archetype_mask(config.resource)
+	OptionalSizeT ComponentManager::QueryComponentArrayWithComponentOffsetAndSize(std::size_t archetype_index, std::size_t chunk_index, std::span<std::size_t const> offset_and_size, std::span<void*> output) const
 	{
-		archetype_mask.resize(manager.GetArchetypeStorageCount() * 2);
-		this->manager = &manager;
-	}
-
-	
-	
-
-	std::tuple<Archetype::OPtr, OptionalIndex> ComponentManager::FindArchetype_AssumedLocked(std::span<MarkElement const> require_archetype) const
-	{
-		for(std::size_t i = 0; i < chunk_infos.size(); ++i)
+		if (archetype_index < archetype_info.size() && offset_and_size.size() <= output.size() * 2)
 		{
-			auto& ite = chunk_infos[i];
-			if (MarkElement::IsSame(require_archetype, ite.archetype->GetAtomicTypeMark()))
+			assert((offset_and_size.size() % 2) == 0);
+			auto& archetype = archetype_info[archetype_index];
+			if (chunk_index < archetype.chunk_span.Size())
 			{
-				return {ite.archetype, i};
-			}
-		}
-		return {{}, {}};
-	}
-
-	ComponentManager::ArchetypeBuilderRef::ArchetypeBuilderRef(ComponentManager& manager, std::pmr::memory_resource* temp_resource)
-		: atomic_type(temp_resource), mark(temp_resource)
-	{
-		mark.resize(manager.manager->GetComponentStorageCount());
-	}
-
-	bool ComponentManager::ArchetypeBuilderRef::Insert(StructLayout::Ptr ref, MarkIndex index)
-	{
-		auto re = MarkElement::Mark(mark, index);
-		if (!re)
-		{
-			auto layout = ref->GetLayout();
-			auto find = std::find_if(
-				atomic_type.begin(),
-				atomic_type.end(),
-				[=](Archetype::Init const& ite)
+				auto& chunk = chunks[archetype.chunk_span.Begin() + chunk_index];
+				while (!offset_and_size.empty())
 				{
-					auto cur_layout = ite.ptr->GetLayout();
-					return cur_layout.align < layout.align || cur_layout.size < layout.size;
+					output[0] = chunk->GetComponentArray(offset_and_size[0]);
+					offset_and_size = offset_and_size.subspan(2);
+					output = output.subspan(1);
 				}
-			);
-			atomic_type.insert(find, {std::move(ref), index });
-			return true;
-		}
-		return false;
-	}
-
-	void ComponentManager::ArchetypeBuilderRef::Clear()
-	{
-		atomic_type.clear();
-		MarkElement::Reset(mark);
-	}
-
-	std::tuple<Archetype::OPtr, OptionalIndex> ComponentManager::CreateArchetype_AssumedLocked(ArchetypeBuilderRef const& ref)
-	{
-		if(chunk_infos.size() + 1 >= manager->GetArchetypeCount())
-			return {{}, {}};
-
-
-		auto ptr = Archetype::Create(
-			manager->GetComponentStorageCount(), ref.atomic_type, &archetype_resource
-		);
-
-		assert(ptr);
-		auto old_size = chunk_infos.size();
-
-		ChunkInfo infos;
-		infos.archetype = ptr;
-		
-		chunk_infos.emplace_back(
-			std::move(infos)
-		);
-
-		return {ptr, old_size};
-	}
-
-	bool ComponentManager::ReleaseComponentColumn_AssumedLocked(std::size_t archetype_index, std::size_t column_index, std::pmr::vector<RemovedColumn>& removed)
-	{
-		auto mm = GetChunk_AssumedLocked(archetype_index);
-		if(mm.current_count > column_index)
-		{
-			for(auto& ite : mm.archetype->GetMemberView())
-			{
-				auto tar = mm.GetComponent(ite, column_index);
-				ite.layout->Destruction(tar);
-			}
-			removed.emplace_back(
-				archetype_index,
-				column_index
-			);
-			return true;
-		}
-		return false;
-	}
-
-	ChunkView ComponentManager::GetChunk_AssumedLocked(std::size_t archetype_index) const
-	{
-		assert(archetype_index < chunk_infos.size());
-		return chunk_infos[archetype_index].GetView();
-	}
-
-	OptionalIndex ComponentManager::AllocateComponentColumn_AssumedLocked(std::size_t archetype_index, std::pmr::vector<RemovedColumn>& removed_list)
-	{
-		if(archetype_index < chunk_infos.size())
-		{
-			auto find = std::find_if(
-				removed_list.begin(),
-				removed_list.end(),
-				[=](RemovedColumn const& col)
-				{
-					return col.archetype_index == archetype_index;
-				}
-			);
-			if(find != removed_list.end())
-			{
-				auto result = find->column_index;
-				removed_list.erase(find);
-				return result;
-			}else
-			{
-				auto& ref = chunk_infos[archetype_index];
-				if(ref.record.GetByte() == nullptr)
-				{
-					auto archetype_layout = ref.archetype->GetArchetypeLayout();
-					auto [size, count] = CalculateChunkSize(archetype_layout, component_page_min_columns_count, component_page_min_size);
-					auto total_layout = Potato::MemLayout::MemLayoutCPP{ archetype_layout.WithArray(count)};
-					auto final_layout = total_layout.Get();
-					assert(final_layout.size <= size);
-					auto re = Potato::IR::MemoryResourceRecord::Allocate(&component_resource, final_layout);
-					if(re)
-					{
-						ref.record = re;
-						ref.max_count = count;
-						ref.column_size = archetype_layout.size;
-						ref.current_count = 1;
-						MarkElement::Mark(GetWriteableArchetypeUsageMark_AssumedLocked(), MarkIndex{ archetype_index });
-						MarkElement::Mark(GetWriteableArchetypeUpdateMark_AssumedLocked(), MarkIndex{ archetype_index });
-						return 0;
-					}
-				}else
-				{
-					ref.current_count += 1;
-					if(ref.current_count < ref.max_count)
-					{
-						if (ref.current_count == 1)
-						{
-							MarkElement::Mark(GetWriteableArchetypeUpdateMark_AssumedLocked(), MarkIndex{ archetype_index });
-						}
-						return ref.current_count - 1;
-					}else
-					{
-						assert(false);
-						ref.current_count -= 1;
-						return {};
-					}
-				}
+				return chunk->GetEntityCount();
 			}
 		}
 		return {};
 	}
 
-	void ComponentManager::FixComponentChunkHole_AssumedLocked(std::pmr::vector<RemovedColumn>& holes, void(*func)(void* data, ChunkView const& view, std::size_t, std::size_t), void* data)
+	bool ComponentManager::QueryComponentDataWithComponentOffsetAndSize(Index index, std::span<std::size_t const> offset_and_size, std::span<void*> output) const
 	{
-		std::sort(
-			holes.begin(),
-			holes.end(),
-			[](RemovedColumn c1, RemovedColumn c2)
-			{
-				auto order = Potato::Misc::PriorityCompareStrongOrdering(
-					c1.archetype_index, c2.archetype_index,
-					c1.column_index, c2.column_index
-				);
-				return order == std::strong_ordering::greater;
-			}
-		);
-		for(auto& ite : holes)
+		if (index.archetype_index.Get() < archetype_info.size() && offset_and_size.size() <= output.size() * 2)
 		{
-			auto& chunk = chunk_infos[ite.archetype_index];
-			if(ite.column_index + 1 == chunk.current_count)
+			assert((offset_and_size.size() % 2) == 0);
+			auto& archetype = archetype_info[index.archetype_index.Get()];
+			if (index.chunk_index < archetype.chunk_span.Size())
 			{
-				chunk.current_count -= 1;
-				if(chunk.current_count == 0)
+				auto& chunk = chunks[archetype.chunk_span.Begin() + index.chunk_index];
+				if (index.entity_index < chunk->GetEntityCount())
 				{
-					chunk.record.Deallocate();
-					auto re = MarkElement::Mark(GetWriteableArchetypeUsageMark_AssumedLocked(), MarkIndex{ite.archetype_index}, false);
-					assert(re);
-					re = MarkElement::Mark(GetWriteableArchetypeUpdateMark_AssumedLocked(), MarkIndex{ ite.archetype_index }, true);
+					while (!offset_and_size.empty())
+					{
+						output[0] = chunk->GetComponent(offset_and_size[0], offset_and_size[1], index.entity_index);
+						offset_and_size = offset_and_size.subspan(2);
+						output = output.subspan(1);
+					}
 				}
-			}else
-			{
-				assert(ite.column_index + 1 < chunk.current_count);
-				auto mm = chunk.GetView();
-				chunk.current_count -= 1;
-				for(auto& ite2 : mm.archetype->GetMemberView())
-				{
-					auto source = mm.GetComponent(ite2, chunk.current_count);
-					auto target = mm.GetComponent(ite2, ite.column_index);
-					auto re1 = ite2.layout->MoveConstruction(target, source);
-					auto re2 = ite2.layout->Destruction(source);
-					assert(re1);
-					assert(re2);
-				}
-
-				if(func != nullptr)
-				{
-					(*func)(data, mm, chunk.current_count, ite.column_index);
-				}
+				return true;
 			}
 		}
-		holes.clear();
+		return {};
 	}
-	*/
+
 }

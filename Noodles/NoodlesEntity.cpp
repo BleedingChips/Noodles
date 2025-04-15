@@ -176,35 +176,30 @@ namespace Noodles
 		return false;
 	}
 
-	bool EntityManager::ReleaseEntity(Entity::Ptr target_entity)
+	bool EntityManager::ReleaseEntity(Entity& target_entity)
 	{
-		assert(target_entity);
-		std::lock_guard lg(target_entity->mutex);
-		if (target_entity->state == Entity::State::Normal || target_entity->state == Entity::State::PreInit)
+		std::lock_guard lg(target_entity.mutex);
+		if (target_entity.state == Entity::State::Normal || target_entity.state == Entity::State::PreInit)
 		{
-			target_entity->state = Entity::State::PendingDestroy;
-			if (!target_entity->modify_index)
+			target_entity.state = Entity::State::PendingDestroy;
+			if (!target_entity.modify_index)
 			{
-				target_entity->modify_index = entity_modifier.size();
+				target_entity.modify_index = entity_modifier.size();
 				entity_modifier.emplace_back(
 					true,
 					Potato::Misc::IndexSpan<>{
-					entity_modifier_event.size(),
+						entity_modifier_event.size(),
 						entity_modifier_event.size()
-				},
-					std::move(target_entity)
+					},
+					&target_entity
 				);
 			}
 			else
 			{
-				auto& ref = entity_modifier[target_entity->modify_index];
+				auto& ref = entity_modifier[target_entity.modify_index];
 				ref.need_remove = true;
 				auto span_index = ref.infos;
 				auto span = span_index.Slice(std::span(entity_modifier_event));
-				for (auto& ite : span)
-				{
-					ite.Release();
-				}
 			}
 			return true;
 		}
@@ -259,7 +254,7 @@ namespace Noodles
 		return false;
 	}
 
-	bool EntityManager::Flush(ComponentManager& manager, std::pmr::memory_resource* temp_resource)
+	bool EntityManager::FlushEntityModify(ComponentManager& manager, std::pmr::memory_resource* temp_resource)
 	{
 		bool has_been_update = false;
 
@@ -271,16 +266,20 @@ namespace Noodles
 			{
 				has_been_update = true;
 				auto& entity = *ite.entity;
-				std::lock_guard lg(entity.mutex);
-				assert(entity.state == Entity::State::PendingDestroy);
-				if (entity.component_index)
+
+				ComponentManager::Index target_component_index;
 				{
-					manager.DestructionComponent(
-						entity.component_index
-					);
-					removed_list.emplace_back(entity.component_index);
+					std::lock_guard lg(entity.mutex);
+					assert(entity.state == Entity::State::PendingDestroy);
+					target_component_index = entity.component_index;
 				}
-				ite.entity.Reset();
+				if (target_component_index)
+				{
+					manager.DestructionEntity(
+						target_component_index
+					);
+					removed_list.emplace_back(target_component_index);
+				}
 			}
 		}
 
@@ -310,7 +309,7 @@ namespace Noodles
 					}
 					ComponentManager::ConstructOption option;
 					option.destruct_before_construct = true;
-					auto re = manager.ConstructComponent(entity.component_index, std::span(component_init_list), option);
+					auto re = manager.ConstructEntity(entity.component_index, std::span(component_init_list), option);
 					assert(re);
 
 				}
@@ -325,10 +324,10 @@ namespace Noodles
 					if (!archetype_index)
 					{
 						init_list.resize(archetype_component_count);
-						offset = manager.FlushComponentInitWithComponent(entity.component_index, entity.modify_component_bitflag, std::span(component_init_list), std::span(init_list));
+						offset = manager.FlushInitWithComponent(entity.component_index, entity.modify_component_bitflag, std::span(component_init_list), std::span(init_list));
 					}
 					else {
-						offset = manager.FlushComponentInitWithComponent(entity.component_index, entity.modify_component_bitflag, std::span(component_init_list), {});
+						offset = manager.FlushInitWithComponent(entity.component_index, entity.modify_component_bitflag, std::span(component_init_list), {});
 					}
 
 					auto span = ite.infos.Slice(std::span{ entity_modifier_event });
@@ -397,19 +396,19 @@ namespace Noodles
 
 					if (!new_component_index)
 					{
-						new_component_index = manager.AllocateNewComponentWithoutConstruct(archetype_index);
+						new_component_index = manager.AllocateEntityWithoutConstruct(archetype_index);
 						if (!new_component_index)
 						{
 							continue;
 						}
 					}
 
-					auto re = manager.ConstructComponent(new_component_index, std::span(component_init_list), option);
+					auto re = manager.ConstructEntity(new_component_index, std::span(component_init_list), option);
 					assert(re);
 
 					if (entity.component_index)
 					{
-						re = manager.DestructionComponent(entity.component_index);
+						re = manager.DestructionEntity(entity.component_index);
 						assert(re);
 						removed_list.emplace_back(entity.component_index);
 					}
@@ -443,7 +442,7 @@ namespace Noodles
 				span = span.subspan(index);
 				while (!ite.empty())
 				{
-					auto re = manager.PopBackComponentToFillHole(*ite.begin(), *ite.rbegin());
+					auto re = manager.PopBackEntityToFillHole(*ite.begin(), *ite.rbegin());
 					assert(re.has_value());
 					if (*re)
 					{

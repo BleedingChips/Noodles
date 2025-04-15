@@ -120,12 +120,12 @@ export namespace Noodles
 
 		bool RemoveEntityComponent(Entity& target_entity, StructLayout const& struct_layout) { return RemoveEntityComponentImp(target_entity, struct_layout, false); }
 
-		bool Flush(ComponentManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
+		bool FlushEntityModify(ComponentManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 
 		//bool ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentQuery const& filter, QueryData& accessor) const;
 
 		BitFlag GetEntityPropertyBitFlag() { return entity_property_bitflag; }
-		bool ReleaseEntity(Entity::Ptr entity);
+		bool ReleaseEntity(Entity& entity);
 
 	protected:
 

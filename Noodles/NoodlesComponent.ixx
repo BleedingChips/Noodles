@@ -20,15 +20,17 @@ export namespace Noodles
 		using Ptr = Potato::Pointer::UniquePtr<Chunk>;
 
 		static Ptr Create(Archetype const& target_archetype, std::size_t suggest_component_count, std::pmr::memory_resource* resource);
-		std::byte* GetComponent(Archetype::MemberView const& member, std::size_t component_index);
-		bool DestructComponent(Archetype const& target_archetype, std::size_t component_index);
-		void MoveConstructComponent(Archetype const& target_archetype, std::size_t self_component_index, Chunk& source_chunk, std::size_t source_component_index);
-		void DestructAllComponent(Archetype const& target_archetype);
-		bool DestructSingleComponent(Archetype const& target_archetype, std::size_t component_index, BitFlag target_component);
-		bool ConstructComponent(Archetype const& target_archetype, std::size_t component_index, BitFlag target_component, std::byte* target_buffer, bool is_move_construction, bool need_destruct_before_construct);
-		OptionalSizeT AllocateComponentWithoutConstruct();
-		OptionalSizeT PopComponentWithoutDestruct();
-		std::size_t GetComponentCount() const { return current_count; }
+		void* GetComponent(Archetype::MemberView const& member, std::size_t entity_index);
+		void* GetComponent(std::size_t member_offset, std::size_t member_size, std::size_t entity_index);
+		void* GetComponentArray(std::size_t member_offset);
+		bool DestructEntity(Archetype const& target_archetype, std::size_t entity_index);
+		void MoveConstructEntity(Archetype const& target_archetype, std::size_t entity_index, Chunk& source_chunk, std::size_t source_entity_index);
+		void DestructAll(Archetype const& target_archetype);
+		bool DestructComponent(Archetype const& target_archetype, std::size_t entity_index, BitFlag target_component);
+		bool ConstructComponent(Archetype const& target_archetype, std::size_t entity_index, BitFlag target_component, void* target_buffer, bool is_move_construction, bool need_destruct_before_construct);
+		OptionalSizeT AllocateEntityWithoutConstruct();
+		OptionalSizeT PopEntityWithoutDestruct();
+		std::size_t GetEntityCount() const { return current_count; }
 		~Chunk() = default;
 		OptionalSizeT PopBack(Archetype const& target_archetype);
 
@@ -77,7 +79,7 @@ export namespace Noodles
 		{
 			OptionalSizeT archetype_index;
 			std::size_t chunk_index;
-			std::size_t component_index;
+			std::size_t entity_index;
 			operator bool() const { return archetype_index; }
 			std::strong_ordering operator<=>(Index const&) const noexcept = default;
 		};
@@ -95,36 +97,16 @@ export namespace Noodles
 		OptionalSizeT LocateComponentChunk(BitFlagConstContainer component_bitflag) const;
 		OptionalSizeT CreateComponentChunk(std::span<Archetype::Init const> archetype_init);
 
-		/*
-		OptionalSizeT LocateComponentChunk(BitFlagConstContainer component_bitflag) const;
-		ComponentChunkOPtr GetComponentChunk(std::size_t component_chunk_index) const;
-		OptionalSizeT CreateComponentChunk(std::span<Archetype::Init const> archetype_init);
-		*/
-
 		ComponentManager(GlobalContext::Ptr global_context, Config config = {});
 		~ComponentManager();
-		
-		//std::shared_mutex& GetMutex() const { return chunk_mutex; }
 
-		//bool ReleaseComponentColumn_AssumedLocked(std::size_t archetype_index, std::size_t column_index, std::pmr::vector<RemovedColumn>& removed);
-		//OptionalIndex AllocateComponentColumn_AssumedLocked(std::size_t archetype_index, std::pmr::vector<RemovedColumn>& removed_list);
-		//void FixComponentChunkHole_AssumedLocked(std::pmr::vector<RemovedColumn>& holes, void(*func)(void* data, ChunkView const& view, std::size_t, std::size_t), void* data);
-		//ChunkView GetChunk_AssumedLocked(std::size_t archetype_index) const;
-		/*
-		
-		void ClearArchetypeUpdateMark() { MarkElement::Reset(archetype_update_mask); }
-		bool HasArchetypeUpdate() const { return !MarkElement::IsReset(GetArchetypeUpdateMark()); }
-		//bool CheckVersion_AssumedLocked(ComponentQuery const& query) const;
-		//bool UpdateFilter_AssumedLocked(ComponentQuery& query) const;
-		*/
-
-		bool DestructionComponent(Index index);
+		bool DestructionEntity(Index index);
 
 		struct Init
 		{
 			BitFlag component_class = BitFlag{std::numeric_limits<std::size_t>::max()};
 			bool move_construct = false;
-			std::byte* data = nullptr;
+			void* data = nullptr;
 		};
 
 		struct ConstructOption
@@ -133,13 +115,18 @@ export namespace Noodles
 			bool full_construction = false;
 		};
 
-		bool ConstructComponent(Index index, std::span<Init const> component_init, ConstructOption option);
+		bool ConstructEntity(Index index, std::span<Init const> component_init, ConstructOption option);
 
-		std::size_t FlushComponentInitWithComponent(Index index, BitFlagConstContainer component_class, std::span<Init> in_out, std::span<Archetype::Init> in_out_archetype);
-		Index AllocateNewComponentWithoutConstruct(std::size_t archetype_index);
+		std::size_t FlushInitWithComponent(Index index, BitFlagConstContainer component_class, std::span<Init> in_out, std::span<Archetype::Init> in_out_archetype);
+		Index AllocateEntityWithoutConstruct(std::size_t archetype_index);
 
-		std::optional<bool> PopBackComponentToFillHole(Index hole_index, Index pop_back_limited);
+		std::optional<bool> PopBackEntityToFillHole(Index hole_index, Index pop_back_limited);
 		void ClearBitFlag();
+		
+		bool IsArchetypeAcceptQuery(std::size_t archetype_index, BitFlagConstContainer query_class, BitFlagConstContainer refuse_qurey_class) const;
+		bool TranslateClassToComponentOffsetAndSize(std::size_t archetype_index, std::span<BitFlag const> target_class, std::span<std::size_t> outoput) const;
+		bool QueryComponentDataWithComponentOffsetAndSize(Index index, std::span<std::size_t const> offset_and_size, std::span<void*> output) const;
+		OptionalSizeT QueryComponentArrayWithComponentOffsetAndSize(std::size_t archetype_index, std::size_t chunk_index, std::span<std::size_t const> offset_and_size, std::span<void*> output) const;
 
 	protected:
 
