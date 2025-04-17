@@ -10,7 +10,7 @@ namespace Noodles
 	void Entity::SetFree_AssumedLocked()
 	{
 		state = State::Free;
-		component_index.archetype_index.Reset();
+		index.Reset();
 		modify_component_bitflag.Reset();
 	}
 
@@ -267,18 +267,18 @@ namespace Noodles
 				has_been_update = true;
 				auto& entity = *ite.entity;
 
-				ComponentManager::Index target_component_index;
+				ComponentManager::Index target_entity_index;
 				{
 					std::lock_guard lg(entity.mutex);
 					assert(entity.state == Entity::State::PendingDestroy);
-					target_component_index = entity.component_index;
+					target_entity_index = entity.index;
 				}
-				if (target_component_index)
+				if (target_entity_index)
 				{
 					manager.DestructionEntity(
-						target_component_index
+						target_entity_index
 					);
-					removed_list.emplace_back(target_component_index);
+					removed_list.emplace_back(target_entity_index);
 				}
 			}
 		}
@@ -297,7 +297,7 @@ namespace Noodles
 				assert(bitflag_is_same.has_value());
 				if (*bitflag_is_same)
 				{
-					assert(entity.component_index);
+					assert(entity.index);
 					auto span = ite.infos.Slice(std::span{ entity_modifier_event });
 					component_init_list.clear();
 					for (EntityModifierEvent const& ite2 : span)
@@ -309,7 +309,7 @@ namespace Noodles
 					}
 					ComponentManager::ConstructOption option;
 					option.destruct_before_construct = true;
-					auto re = manager.ConstructEntity(entity.component_index, std::span(component_init_list), option);
+					auto re = manager.ConstructEntity(entity.index, std::span(component_init_list), option);
 					assert(re);
 
 				}
@@ -324,10 +324,10 @@ namespace Noodles
 					if (!archetype_index)
 					{
 						init_list.resize(archetype_component_count);
-						offset = manager.FlushInitWithComponent(entity.component_index, entity.modify_component_bitflag, std::span(component_init_list), std::span(init_list));
+						offset = manager.FlushInitWithComponent(entity.index, entity.modify_component_bitflag, std::span(component_init_list), std::span(init_list));
 					}
 					else {
-						offset = manager.FlushInitWithComponent(entity.component_index, entity.modify_component_bitflag, std::span(component_init_list), {});
+						offset = manager.FlushInitWithComponent(entity.index, entity.modify_component_bitflag, std::span(component_init_list), {});
 					}
 
 					auto span = ite.infos.Slice(std::span{ entity_modifier_event });
@@ -381,7 +381,7 @@ namespace Noodles
 						}
 					}
 
-					ComponentManager::Index new_component_index;
+					ComponentManager::Index new_index;
 
 					{
 						auto find = std::find_if(removed_list.begin(), removed_list.end(), [=](ComponentManager::Index const& index) {
@@ -389,31 +389,31 @@ namespace Noodles
 						});
 						if (find != removed_list.end())
 						{
-							new_component_index = *find;
+							new_index = *find;
 							removed_list.erase(find);
 						}
 					}
 
-					if (!new_component_index)
+					if (!new_index)
 					{
-						new_component_index = manager.AllocateEntityWithoutConstruct(archetype_index);
-						if (!new_component_index)
+						new_index = manager.AllocateEntityWithoutConstruct(archetype_index);
+						if (!new_index)
 						{
 							continue;
 						}
 					}
 
-					auto re = manager.ConstructEntity(new_component_index, std::span(component_init_list), option);
+					auto re = manager.ConstructEntity(new_index, std::span(component_init_list), option);
 					assert(re);
 
-					if (entity.component_index)
+					if (entity.index)
 					{
-						re = manager.DestructionEntity(entity.component_index);
+						re = manager.DestructionEntity(entity.index);
 						assert(re);
-						removed_list.emplace_back(entity.component_index);
+						removed_list.emplace_back(entity.index);
 					}
 					
-					entity.component_index = new_component_index;
+					entity.index = new_index;
 					entity.component_bitflag.CopyFrom(entity.modify_component_bitflag);
 					entity.state = Entity::State::Normal;
 					entity.modify_index.Reset();
@@ -459,43 +459,4 @@ namespace Noodles
 		entity_modifier_event.clear();
 		return has_been_update;
 	}
-
-	/*
-	
-
-	
-
-	
-
-	bool EntityManager::ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentQuery const& query, QueryData& accessor) const
-	{
-		std::shared_lock sl(ent.mutex);
-		if (ent.state == Entity::State::Normal && ent.archetype_index)
-		{
-			return manager.ReadComponent_AssumedLocked(
-				ent.archetype_index,
-				ent.column_index,
-				query,
-				accessor
-			);
-		}
-		return false;
-	}
-
-	
-
-		manager.FixComponentChunkHole_AssumedLocked(remove_list, [](void* data, ChunkView const& view, std::size_t from, std::size_t to)
-		{
-			auto entity_property = reinterpret_cast<EntityProperty*>(view.GetComponent(static_cast<EntityManager*>(data)->GetEntityPropertyAtomicTypeID(), to));
-			assert(entity_property != nullptr);
-			auto entity = entity_property->GetEntity();
-			assert(entity);
-			std::lock_guard lg(entity->mutex);
-			entity->column_index = to;
-		}, this);
-		assert(remove_list.empty());
-
-		return Updated;
-	}
-	*/
 }

@@ -25,6 +25,19 @@ export namespace Noodles
 
 		std::size_t GetComponentBitFlagContainerElementCount() const { return component_bigflag_map.GetBitFlagContainerElementCount(); }
 		std::optional<BitFlag> GetComponentBitFlag(StructLayout const& struct_layout) { return LocateBitFlag(struct_layout, component_bigflag_map_mutex, component_bigflag_map); }
+		
+		std::size_t GetComponentQueryIndex(std::span<BitFlag const> query_class);
+
+		template<typename ...ComponentClass>
+		std::size_t GetComponentQueryIndex()
+		{
+			static std::array<BitFlag, sizeof...(ComponentClass)> temp = {
+				*this->GetComponentBitFlag(
+					*Potato::IR::StaticAtomicStructLayout<ComponentClass>::Create()
+				)...
+			};
+			return GetComponentQueryIndex(temp);
+		}
 
 	protected:
 
@@ -41,6 +54,16 @@ export namespace Noodles
 
 		mutable std::shared_mutex threadorder_bigflag_map_mutex;
 		StructLayoutBitFlagMapping threadorder_bigflag_map;
+
+		mutable std::shared_mutex component_query_mutex;
+		struct ComponentQueryInifo
+		{
+			BitFlagConstContainer container;
+			Potato::Misc::IndexSpan<> component_class_span;
+		};
+
+		std::pmr::vector<BitFlag> component_class;
+		std::pmr::vector<BitFlagConstContainer::Element> component_bitflag;
 
 		friend struct Ptr::CurrentWrapper;
 

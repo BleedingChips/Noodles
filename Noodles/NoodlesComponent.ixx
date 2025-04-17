@@ -82,6 +82,7 @@ export namespace Noodles
 			std::size_t entity_index;
 			operator bool() const { return archetype_index; }
 			std::strong_ordering operator<=>(Index const&) const noexcept = default;
+			void Reset() { archetype_index.Reset(); chunk_index = 0; entity_index = 0; }
 		};
 
 		struct Config

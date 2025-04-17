@@ -36,6 +36,8 @@ export namespace Noodles
 
 		~Entity() = default;
 
+		ComponentManager::Index GetEntityIndex() const { std::shared_lock sl(mutex);  return index; }
+
 	protected:
 
 		static Ptr Create(GlobalContext& global_context, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
@@ -55,7 +57,7 @@ export namespace Noodles
 		mutable std::shared_mutex mutex;
 		State state = State::PreInit;
 
-		ComponentManager::Index component_index;
+		ComponentManager::Index index;
 
 		OptionalSizeT modify_index;
 
@@ -121,6 +123,7 @@ export namespace Noodles
 		bool RemoveEntityComponent(Entity& target_entity, StructLayout const& struct_layout) { return RemoveEntityComponentImp(target_entity, struct_layout, false); }
 
 		bool FlushEntityModify(ComponentManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
+		bool ReadEntity(ComponentManager const& manager, Entity const& entity, std::span<std::size_t> offset_and_layout, std::span<void*> output) const;
 
 		//bool ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentQuery const& filter, QueryData& accessor) const;
 
