@@ -14,7 +14,7 @@ namespace Noodles
 	}
 
 
-	std::size_t BitFlagConstContainer::GetBitFlagContainerElementCount(std::size_t max_big_flag)
+	std::size_t BitFlagContainerConstViewer::GetBitFlagContainerElementCount(std::size_t max_big_flag)
 	{
 		constexpr std::size_t size = sizeof(Element) * 8;
 
@@ -30,14 +30,14 @@ namespace Noodles
 		}
 	}
 
-	BitFlag BitFlagConstContainer::GetMaxBitFlag(std::size_t max_bit_flag)
+	BitFlag BitFlagContainerConstViewer::GetMaxBitFlag(std::size_t max_bit_flag)
 	{
 		constexpr std::size_t size = sizeof(Element) * 8;
 		std::size_t storage = GetBitFlagContainerElementCount(max_bit_flag);
 		return BitFlag{ storage * size };
 	}
 
-	std::optional<bool> BitFlagConstContainer::GetValue(BitFlag flag) const
+	std::optional<bool> BitFlagContainerConstViewer::GetValue(BitFlag flag) const
 	{
 		auto [mindex, moffset] = LocatedBitFlag(flag);
 		if (mindex < container.size())
@@ -48,7 +48,7 @@ namespace Noodles
 		return std::nullopt;
 	}
 
-	std::optional<bool> BitFlagConstContainer::Inclusion(BitFlagConstContainer target) const
+	std::optional<bool> BitFlagContainerConstViewer::Inclusion(BitFlagContainerConstViewer target) const
 	{
 		if (container.size() == target.container.size())
 		{
@@ -64,7 +64,7 @@ namespace Noodles
 		return std::nullopt;
 	}
 
-	std::optional<bool> BitFlagConstContainer::IsOverlapping(BitFlagConstContainer target) const
+	std::optional<bool> BitFlagContainerConstViewer::IsOverlapping(BitFlagContainerConstViewer target) const
 	{
 		if (container.size() == target.container.size())
 		{
@@ -80,7 +80,7 @@ namespace Noodles
 		return std::nullopt;
 	}
 
-	std::optional<bool> BitFlagConstContainer::IsOverlappingWithMask(BitFlagConstContainer target, BitFlagConstContainer mask) const
+	std::optional<bool> BitFlagContainerConstViewer::IsOverlappingWithMask(BitFlagContainerConstViewer target, BitFlagContainerConstViewer mask) const
 	{
 		if (container.size() == target.container.size() && container.size() == mask.container.size())
 		{
@@ -96,7 +96,7 @@ namespace Noodles
 		return std::nullopt;
 	}
 
-	std::optional<bool> BitFlagConstContainer::IsSame(BitFlagConstContainer target) const
+	std::optional<bool> BitFlagContainerConstViewer::IsSame(BitFlagContainerConstViewer target) const
 	{
 		if (container.size() == target.container.size())
 		{
@@ -112,7 +112,7 @@ namespace Noodles
 		return std::nullopt;
 	}
 
-	bool BitFlagConstContainer::IsReset() const
+	bool BitFlagContainerConstViewer::IsReset() const
 	{
 		for (auto ite : container)
 		{
@@ -122,7 +122,7 @@ namespace Noodles
 		return true;
 	}
 
-	std::size_t BitFlagConstContainer::GetBitFlagCount() const
+	std::size_t BitFlagContainerConstViewer::GetBitFlagCount() const
 	{
 		static auto bitflag_count_map = std::array<std::size_t, 16>{
 			0, // 0000
@@ -164,13 +164,13 @@ namespace Noodles
 		return count;
 	}
 
-	std::optional<bool> BitFlagContainer::SetValue(BitFlag flag, bool value)
+	std::optional<bool> BitFlagContainerViewer::SetValue(BitFlag flag, bool value)
 	{
 		auto [e_index, b_index] = LocatedBitFlag(flag);
 		if (e_index < container.size())
 		{
 			std::span<Element> target = {const_cast<Element*>(container.data()), container.size()};
-			auto bit_value = (BitFlagContainer::Element{ 1 } << b_index);
+			auto bit_value = (BitFlagContainerViewer::Element{ 1 } << b_index);
 			auto old_value = container[e_index];
 			if (value)
 				target[e_index] |= bit_value;
@@ -181,7 +181,7 @@ namespace Noodles
 		return std::nullopt;
 	}
 
-	void BitFlagContainer::Reset()
+	void BitFlagContainerViewer::Reset()
 	{
 		std::span<Element> target = { const_cast<Element*>(container.data()), container.size() };
 		for (auto& ite : target)
@@ -190,9 +190,9 @@ namespace Noodles
 		}
 	}
 
-	bool BitFlagContainer::CopyFrom(BitFlagConstContainer source)
+	bool BitFlagContainerViewer::CopyFrom(BitFlagContainerConstViewer source)
 	{
-		if (container.size() == source.container.size())
+		if (container.size() == source.GetBitFlagCount())
 		{
 			std::span<Element> target = { const_cast<Element*>(container.data()), container.size() };
 			for (std::size_t i = 0; i < container.size(); ++i)
@@ -204,7 +204,7 @@ namespace Noodles
 		return false;
 	}
 
-	bool BitFlagContainer::Union(BitFlagConstContainer source)
+	bool BitFlagContainerViewer::Union(BitFlagContainerConstViewer source)
 	{
 		if (container.size() == source.container.size())
 		{
@@ -218,33 +218,9 @@ namespace Noodles
 		return false;
 	}
 
-	std::optional<BitFlag> StructLayoutBitFlagMapping::Locate(StructLayout const& type)
+	BitFlagContainer::BitFlagContainer(std::size_t container_count, std::pmr::memory_resource* resource)
+		: container(resource)
 	{
-		for (std::size_t i = 0; i < struct_layouts.size(); ++i)
-		{
-			auto& ref = struct_layouts[i];
-			if (*ref == type)
-			{
-				return BitFlag{ i };
-			}
-		}
-		return std::nullopt;
-	}
-	std::optional<BitFlag> StructLayoutBitFlagMapping::LocateOrAdd(StructLayout const& type)
-	{
-		auto result = Locate(type);
-		if (result.has_value())
-		{
-			return result;
-		}
-		else {
-			auto current_size = struct_layouts.size();
-			if (current_size + 1 < max_bit_flag.value)
-			{
-				struct_layouts.emplace_back(&type);
-				return BitFlag{ current_size };
-			}
-		}
-		return std::nullopt;
+		container.resize(container_count);
 	}
 }

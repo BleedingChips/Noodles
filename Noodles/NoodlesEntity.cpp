@@ -10,24 +10,24 @@ namespace Noodles
 	void Entity::SetFree_AssumedLocked()
 	{
 		state = State::Free;
-		index.Reset();
+		index.reset();
 		modify_component_bitflag.Reset();
+		component_bitflag.Reset();
 	}
 
-	auto Entity::Create(GlobalContext& global_context, std::pmr::memory_resource* resource)
+	auto Entity::Create(std::size_t component_bitflag_container_count, std::pmr::memory_resource* resource)
 		-> Ptr
 	{
 		auto layout = Potato::MemLayout::MemLayoutCPP::Get<Entity>();
-		auto element_count = global_context.GetComponentBitFlagContainerElementCount();
 
-		auto offset_flag = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlagConstContainer::Element>(element_count * 2));
+		auto offset_flag = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlagContainerViewer::Element>(component_bitflag_container_count * 2));
 		auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
 
 		if (record)
 		{
 			auto flag_span = std::span{
-				new (record.GetByte(offset_flag)) BitFlagConstContainer::Element[element_count * 2],
-				element_count * 2
+				new (record.GetByte(offset_flag)) BitFlagContainerViewer::Element[component_bitflag_container_count * 2],
+				component_bitflag_container_count * 2
 			};
 
 			for (auto& ite : flag_span)
@@ -37,8 +37,8 @@ namespace Noodles
 
 			return new (record.Get()) Entity{
 				record,
-				BitFlagContainer{flag_span.subspan(0, element_count)},
-				BitFlagContainer{flag_span.subspan(element_count)},
+				BitFlagContainerViewer{flag_span.subspan(0, component_bitflag_container_count)},
+				BitFlagContainerViewer{flag_span.subspan(component_bitflag_container_count)},
 			};
 		}
 
@@ -54,13 +54,13 @@ namespace Noodles
 		}
 	}
 
-	EntityManager::EntityManager(GlobalContext::Ptr in_global_context, Config config)
-		: global_context(std::move(in_global_context)), entity_modifier(config.resource), entity_modifier_event(config.resource)
+	EntityManager::EntityManager(AsynClassBitFlagMap& map, Config config)
+		: entity_modifier(config.resource), entity_modifier_event(config.resource)
 	{
-		assert(global_context);
-		auto result = global_context->GetComponentBitFlag(*StructLayout::GetStatic<EntityProperty>());
+		auto result = map.LocateOrAdd(*StructLayout::GetStatic<EntityProperty>());
 		assert(result.has_value());
 		entity_property_bitflag = *result;
+		componenot_bitflag_container_count = map.GetBitFlagContainerElementCount();
 	}
 
 	EntityManager::~EntityManager()
@@ -75,7 +75,7 @@ namespace Noodles
 
 	Entity::Ptr EntityManager::CreateEntity(std::pmr::memory_resource* entity_resource, std::pmr::memory_resource* temp_resource)
 	{
-		auto ent = Entity::Create(*global_context, entity_resource);
+		auto ent = Entity::Create(componenot_bitflag_container_count, entity_resource);
 		if (ent)
 		{
 			EntityProperty entity_property
@@ -83,7 +83,7 @@ namespace Noodles
 				ent
 			};
 
-			auto re = AddEntityComponentImp(*ent, *StructLayout::GetStatic<EntityProperty>(), &entity_property, true, Operation::Move, temp_resource);
+			auto re = AddEntityComponentImp(*ent, *StructLayout::GetStatic<EntityProperty>(), &entity_property, GetEntityPropertyBitFlag(), true, Operation::Move, temp_resource);
 			assert(re);
 			return ent;
 		}
@@ -104,18 +104,17 @@ namespace Noodles
 		return false;
 	}
 
-	bool EntityManager::AddEntityComponentImp(Entity& target_entity, StructLayout const& component_class, void* reference_buffer, bool accept_build_in, Operation operation, std::pmr::memory_resource* resource)
+	bool EntityManager::AddEntityComponentImp(Entity& entity, StructLayout const& component_class, void* component_ptr, BitFlag component_bitflag, bool accept_build_in, Operation operation, std::pmr::memory_resource* resource)
 	{
 		auto ope = component_class.GetOperateProperty();
 		if (!ope.move_construct && !ope.copy_construct)
 			return false;
-		auto loc = global_context->GetComponentBitFlag(component_class);
-		if (loc.has_value() && (accept_build_in || *loc != GetEntityPropertyBitFlag()))
+		if (accept_build_in || component_bitflag != GetEntityPropertyBitFlag())
 		{
-			std::lock_guard lg(target_entity.mutex);
-			if (target_entity.state == Entity::State::Normal || target_entity.state == Entity::State::PreInit)
+			std::lock_guard lg(entity.mutex);
+			if (entity.state == Entity::State::Normal || entity.state == Entity::State::PreInit)
 			{
-				auto re = target_entity.modify_component_bitflag.SetValue(*loc);
+				auto re = entity.modify_component_bitflag.SetValue(component_bitflag);
 				assert(re);
 				if (!*re)
 				{
@@ -124,32 +123,32 @@ namespace Noodles
 					{
 						if (operation == Operation::Copy)
 						{
-							auto re = component_class.CopyConstruction(record.Get(), reference_buffer);
+							auto re = component_class.CopyConstruction(record.Get(), component_ptr);
 							assert(re);
 						}
 						else
 						{
-							auto re = component_class.MoveConstruction(record.Get(), reference_buffer);
+							auto re = component_class.MoveConstruction(record.Get(), component_ptr);
 							assert(re);
 						}
 
 						decltype(entity_modifier_event)::iterator insert_ite = entity_modifier_event.end();
 
-						if (!target_entity.modify_index)
+						if (!entity.modify_index)
 						{
-							target_entity.modify_index = entity_modifier.size();
+							entity.modify_index = entity_modifier.size();
 							entity_modifier.emplace_back(
 								false,
 								Potato::Misc::IndexSpan<>{
 								entity_modifier_event.size(),
 									entity_modifier_event.size() + 1
 							},
-								& target_entity
+								&entity
 							);
 						}
 						else
 						{
-							auto& ref = entity_modifier[target_entity.modify_index];
+							auto& ref = entity_modifier[entity.modify_index];
 							insert_ite = ref.infos.End() + entity_modifier_event.begin();
 							ref.infos.BackwardEnd(1);
 						}
@@ -158,13 +157,13 @@ namespace Noodles
 							insert_ite,
 							EntityModifierEvent{
 								true,
-								*loc,
+								component_bitflag,
 								& component_class,
 								record
 							}
 						);
 
-						for (auto i = target_entity.modify_index.Get() + 1; i < entity_modifier.size(); ++i)
+						for (auto i = entity.modify_index.Get() + 1; i < entity_modifier.size(); ++i)
 						{
 							entity_modifier[i].infos.WholeOffset(1);
 						}
@@ -198,23 +197,20 @@ namespace Noodles
 			{
 				auto& ref = entity_modifier[target_entity.modify_index];
 				ref.need_remove = true;
-				auto span_index = ref.infos;
-				auto span = span_index.Slice(std::span(entity_modifier_event));
 			}
 			return true;
 		}
 		return false;
 	}
 
-	bool EntityManager::RemoveEntityComponentImp(Entity& target_entity, StructLayout const& component_class, bool accept_build_in)
+	bool EntityManager::RemoveEntityComponentImp(Entity& target_entity, BitFlag const component_bitflag, bool accept_build_in)
 	{
-		auto loc = global_context->GetComponentBitFlag(component_class);
-		if (loc.has_value() && (accept_build_in || *loc != GetEntityPropertyBitFlag()))
+		if (accept_build_in || component_bitflag != GetEntityPropertyBitFlag())
 		{
 			std::lock_guard lg(target_entity.mutex);
 			if (target_entity.state == Entity::State::Normal || target_entity.state == Entity::State::PreInit)
 			{
-				auto re = target_entity.modify_component_bitflag.SetValue(*loc, false);
+				auto re = target_entity.modify_component_bitflag.SetValue(component_bitflag, false);
 				assert(re.has_value());
 				if (*re)
 				{
@@ -240,9 +236,8 @@ namespace Noodles
 					auto span = event_span.Slice(std::span(entity_modifier_event));
 					for (auto& ite : span)
 					{
-						if (ite.need_add && ite.bitflag == *loc)
+						if (ite.need_add && ite.bitflag == component_bitflag)
 						{
-							ite.Release();
 							ite.need_add = false;
 							break;
 						}
@@ -267,7 +262,7 @@ namespace Noodles
 				has_been_update = true;
 				auto& entity = *ite.entity;
 
-				ComponentManager::Index target_entity_index;
+				std::optional<Index> target_entity_index;
 				{
 					std::lock_guard lg(entity.mutex);
 					assert(entity.state == Entity::State::PendingDestroy);
@@ -276,9 +271,9 @@ namespace Noodles
 				if (target_entity_index)
 				{
 					manager.DestructionEntity(
-						target_entity_index
+						*target_entity_index
 					);
-					removed_list.emplace_back(target_entity_index);
+					removed_list.emplace_back(*target_entity_index);
 				}
 			}
 		}
@@ -309,7 +304,7 @@ namespace Noodles
 					}
 					ComponentManager::ConstructOption option;
 					option.destruct_before_construct = true;
-					auto re = manager.ConstructEntity(entity.index, std::span(component_init_list), option);
+					auto re = manager.ConstructEntity(*entity.index, std::span(component_init_list), option);
 					assert(re);
 
 				}
@@ -324,10 +319,10 @@ namespace Noodles
 					if (!archetype_index)
 					{
 						init_list.resize(archetype_component_count);
-						offset = manager.FlushInitWithComponent(entity.index, entity.modify_component_bitflag, std::span(component_init_list), std::span(init_list));
+						offset = manager.FlushInitWithComponent(*entity.index, entity.modify_component_bitflag, std::span(component_init_list), std::span(init_list));
 					}
 					else {
-						offset = manager.FlushInitWithComponent(entity.index, entity.modify_component_bitflag, std::span(component_init_list), {});
+						offset = manager.FlushInitWithComponent(*entity.index, entity.modify_component_bitflag, std::span(component_init_list), {});
 					}
 
 					auto span = ite.infos.Slice(std::span{ entity_modifier_event });
@@ -381,11 +376,11 @@ namespace Noodles
 						}
 					}
 
-					ComponentManager::Index new_index;
+					std::optional<Index> new_index;
 
 					{
 						auto find = std::find_if(removed_list.begin(), removed_list.end(), [=](ComponentManager::Index const& index) {
-							return index.archetype_index.Get() == archetype_index.Get();
+							return index.archetype_index == archetype_index.Get();
 						});
 						if (find != removed_list.end())
 						{
@@ -403,14 +398,14 @@ namespace Noodles
 						}
 					}
 
-					auto re = manager.ConstructEntity(new_index, std::span(component_init_list), option);
+					auto re = manager.ConstructEntity(*new_index, std::span(component_init_list), option);
 					assert(re);
 
 					if (entity.index)
 					{
-						re = manager.DestructionEntity(entity.index);
+						re = manager.DestructionEntity(*entity.index);
 						assert(re);
-						removed_list.emplace_back(entity.index);
+						removed_list.emplace_back(*entity.index);
 					}
 					
 					entity.index = new_index;
@@ -440,12 +435,23 @@ namespace Noodles
 				}
 				auto ite = span.subspan(0, index);
 				span = span.subspan(index);
+				std::array<std::size_t, ComponentManager::GetQueryDataCount()> query_data;
+				auto re = manager.TranslateClassToQueryData(ite[0].archetype_index, { &entity_property_bitflag, 1 }, query_data);
+				assert(re);
 				while (!ite.empty())
 				{
 					auto re = manager.PopBackEntityToFillHole(*ite.begin(), *ite.rbegin());
 					assert(re.has_value());
 					if (*re)
 					{
+						void* output = nullptr;
+						auto re = manager.QueryComponent(*ite.begin(), query_data, std::span<void*>{(&output), 1});
+						EntityProperty* property = static_cast<EntityProperty*>(output);
+						assert(re && property != nullptr && property->entity);
+						{
+							std::lock_guard lg(property->entity->mutex);
+							property->entity->index = *ite.begin();
+						}
 						ite = ite.subspan(1);
 					}
 					else {

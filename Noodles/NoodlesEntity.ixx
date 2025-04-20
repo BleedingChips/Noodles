@@ -12,7 +12,7 @@ import PotatoMisc;
 
 import NoodlesMisc;
 import NoodlesBitFlag;
-import NoodlesGlobalContext;
+import NoodlesClassBitFlag;
 import NoodlesComponent;
 
 export namespace Noodles
@@ -25,6 +25,7 @@ export namespace Noodles
 	struct Entity : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<Entity>;
+		using Index = ComponentManager::Index;
 
 		enum class State
 		{
@@ -36,18 +37,18 @@ export namespace Noodles
 
 		~Entity() = default;
 
-		ComponentManager::Index GetEntityIndex() const { std::shared_lock sl(mutex);  return index; }
+		std::optional<Index> GetEntityIndex() const { std::shared_lock sl(mutex);  return index; }
 
 	protected:
 
-		static Ptr Create(GlobalContext& global_context, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		static Ptr Create(std::size_t component_bitflag_container_count, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
 		void SetFree_AssumedLocked();
 
 		Entity(
 			Potato::IR::MemoryResourceRecord record,
-			BitFlagContainer component_bitflag,
-			BitFlagContainer modify_component_bitflag
+			BitFlagContainerViewer component_bitflag,
+			BitFlagContainerViewer modify_component_bitflag
 		) : MemoryResourceRecordIntrusiveInterface(record),
 			component_bitflag(component_bitflag),
 			modify_component_bitflag(modify_component_bitflag)
@@ -57,12 +58,12 @@ export namespace Noodles
 		mutable std::shared_mutex mutex;
 		State state = State::PreInit;
 
-		ComponentManager::Index index;
+		std::optional<Index> index;
 
 		OptionalSizeT modify_index;
 
-		BitFlagContainer component_bitflag;
-		BitFlagContainer modify_component_bitflag;
+		BitFlagContainerViewer component_bitflag;
+		BitFlagContainerViewer modify_component_bitflag;
 
 
 		friend struct EntityManager;
@@ -90,12 +91,15 @@ export namespace Noodles
 
 	export struct EntityManager
 	{
+
+		using Index = Entity::Index;
+
 		struct Config
 		{
 			std::pmr::memory_resource* resource = std::pmr::get_default_resource();
 		};
 
-		EntityManager(GlobalContext::Ptr global_context, Config config = {});
+		EntityManager(AsynClassBitFlagMap& mapping, Config config = {});
 		~EntityManager();
 
 		Entity::Ptr CreateEntity(std::pmr::memory_resource* entity_resource = std::pmr::get_default_resource(), std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
@@ -107,23 +111,19 @@ export namespace Noodles
 		};
 
 		template<typename Type>
-		bool AddEntityComponent(Entity& target_entity, Type&& type, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource()) requires(std::is_rvalue_reference_v<decltype(type)>)
+		bool AddEntityComponent(Entity& entity, Type&& component, BitFlag component_bitflag,std::pmr::memory_resource* entity_resource = std::pmr::get_default_resource()) requires(std::is_rvalue_reference_v<decltype(component)>)
 		{
-			return this->AddEntityComponent(target_entity, *StructLayout::GetStatic<Type>(), &type, std::is_rvalue_reference_v<Type&&> ? Operation::Move : Operation::Copy, temp_resource);
+			return this->AddEntityComponent(entity, *StructLayout::GetStatic<Type>(), &component, component_bitflag, std::is_rvalue_reference_v<Type&&> ? Operation::Move : Operation::Copy, entity_resource);
 		}
 
-		bool AddEntityComponent(Entity& target_entity, StructLayout const& struct_layout, void* reference_buffer, Operation operation = Operation::Copy, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+		bool AddEntityComponent(Entity& entity, StructLayout const& component_class, void* component_ptr, BitFlag component_bitflag, Operation operation = Operation::Copy, std::pmr::memory_resource* entity_resource = std::pmr::get_default_resource())
 		{
-			return AddEntityComponentImp(target_entity, struct_layout, reference_buffer, false, operation, resource);
+			return AddEntityComponentImp(entity, component_class, component_ptr, component_bitflag, false, operation, entity_resource);
 		}
 
-		template<typename Type>
-		bool RemoveEntityComponent(Entity& target_entity) { return this->RemoveEntityComponent(std::move(target_entity), *StructLayout::GetStatic<Type>()); }
-
-		bool RemoveEntityComponent(Entity& target_entity, StructLayout const& struct_layout) { return RemoveEntityComponentImp(target_entity, struct_layout, false); }
+		bool RemoveEntityComponent(Entity& entity, BitFlag component_bitflag) { return RemoveEntityComponentImp(entity, component_bitflag, false); }
 
 		bool FlushEntityModify(ComponentManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
-		bool ReadEntity(ComponentManager const& manager, Entity const& entity, std::span<std::size_t> offset_and_layout, std::span<void*> output) const;
 
 		//bool ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentQuery const& filter, QueryData& accessor) const;
 
@@ -132,8 +132,8 @@ export namespace Noodles
 
 	protected:
 
-		bool AddEntityComponentImp(Entity& target_entity, StructLayout const& struct_layout, void* reference_buffer, bool accept_build_in, Operation operation, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
-		bool RemoveEntityComponentImp(Entity& target_entity, StructLayout const& struct_layout, bool accept_build_in_component = false);
+		bool AddEntityComponentImp(Entity& entity, StructLayout const& component_class, void* component_ptr, BitFlag const component_bitflag, bool accept_build_in, Operation operation, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		bool RemoveEntityComponentImp(Entity& entity, BitFlag const component_bitflag, bool accept_build_in_component = false);
 
 
 		struct EntityModifierInfo
@@ -153,7 +153,7 @@ export namespace Noodles
 		};
 
 		BitFlag entity_property_bitflag;
-		GlobalContext::Ptr global_context;
+		std::size_t componenot_bitflag_container_count;
 
 		std::pmr::vector<EntityModifierInfo> entity_modifier;
 		std::pmr::vector<EntityModifierEvent> entity_modifier_event;

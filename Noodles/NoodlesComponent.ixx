@@ -10,7 +10,7 @@ import Potato;
 import NoodlesMisc;
 import NoodlesArchetype;
 import NoodlesBitFlag;
-import NoodlesGlobalContext;
+import NoodlesClassBitFlag;
 
 
 export namespace Noodles
@@ -53,52 +53,40 @@ export namespace Noodles
 		friend struct Ptr::CurrentWrapper;
 	};
 
-	/*
-	struct ArchetypeBuilderRef
-	{
-		ArchetypeBuilderRef(StructBitFlagMapping& mapping, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
-		ArchetypeBuilderRef(ArchetypeBuilderRef&&) = default;
-		bool Insert(StructLayout::Ptr struct_layout, BitFlag bitflag, std::byte* buffer);
-		bool Remove(BitFlag bitflag);
-		void Clear();
-		std::span<BitFlagContainer> GetMarks() { return mark; }
-		std::span<BitFlagContainer const> GetMarks() const { return mark; }
-	protected:
-		std::pmr::vector<Archetype::Init> atomic_type;
-		std::pmr::vector<std::byte*> reference_buffer;
-		std::pmr::vector<BitFlagContainer> mark;
-		StructBitFlagMapping::Ptr bit_flag_mapping;
-		friend struct ComponentManager;
-	};
-	*/
-
 	struct ComponentManager
 	{
 
 		struct Index
 		{
-			OptionalSizeT archetype_index;
-			std::size_t chunk_index;
-			std::size_t entity_index;
-			operator bool() const { return archetype_index; }
+			std::size_t archetype_index = 0;
+			std::size_t chunk_index = 0;
+			std::size_t entity_index = 0;
+			Index(std::size_t archetype_index, std::size_t chunk_index, std::size_t entity_index)
+				: archetype_index(archetype_index), chunk_index(chunk_index), entity_index(entity_index) {}
+			Index(Index const&) = default;
 			std::strong_ordering operator<=>(Index const&) const noexcept = default;
-			void Reset() { archetype_index.Reset(); chunk_index = 0; entity_index = 0; }
 		};
 
 		struct Config
 		{
 			std::size_t max_archetype_count = 128;
+			std::size_t max_component_class_count = 128;
 			std::pmr::memory_resource* component_resource = std::pmr::get_default_resource();
 			std::pmr::memory_resource* resource = std::pmr::get_default_resource();
 		};
 
-		BitFlagConstContainer GetArchetypeUpdateBitFlag() const { return archetype_update_bitflag; }
-		BitFlagConstContainer GetArchetypeNotEmptyBitFlag() const { return archetype_not_empty_bitflag; }
+		BitFlagContainerConstViewer GetArchetypeUpdateBitFlag() const { return archetype_update_bitflag; }
+		BitFlagContainerConstViewer GetArchetypeNotEmptyBitFlag() const { return archetype_not_empty_bitflag; }
 
-		OptionalSizeT LocateComponentChunk(BitFlagConstContainer component_bitflag) const;
+		OptionalSizeT LocateComponentChunk(BitFlagContainerConstViewer component_bitflag) const;
 		OptionalSizeT CreateComponentChunk(std::span<Archetype::Init const> archetype_init);
 
-		ComponentManager(GlobalContext::Ptr global_context, Config config = {});
+		std::size_t GetArchetypeCount() const { return archetype_info.size(); }
+		std::size_t GetArchetypeBitFlagContainerCount() const { return archetype_update_bitflag.AsSpan().size(); }
+
+		static constexpr std::size_t GetQueryDataCount() { return 2; }
+
+		ComponentManager(Config config = {});
 		~ComponentManager();
 
 		bool DestructionEntity(Index index);
@@ -118,22 +106,22 @@ export namespace Noodles
 
 		bool ConstructEntity(Index index, std::span<Init const> component_init, ConstructOption option);
 
-		std::size_t FlushInitWithComponent(Index index, BitFlagConstContainer component_class, std::span<Init> in_out, std::span<Archetype::Init> in_out_archetype);
-		Index AllocateEntityWithoutConstruct(std::size_t archetype_index);
+		std::size_t FlushInitWithComponent(Index index, BitFlagContainerConstViewer component_class, std::span<Init> in_out, std::span<Archetype::Init> in_out_archetype);
+		std::optional<Index> AllocateEntityWithoutConstruct(std::size_t archetype_index);
 
 		std::optional<bool> PopBackEntityToFillHole(Index hole_index, Index pop_back_limited);
 		void ClearBitFlag();
 		
-		bool IsArchetypeAcceptQuery(std::size_t archetype_index, BitFlagConstContainer query_class, BitFlagConstContainer refuse_qurey_class) const;
-		bool TranslateClassToComponentOffsetAndSize(std::size_t archetype_index, std::span<BitFlag const> target_class, std::span<std::size_t> outoput) const;
-		bool QueryComponentDataWithComponentOffsetAndSize(Index index, std::span<std::size_t const> offset_and_size, std::span<void*> output) const;
-		OptionalSizeT QueryComponentArrayWithComponentOffsetAndSize(std::size_t archetype_index, std::size_t chunk_index, std::span<std::size_t const> offset_and_size, std::span<void*> output) const;
+		bool IsArchetypeAcceptQuery(std::size_t archetype_index, BitFlagContainerConstViewer query_class, BitFlagContainerConstViewer refuse_qurey_class) const;
+		bool TranslateClassToQueryData(std::size_t archetype_index, std::span<BitFlag const> target_class, std::span<std::size_t> outoput_query_data) const;
+		bool QueryComponent(Index index, std::span<std::size_t const> query_data, std::span<void*> output) const;
+		OptionalSizeT QueryComponentArray(std::size_t archetype_index, std::size_t chunk_index, std::span<std::size_t const> query_data, std::span<void*> output) const;
 
 	protected:
 
 		//std::tuple<Archetype::OPtr, OptionalIndex> CreateArchetype_AssumedLocked(ArchetypeBuilderRef const& ref);
 
-		GlobalContext::Ptr global_context;
+		std::size_t const component_bitflag_container_element_count;
 
 		struct ArchetypeInfo
 		{
@@ -149,8 +137,8 @@ export namespace Noodles
 		std::pmr::unsynchronized_pool_resource component_resource;
 
 		std::pmr::vector<BitFlagContainer::Element> bit_flag_container;
-		BitFlagContainer archetype_update_bitflag;
-		BitFlagContainer archetype_not_empty_bitflag;
+		BitFlagContainerViewer archetype_update_bitflag;
+		BitFlagContainerViewer archetype_not_empty_bitflag;
 		std::size_t max_archtype_count = 0;
 	};
 }

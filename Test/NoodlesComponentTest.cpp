@@ -1,9 +1,9 @@
 import std;
 
-#include <cassert>;
+#include <cassert>
 
 import NoodlesComponent;
-import NoodlesGlobalContext;
+import NoodlesClassBitFlag;
 import NoodlesBitFlag;
 import NoodlesArchetype;
 
@@ -45,34 +45,34 @@ struct E
 int main()
 {
 
-	auto global_context = GlobalContext::Create();
-	ComponentManager manager{global_context };
+	AsynClassBitFlagMap map;
 
-	std::pmr::vector<BitFlagConstContainer::Element> elements;
-	elements.resize(global_context->GetComponentBitFlagContainerElementCount());
+	ComponentManager manager{};
+
+	BitFlagContainer bitflag{ map.GetBitFlagContainerElementCount() };
 
 	auto init_list = std::array{
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *global_context->GetComponentBitFlag(*StructLayout::GetStatic<A>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *global_context->GetComponentBitFlag(*StructLayout::GetStatic<B>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *global_context->GetComponentBitFlag(*StructLayout::GetStatic<C>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<D>::Create(), *global_context->GetComponentBitFlag(*StructLayout::GetStatic<D>())},
-		Archetype::Init{Potato::IR::StaticAtomicStructLayout<E>::Create(), *global_context->GetComponentBitFlag(*StructLayout::GetStatic<E>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<A>::Create(), *map.LocateOrAdd(*StructLayout::GetStatic<A>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<B>::Create(), *map.LocateOrAdd(*StructLayout::GetStatic<B>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<C>::Create(), *map.LocateOrAdd(*StructLayout::GetStatic<C>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<D>::Create(), *map.LocateOrAdd(*StructLayout::GetStatic<D>())},
+		Archetype::Init{Potato::IR::StaticAtomicStructLayout<E>::Create(), *map.LocateOrAdd(*StructLayout::GetStatic<E>())},
 	};
 
 	for (auto& ite : init_list)
 	{
-		auto re = BitFlagContainer{elements}.SetValue(ite.flag);
+		auto re = BitFlagContainerViewer{ bitflag }.SetValue(ite.flag);
 		assert(re);
 	}
 
-	auto find = manager.LocateComponentChunk(BitFlagContainer{ elements });
+	auto find = manager.LocateComponentChunk(BitFlagContainerViewer{ bitflag });
 
 	if (!find)
 	{
 		find = manager.CreateComponentChunk(init_list);
 	}
 
-	auto find2 = manager.LocateComponentChunk(BitFlagContainer{ elements });
+	auto find2 = manager.LocateComponentChunk(bitflag);
 
 	return 0;
 }

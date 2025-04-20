@@ -6,7 +6,139 @@ module NoodlesQuery;
 
 namespace Noodles
 {
+	ComponentQuery::Ptr ComponentQuery::Create(
+		std::size_t archetype_container_count,
+		std::size_t component_container_count,
+		std::span<BitFlag const> require_component_bitflag,
+		std::span<BitFlag const> require_write_component_bitflag,
+		std::span<BitFlag const> refuse_component_bitflag,
+		std::pmr::memory_resource* resource
+	)
+	{
+		auto layout = Potato::MemLayout::MemLayoutCPP::Get<ComponentQuery>();
 
+		auto bitflag_container_count = 2;
+		if (!refuse_component_bitflag.empty())
+		{
+			bitflag_container_count += 1;
+		}
+
+		auto bit_flag_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlagContainer::Element>(component_container_count * bitflag_container_count));
+		auto archetype_usage_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlagContainer::Element>(archetype_container_count));
+		auto component_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlag>(require_component_bitflag.size()));
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
+		if (re)
+		{
+			std::span<BitFlagContainer::Element> bitflag_container = { new (re.GetByte(bit_flag_offset)) BitFlagContainer::Element[component_container_count * bitflag_container_count], component_container_count * bitflag_container_count };
+			std::span<BitFlagContainer::Element> archetype_container = { new (re.GetByte(archetype_usage_offset)) BitFlagContainer::Element[archetype_container_count], archetype_container_count };
+			std::span<BitFlag> component = { new (re.GetByte(component_offset)) BitFlag[require_component_bitflag.size()], require_component_bitflag.size() };
+
+			BitFlagContainerViewer require = bitflag_container.subspan(0, component_container_count);
+			BitFlagContainerViewer refuse = bitflag_container.subspan(component_container_count, !refuse_component_bitflag.empty() ? component_container_count : 0);
+			BitFlagContainerViewer require_write = bitflag_container.subspan(!refuse_component_bitflag.empty() ? component_container_count * 2 : component_container_count, component_container_count);
+			BitFlagContainerViewer archetype_conatiner_viewer = archetype_container;
+			require.Reset();
+			refuse.Reset();
+			require_write.Reset();
+			archetype_conatiner_viewer.Reset();
+
+			auto ite_span = component;
+
+			for (auto ite : require_component_bitflag)
+			{
+				auto re = require.SetValue(ite);
+				assert(re && !*re);
+				ite_span[0] = ite;
+				ite_span = ite_span.subspan(1);
+			}
+
+			for (auto ite : require_write_component_bitflag)
+			{
+				auto re = require.SetValue(ite);
+				assert(re && *re);
+				re = require_write.SetValue(ite);
+				assert(re && !*re);
+			}
+
+			for (auto ite : refuse_component_bitflag)
+			{
+				auto re = refuse.SetValue(ite);
+				assert(re && !*re);
+			}
+
+			return new (re.Get()) ComponentQuery{ re, require, require_write, refuse, archetype_container, component };
+		}
+		return {};
+	}
+
+	bool ComponentQuery::UpdateQueryData(ComponentManager const& manager)
+	{
+		if (updated_archetype_count < manager.GetArchetypeCount())
+		{
+			bool has_been_modify = false;
+			for (std::size_t index = updated_archetype_count; index < manager.GetArchetypeCount(); ++index)
+			{
+				if (manager.IsArchetypeAcceptQuery(index, require_component, refuse_component))
+				{
+					has_been_modify = true;
+					++archetype_count;
+					auto old_size = query_data.size();
+					query_data.resize(query_data.size() + 1 + component_bitflag.size() * ComponentManager::GetQueryDataCount());
+					query_data[old_size] = index;
+					auto re = manager.TranslateClassToQueryData(index, component_bitflag, std::span(query_data).subspan(old_size + 1));
+					assert(re);
+					archetype_usable.SetValue(BitFlag{index});
+				}
+			}
+			updated_archetype_count = manager.GetArchetypeCount();
+			return has_been_modify;
+		}
+		return false;
+	}
+
+	std::optional<std::size_t> ComponentQuery::QueryComponentArrayWithIterator(ComponentManager& manager, std::size_t iterator, std::size_t chunk_index, std::span<void*> output_component)
+	{
+		if (iterator < archetype_count)
+		{
+			auto span = std::span<std::size_t>(query_data).subspan(query_data_fast_offset * iterator, query_data_fast_offset);
+			auto re = manager.QueryComponentArray(span[0], chunk_index, span.subspan(1), output_component);
+			if (re)
+			{
+				return re.Get();
+			}
+		}
+		return {};
+	}
+
+	bool ComponentQuery::QueryComponent(ComponentManager& manager, ComponentManager::Index entity_index, std::span<void*> output_component)
+	{
+		auto re = archetype_usable.GetValue(BitFlag{entity_index.archetype_index});
+		if (re.has_value() && *re)
+		{
+			auto span = std::span<std::size_t>(query_data);
+			for (std::size_t i = 0; i < archetype_count; ++archetype_count)
+			{
+				auto ite_span = span.subspan(query_data_fast_offset * i, query_data_fast_offset);
+				if (entity_index.archetype_index == ite_span[0])
+				{
+					return manager.QueryComponent(entity_index, ite_span.subspan(1), output_component);
+				}
+			}
+		}
+		return false;
+	}
+
+	/*
+	ComponentQueryManager::ComponentQueryManager(GlobalContext::Ptr context, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+
+	void ComponentQueryManager::RegisterQueryIdentity(std::size_t query_identity)
+	{
+
+	}
+	*/
+
+
+	/*
 	void ComponentQueryManager::RegisterQueryIndex(std::size_t query_index, std::span<>)
 	{
 		if (query_index < query_info.size())
@@ -17,73 +149,14 @@ namespace Noodles
 			auto old_index = 
 		}
 	}
+	*/
 
 
 
 
 
 	/*
-	ComponentQuery::Ptr ComponentQuery::Create(
-		StructLayoutManager& manager,
-		std::span<StructLayoutWriteProperty const> require_component_type,
-		std::span<StructLayout::Ptr const> refuse_component_type,
-		std::pmr::memory_resource* resource
-	)
-	{
-		auto layout = Potato::MemLayout::MemLayoutCPP::Get<ComponentQuery>();
-		auto require_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetComponentStorageCount()));
-		auto require_write_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetComponentStorageCount()));
-		auto refuse_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetComponentStorageCount()));
-		auto archetype_usable_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkElement>(manager.GetArchetypeStorageCount()));
-		auto atomic_index_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<MarkIndex>(require_component_type.size()));
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
-		if (re)
-		{
-			std::span<MarkElement> require_mask{ new (re.GetByte(require_offset)) MarkElement[manager.GetComponentStorageCount()], manager.GetComponentStorageCount() };
-			std::span<MarkElement> require_write_mask{ new (re.GetByte(require_write_offset)) MarkElement[manager.GetComponentStorageCount()], manager.GetComponentStorageCount() };
-			std::span<MarkElement> archetype_usable{ new (re.GetByte(archetype_usable_offset)) MarkElement[manager.GetArchetypeStorageCount()], manager.GetArchetypeStorageCount() };
-			std::span<MarkIndex> require_index{ new (re.GetByte(atomic_index_offset)) MarkIndex[require_component_type.size()], require_component_type.size() };
-
-			auto ite_span = require_index;
-
-			for (auto& Ite : require_component_type)
-			{
-				auto loc = manager.LocateComponent(*Ite.struct_layout);
-				if (loc.has_value())
-				{
-					MarkElement::Mark(require_mask, *loc);
-					ite_span[0] = *loc;
-					ite_span = ite_span.subspan(1);
-					if (Ite.need_write)
-					{
-						MarkElement::Mark(require_write_mask, *loc);
-					}
-				}
-				else
-				{
-					assert(false);
-				}
-			}
-
-			std::span<MarkElement> refuse_mask{ new (re.GetByte(refuse_offset)) MarkElement[manager.GetComponentStorageCount()], manager.GetComponentStorageCount() };
-
-			for (auto& Ite : refuse_component_type)
-			{
-				auto loc = manager.LocateComponent(*Ite);
-				if (loc.has_value())
-				{
-					MarkElement::Mark(refuse_mask, *loc);
-				}
-				else
-				{
-					assert(false);
-				}
-			}
-
-			return new (re.Get()) ComponentQuery{ re, require_mask, require_write_mask, refuse_mask, archetype_usable, require_index, &manager, resource };
-		}
-		return {};
-	}
+	
 
 	std::optional<std::size_t> ComponentQuery::Update_AssumedLocked(StructLayoutManager& manager, std::size_t chunk_id, std::size_t chunk_size)
 	{

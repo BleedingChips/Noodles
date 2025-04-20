@@ -46,7 +46,7 @@ export namespace Noodles
 		decltype(auto) begin() const { return member_view.begin(); }
 		decltype(auto) end() const { return member_view.end(); }
 		MemberView const& operator[](std::size_t index) const { return member_view[index]; }
-		BitFlagConstContainer GetClassBitFlagContainer() const { return class_bitflag_container; }
+		BitFlagContainerConstViewer GetClassBitFlagContainer() const { return class_bitflag_container; }
 
 	protected:
 
@@ -54,7 +54,7 @@ export namespace Noodles
 			Potato::IR::MemoryResourceRecord record,
 			Potato::MemLayout::MemLayoutCPP archetype_layout,
 			std::span<MemberView const> member_view,
-			BitFlagContainer class_bitflag_container
+			BitFlagContainerViewer class_bitflag_container
 			)
 				: MemoryResourceRecordIntrusiveInterface(record),
 			archetype_layout(archetype_layout),
@@ -64,7 +64,7 @@ export namespace Noodles
 			
 		}
 
-		BitFlagContainer class_bitflag_container;
+		BitFlagContainerViewer class_bitflag_container;
 
 		~Archetype();
 

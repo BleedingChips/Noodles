@@ -26,7 +26,7 @@ namespace Noodles
 				new (re.GetByte(index_offset)) BitFlagContainer::Element[class_bitflag_container_count],
 				class_bitflag_container_count
 			};
-			BitFlagContainer class_flag_container{ class_bitflag_container_span };
+			BitFlagContainerViewer class_flag_container{ class_bitflag_container_span };
 			Potato::MemLayout::MemLayoutCPP total_layout;
 			for (std::size_t i = 0; i < atomic_type.size(); ++i)
 			{
