@@ -368,6 +368,7 @@ namespace Noodles
 
 					if (!archetype_index)
 					{
+						ComponentManager::Sort(init_list);
 						archetype_index = manager.CreateComponentChunk(std::span(init_list));
 						assert(archetype_index);
 						if (!archetype_index)

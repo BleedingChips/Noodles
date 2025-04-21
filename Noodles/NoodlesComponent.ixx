@@ -116,6 +116,8 @@ export namespace Noodles
 		bool TranslateClassToQueryData(std::size_t archetype_index, std::span<BitFlag const> target_class, std::span<std::size_t> outoput_query_data) const;
 		bool QueryComponent(Index index, std::span<std::size_t const> query_data, std::span<void*> output) const;
 		OptionalSizeT QueryComponentArray(std::size_t archetype_index, std::size_t chunk_index, std::span<std::size_t const> query_data, std::span<void*> output) const;
+		static void Sort(std::span<Archetype::Init> init_list);
+
 
 	protected:
 

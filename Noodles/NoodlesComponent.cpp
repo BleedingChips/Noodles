@@ -576,4 +576,18 @@ namespace Noodles
 		return {};
 	}
 
+	void ComponentManager::Sort(std::span<Archetype::Init> init_list)
+	{
+		std::sort(init_list.begin(), init_list.end(), [](Archetype::Init const& i1, Archetype::Init const& i2) {
+			auto i1_layout = i1.ptr->GetLayout();
+			auto i2_layout = i2.ptr->GetLayout();
+			auto re = i1_layout <=> i2_layout;
+			if (re == std::strong_ordering::equal)
+			{
+				return ((i1.ptr->GetHashCode()) <=> (i2.ptr->GetHashCode())) == std::strong_ordering::less;
+			}
+			return re == std::strong_ordering::less;
+		});
+	}
+
 }

@@ -218,9 +218,23 @@ namespace Noodles
 		return false;
 	}
 
+	bool BitFlagContainerViewer::ExclusiveOr(BitFlagContainerConstViewer source1, BitFlagContainerConstViewer source2)
+	{
+		if (container.size() == source1.container.size() && container.size() == source2.container.size())
+		{
+			std::span<Element> target = { const_cast<Element*>(container.data()), container.size() };
+			for (std::size_t i = 0; i < container.size(); ++i)
+			{
+				target[i] = source1.container[i] ^ source2.container[i];
+			}
+			return true;
+		}
+		return false;
+	}
+
 	BitFlagContainer::BitFlagContainer(std::size_t container_count, std::pmr::memory_resource* resource)
 		: container(resource)
 	{
-		container.resize(container_count);
+		container.resize(container_count, 0);
 	}
 }

@@ -111,6 +111,12 @@ export namespace Noodles
 		};
 
 		template<typename Type>
+		bool AddEntityComponent(Entity& entity, Type&& component, AsynClassBitFlagMap& map, std::pmr::memory_resource* entity_resource = std::pmr::get_default_resource()) requires(std::is_rvalue_reference_v<decltype(component)>)
+		{
+			return this->AddEntityComponent(entity, std::forward<Type>(component), *map.LocateOrAdd<Type>(), entity_resource);
+		}
+
+		template<typename Type>
 		bool AddEntityComponent(Entity& entity, Type&& component, BitFlag component_bitflag,std::pmr::memory_resource* entity_resource = std::pmr::get_default_resource()) requires(std::is_rvalue_reference_v<decltype(component)>)
 		{
 			return this->AddEntityComponent(entity, *StructLayout::GetStatic<Type>(), &component, component_bitflag, std::is_rvalue_reference_v<Type&&> ? Operation::Move : Operation::Copy, entity_resource);

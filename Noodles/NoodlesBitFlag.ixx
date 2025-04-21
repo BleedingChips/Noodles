@@ -52,6 +52,7 @@ export namespace Noodles
 		void Reset();
 		bool CopyFrom(BitFlagContainerConstViewer source);
 		bool Union(BitFlagContainerConstViewer source);
+		bool ExclusiveOr(BitFlagContainerConstViewer source1, BitFlagContainerConstViewer source2);
 		operator BitFlagContainerConstViewer() const { return {container}; }
 	};
 
@@ -62,6 +63,7 @@ export namespace Noodles
 		BitFlagContainer(BitFlagContainer&&) = default;
 		operator BitFlagContainerConstViewer() const { return BitFlagContainerConstViewer{ std::span(container) }; }
 		operator BitFlagContainerViewer() { return BitFlagContainerViewer{ std::span(container) }; }
+		std::span<Element> AsSpan() { return std::span(container); }
 	protected:
 		std::pmr::vector<Element> container;
 	};
