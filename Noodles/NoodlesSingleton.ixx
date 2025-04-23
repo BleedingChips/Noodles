@@ -26,11 +26,15 @@ export namespace Noodles
 		~SingletonManager();
 
 		std::size_t GetSingletonVersion() const { return version; }
+		static void ResetQueryData(std::span<std::size_t> target)
+		{
+			for (auto& ite : target) ite = std::numeric_limits<std::size_t>::max();
+		}
 
 		constexpr static std::size_t GetQueryDataCount() { return 1; }
 
-		std::size_t TranslateBitFlagToQueryData(std::span<BitFlag const> bitflag, std::span<std::size_t> output);
-		std::size_t QuerySingletonData(std::span<std::size_t> query_data, std::span<void*> output_singleton);
+		std::size_t TranslateBitFlagToQueryData(std::span<BitFlag const> bitflag, std::span<std::size_t> output) const;
+		std::size_t QuerySingletonData(std::span<std::size_t> query_data, std::span<void*> output_singleton) const;
 		BitFlagContainerConstViewer GetSingletonUpdateBitFlagViewer() const { return singleton_update_bitflag; }
 		BitFlagContainerConstViewer GetSingletonUsageBitFlagViewer() const { return singleton_usage_bitflag; }
 
@@ -70,6 +74,8 @@ export namespace Noodles
 		bool RemoveSingleton(BitFlag singleton_bitflag);
 		bool FlushSingletonModify(SingletonManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 	
+		~SingletonModifyManager();
+
 	protected:
 
 		struct Modify

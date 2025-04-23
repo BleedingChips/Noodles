@@ -1,5 +1,9 @@
 import std;
 
+import Potato;
+
+import NoodlesBitFlag;
+import NoodlesClassBitFlag;
 import NoodlesSingleton;
 
 import PotatoIR;
@@ -39,56 +43,29 @@ struct E
 
 int main()
 {
-	auto init_list = std::array{
-				Potato::IR::StaticAtomicStructLayout<B>::Create(),
-				Potato::IR::StaticAtomicStructLayout<A>::Create(),
-				Potato::IR::StaticAtomicStructLayout<C>::Create(),
-				Potato::IR::StaticAtomicStructLayout<D>::Create(),
-				Potato::IR::StaticAtomicStructLayout<E>::Create()
-	};
 
-	auto init_list2 = std::array<StructLayoutWriteProperty, 2>
-	{
-		StructLayoutWriteProperty::Get<A>(),
-		StructLayoutWriteProperty::Get<B const>()
-	};
+	AsynClassBitFlagMap map;
 
-	auto refuse_component = std::array<StructLayout::Ptr, 1>
-	{
-		StructLayout::GetStatic<E>()
-	};
+	SingletonManager manager{map.GetBitFlagContainerElementCount()};
+	SingletonModifyManager modify{map.GetBitFlagContainerElementCount()};
 
-	auto manager = StructLayoutManager::Create();
+	modify.AddSingleton(A{ 100861 }, map);
+	modify.AddSingleton(B{ 100862 }, map);
+	modify.AddSingleton(C{ 100863 }, map);
+	modify.AddSingleton(D{ 100864 }, map);
 
-	SingletonManager singleton_manager{*manager };
+	modify.FlushSingletonModify(manager);
 
-	auto filter = SingletonFilter::Create(*manager, init_list2);
+	std::array<BitFlag, 3> info = {*map.LocateOrAdd<A>(), *map.LocateOrAdd<B>(), *map.LocateOrAdd<Report>()};
+	std::array<std::size_t, SingletonManager::GetQueryDataCount() * 3> query_data;
+	std::array<void*, 3> data;
 
-	singleton_manager.AddSingleton(A{10086});
-	singleton_manager.AddSingleton(B{ 10071 });
-	singleton_manager.UpdateFilter_AssumedLocked(*filter);
+	manager.TranslateBitFlagToQueryData(info, query_data);
+	manager.QuerySingletonData(query_data, data);
 
-	std::array<void*, 100> buffer1;
-	SingletonAccessor accessor(buffer1);
-
-	auto k = singleton_manager.ReadSingleton_AssumedLocked(*filter, accessor);
-
-	auto a = accessor.As<A>(0);
-	auto b = accessor.As<B>(1);
-
-	singleton_manager.Flush();
-	singleton_manager.UpdateFilter_AssumedLocked(*filter);
-
-	std::array<void*, 100> buffer2;
-	SingletonAccessor accessor2(buffer2);
-
-	auto k2 = singleton_manager.ReadSingleton_AssumedLocked(*filter, accessor2);
-
-	auto a2 = accessor.As<A>(0);
-	auto b2 = accessor.As<B>(1);
-
-	auto a3 = accessor2.As<A>(0);
-	auto b3 = accessor2.As<B>(1);
+	A* p1 = static_cast<A*>(data[0]);
+	B* p2 = static_cast<B*>(data[1]);
+	Report* p3 = static_cast<Report*>(data[2]);
 
 	return 0;
 }

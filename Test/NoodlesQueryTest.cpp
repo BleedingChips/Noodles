@@ -2,6 +2,7 @@ import std;
 
 import NoodlesEntity;
 import NoodlesComponent;
+import NoodlesSingleton;
 import NoodlesClassBitFlag;
 import NoodlesQuery;
 import NoodlesBitFlag;
@@ -117,6 +118,29 @@ int main()
 
 	auto s5 = std::span{ static_cast<EntityProperty*>(output[0]), 1 };
 	auto s6 = std::span{ static_cast<A*>(output[1]), 1 };
+
+	SingletonManager s_manager{ map.GetBitFlagContainerElementCount() };
+	SingletonModifyManager m_manager{ map.GetBitFlagContainerElementCount() };
+
+	m_manager.AddSingleton(A{ 10081 }, map);
+	m_manager.AddSingleton(B{ 10082 }, map);
+	m_manager.AddSingleton(C{ 10083 }, map);
+	m_manager.AddSingleton(D{ 10084 }, map);
+
+	m_manager.FlushSingletonModify(s_manager);
+
+	std::array<BitFlag, 3> info = {*map.LocateOrAdd<A>(), *map.LocateOrAdd<C>(), *map.LocateOrAdd<Report>()};
+
+	std::array<void*, 3> output2;
+
+	auto s_query = SingletonQuery::Create(map.GetBitFlagContainerElementCount(), info);
+
+	s_query->UpdateQueryData(s_manager);
+	s_query->QuerySingleton(s_manager, output2);
+
+	A* p1 = static_cast<A*>(output2[0]);
+	C* p2 = static_cast<C*>(output2[1]);
+	Report* p3 = static_cast<Report*>(output2[2]);
 
 	return 0;
 

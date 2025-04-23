@@ -10,7 +10,7 @@ import Potato;
 import NoodlesArchetype;
 import NoodlesBitFlag;
 import NoodlesComponent;
-//import NoodlesGlobalContext;
+import NoodlesSingleton;
 
 export namespace Noodles
 {
@@ -19,9 +19,9 @@ export namespace Noodles
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<ComponentQuery>;
 
-		BitFlagContainerConstViewer GetRequireComponentBitFlag() const { return require_component; }
-		BitFlagContainerConstViewer GetRefuseComponentBitFlag() const { return refuse_component; }
-		BitFlagContainerConstViewer GetArchetypeUsageArray() const { return archetype_usable; }
+		BitFlagContainerConstViewer GetRequire() const { return require_component; }
+		BitFlagContainerConstViewer GetRefuse() const { return refuse_component; }
+		BitFlagContainerConstViewer GetUsage() const { return archetype_usable; }
 
 		static Ptr Create(
 			std::size_t archetype_container_count, 
@@ -73,149 +73,47 @@ export namespace Noodles
 		std::size_t updated_archetype_count = 0;
 		std::size_t query_data_fast_offset = 0;
 
-		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
+		friend struct Ptr::CurrentWrapper;
 	};
-
-
-
-
-
-	/*
-	struct ComponentQueryManager
-	{
-
-		void RegisterQueryIdentity(std::size_t query_identity);
-		void UnRegisterQueryIdentity(std::size_t query_identity);
-
-		bool GetQueryData(std::size_t query_identity, std::size_t archetype, std::span<BitFlag const> component_class, std::span<std::size_t> output_offset_and_size);
-		bool UpdateFromComponent(ComponentManager& manager);
-
-		ComponentQueryManager(GlobalContext::Ptr context, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
-
-	protected:
-
-		struct QueryInfo
-		{
-			std::size_t index = 0;
-			std::size_t reference_count = 0;
-			Potato::Misc::IndexSpan<> query_data;
-			bool need_update = false;
-		};
-
-		GlobalContext::Ptr context;
-		std::pmr::vector<QueryInfo> query_info;
-		std::pmr::vector<BitFlag> container;
-		std::pmr::vector<std::size_t> offset_or_size;
-	};
-	*/
-
-
-
-
-
-
-
-
-	/*
-	struct QueryData
-	{
-		QueryData(std::span<void*> output_buffer) : output_buffer(output_buffer) {}
-		QueryData(QueryData const& other, std::span<void*> output_buffer) : archetype(other.archetype), array_size(other.array_size), output_buffer(output_buffer)
-		{
-			assert(output_buffer.size() == other.output_buffer.size());
-			std::memcpy(output_buffer.data(), other.output_buffer.data(), sizeof(void*) * output_buffer.size());
-		}
-		template<typename Type>
-		std::span<Type> AsSpan(std::size_t index) const {
-			return std::span{
-				static_cast<Type*>(output_buffer[index]),
-				array_size
-			};
-		}
-
-		Archetype::OPtr archetype;
-		std::span<void*> output_buffer;
-		std::size_t array_size = 0;
-		operator bool() const { return archetype; }
-	};
-
-	
 
 	struct SingletonQuery : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
-
 		using Ptr = Potato::Pointer::IntrusivePtr<SingletonQuery>;
 
-		StructLayoutMarksInfosView GetRequiredStructLayoutMarks() const
-		{
-			return { require_write_singleton, require_singleton };
-		}
+		BitFlagContainerConstViewer GetUsage() const { return singleton_usable; }
 
-		std::span<MarkIndex const> GetMarkIndex() const { return mark_index; }
-
-
-		void Reset();
-
-		static SingletonQuery::Ptr Create(
-			StructLayoutManager& manager,
-			std::span<StructLayoutWriteProperty const> require_singleton,
-			std::pmr::memory_resource* storage_resource = std::pmr::get_default_resource()
+		static Ptr Create(
+			std::size_t singleton_container_count,
+			std::span<BitFlag const> singleton_bitflag,
+			std::pmr::memory_resource* resource = std::pmr::get_default_resource()
 		);
 
-		std::span<std::size_t const> EnumSingleton_AssumedLocked() const { return archetype_offset; }
-		bool OnSingletonModify_AssumedLocked(Archetype const& archetype);
-		bool Update_AssumedLocked(StructLayoutManager& manager, std::size_t archetype_id);
-		bool VersionCheck_AssumedLocked(std::size_t archetype_id) const;
-		std::shared_mutex& GetMutex() const { return mutex; }
+		bool UpdateQueryData(SingletonManager const& manager);
+
+		bool QuerySingleton(SingletonManager const& manager, std::span<void*> output_component);
+
+		~SingletonQuery() = default;
 
 	protected:
 
 		SingletonQuery(
 			Potato::IR::MemoryResourceRecord record,
-			std::span<MarkElement> require_singleton,
-			std::span<MarkElement> require_write_singleton,
-			std::span<MarkIndex> mark_index,
-			std::span<std::size_t> archetype_offset,
-			StructLayoutManager::Ptr manager
+			BitFlagContainerViewer singleton_usable,
+			std::span<BitFlag const> singleton_bitflag,
+			std::span<std::size_t> query_data
 		)
-			:MemoryResourceRecordIntrusiveInterface(record), require_singleton(require_singleton),
-			require_write_singleton(require_write_singleton),
-			mark_index(mark_index),
-			archetype_offset(archetype_offset),
-			manager(std::move(manager))
+			:MemoryResourceRecordIntrusiveInterface(record),
+			singleton_usable(singleton_usable),
+			singleton_bitflag(singleton_bitflag),
+			query_data(query_data)
 		{
 		}
 
+		BitFlagContainerViewer singleton_usable;
+		std::span<BitFlag const> singleton_bitflag;
+		std::span<std::size_t> query_data;
+		std::size_t current_version = 0;
 
-		StructLayoutManager::Ptr const manager;
-		std::span<MarkElement> require_singleton;
-		std::span<MarkElement> require_write_singleton;
-		std::span<MarkIndex> mark_index;
-
-		mutable std::shared_mutex mutex;
-		std::span<std::size_t> archetype_offset;
-		std::size_t archetype_id = 0;
-
-		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
+		friend struct Ptr::CurrentWrapper;
 	};
-
-	struct ThreadOrderQuery : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
-	{
-		StructLayoutMarksInfosView GetStructLayoutMarks() const { return marks; };
-		using Ptr = Potato::Pointer::IntrusivePtr<ThreadOrderQuery>;
-
-		static Ptr Create(StructLayoutManager& manager, std::span<StructLayoutWriteProperty const> info, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
-
-	protected:
-		ThreadOrderQuery(Potato::IR::MemoryResourceRecord record, StructLayoutMarksInfos marks)
-			: MemoryResourceRecordIntrusiveInterface(record), marks(marks) {
-		}
-		StructLayoutMarksInfos marks;
-
-
-
-
-		friend struct Potato::Pointer::DefaultIntrusiveWrapper;
-	};
-	*/
 }

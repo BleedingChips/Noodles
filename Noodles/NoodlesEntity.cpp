@@ -253,6 +253,8 @@ namespace Noodles
 	{
 		bool has_been_update = false;
 
+		manager.ClearBitFlag();
+
 		std::pmr::vector<ComponentManager::Index> removed_list(temp_resource);
 
 		for (auto& ite : entity_modifier)

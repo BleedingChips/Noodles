@@ -128,6 +128,70 @@ namespace Noodles
 		return false;
 	}
 
+	SingletonQuery::Ptr SingletonQuery::Create(
+		std::size_t singleton_container_count,
+		std::span<BitFlag const> singleton_bitflag,
+		std::pmr::memory_resource* resource
+	)
+	{
+		auto layout = Potato::MemLayout::MemLayoutCPP::Get<SingletonQuery>();
+
+		auto query_data_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<std::size_t>(singleton_bitflag.size() * SingletonManager::GetQueryDataCount()));
+		auto info_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlag>(singleton_bitflag.size()));
+		auto usage_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlagContainer::Element>(singleton_container_count));
+
+		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
+
+		if (re)
+		{
+			std::span<std::size_t> query_data = { reinterpret_cast<std::size_t*>(re.GetByte(query_data_offset)), singleton_bitflag.size() * SingletonManager::GetQueryDataCount() };
+
+			SingletonManager::ResetQueryData(query_data);
+
+			std::span<BitFlag> singleton = { 
+				reinterpret_cast<BitFlag*>(re.GetByte(info_offset)), 
+				singleton_bitflag.size() 
+			};
+			
+			for (std::size_t i = 0; i < singleton.size(); ++i)
+			{
+				singleton[i] = singleton_bitflag[i];
+			}
+
+			BitFlagContainerViewer usgae = std::span<BitFlagContainerConstViewer::Element>{ 
+				reinterpret_cast<BitFlagContainerConstViewer::Element*>(re.GetByte(usage_offset)),
+				singleton_container_count 
+			};
+
+			usgae.Reset();
+
+			return new(re.Get()) SingletonQuery{ re, usgae, singleton, query_data };
+		}
+		return {};
+	}
+
+	bool SingletonQuery::UpdateQueryData(SingletonManager const& manager)
+	{
+		if (current_version < manager.GetSingletonVersion())
+		{
+			current_version = manager.GetSingletonVersion();
+			manager.TranslateBitFlagToQueryData(singleton_bitflag, query_data);
+			return true;
+		}
+		return false;
+	}
+
+	bool SingletonQuery::QuerySingleton(SingletonManager const& manager, std::span<void*> output_component)
+	{
+		if (current_version == manager.GetSingletonVersion())
+		{
+			current_version = manager.GetSingletonVersion();
+			manager.QuerySingletonData(query_data, output_component);
+			return true;
+		}
+		return false;
+	}
+
 	/*
 	ComponentQueryManager::ComponentQueryManager(GlobalContext::Ptr context, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 
