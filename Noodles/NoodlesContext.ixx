@@ -14,10 +14,160 @@ import NoodlesComponent;
 import NoodlesSingleton;
 import NoodlesEntity;
 import NoodlesQuery;
+import NoodlesBitFlag;
+import NoodlesClassBitFlag;
 
 
 export namespace Noodles
 {
+	struct Priority
+	{
+		std::int32_t primary = 0;
+		std::int32_t second = 0;
+		std::int32_t third = 0;
+	};
+
+	struct Parameter
+	{
+		std::size_t layout = 0;
+		Priority priority;
+	};
+
+	export struct Context;
+
+	struct RWClassBitFlagConstViewer
+	{
+		BitFlagContainerConstViewer read_bitflag;
+		BitFlagContainerConstViewer write_bitflag;
+	};
+
+	struct SystemNode : public Potato::TaskFlow::Node
+	{
+
+		struct Wrapper
+		{
+			void AddRef(SystemNode const* ptr) { ptr->AddSystemNodeRef(); }
+			void SubRef(SystemNode const* ptr) { ptr->SubSystemNodeRef(); }
+		};
+
+		using Ptr = Potato::Pointer::IntrusivePtr<SystemNode, Wrapper>;
+
+		struct ClassBitFlag
+		{
+			RWClassBitFlagConstViewer component;
+			RWClassBitFlagConstViewer singleton;
+			RWClassBitFlagConstViewer thread_order;
+		};
+
+		virtual ClassBitFlag GetClassBitFlag() const { return {}; };
+
+		enum class ComponentOverlappingState
+		{
+			NoUpdate,
+			IsOverlapped,
+			IsNotOverlapped
+		};
+
+		//virtual ComponentOverlappingState IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return ComponentOverlappingState::NoUpdate; };
+		//virtual ComponentOverlappingState IsComponentOverlapping(ComponentQuery const& target_component_filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return ComponentOverlappingState::NoUpdate; };
+		virtual bool UpdateQuery(Context& context) { return false; }
+
+	protected:
+
+		virtual void SystemNodeExecute(Context& context) = 0;
+
+
+		virtual void AddSystemNodeRef() const = 0;
+		virtual void SubSystemNodeRef() const = 0;
+
+		virtual void AddTaskGraphicNodeRef() const override final { AddSystemNodeRef(); }
+		virtual void SubTaskGraphicNodeRef() const override final { SubSystemNodeRef(); }
+
+	private:
+		
+		virtual void TaskFlowNodeExecute(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller) override;
+
+		friend struct Context;
+		friend struct LayerTaskFlow;
+		friend struct ParallelExecutor;
+
+		friend struct Ptr::CurrentWrapper;
+	};
+
+	struct Instance : protected Potato::TaskFlow::Executor
+	{
+		struct Config
+		{
+			std::size_t component_class_count = 128;
+			std::size_t singleton_class_count = 128;
+			std::size_t thread_order_count = 128;
+			std::size_t max_archetype_count = 128;
+		};
+
+
+		using Ptr = Potato::Pointer::IntrusivePtr<Instance, Executor::Wrapper>;
+
+		static Ptr Create(Config config = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		bool Commite(Potato::Task::Context& context);
+
+		std::size_t GetSingletonBitFlagContainerCount() const { return singleton_map.GetBitFlagContainerElementCount(); }
+		std::size_t GetComponentBitFlagContainerCount() const { return component_map.GetBitFlagContainerElementCount(); }
+		std::size_t GetThreadOrderBitFlagContainerCount() const { return thread_order_map.GetBitFlagContainerElementCount(); }
+
+	protected:
+
+		Instance(Config config, std::pmr::memory_resource* resource);
+
+		AsynClassBitFlagMap component_map;
+		AsynClassBitFlagMap singleton_map;
+		AsynClassBitFlagMap thread_order_map;
+
+		mutable std::shared_mutex component_mutex;
+		ComponentManager component_manager;
+		
+		mutable std::mutex entity_mutex;
+		EntityManager entity_manager;
+
+		mutable std::shared_mutex singleton_mutex;
+		SingletonManager singleton_manager;
+
+		std::mutex singleton_modify_mutex;
+		SingletonModifyManager singleton_modify_manager;
+
+		std::mutex main_flow_mutex;
+		Potato::TaskFlow::Flow main_flow;
+		bool need_update = false;
+
+		struct SubFlowState
+		{
+			std::size_t layer;
+			Potato::TaskFlow::Flow flow;
+			bool need_update = false;
+		};
+
+		std::mutex sub_flow_mutex;
+		std::pmr::vector<SubFlowState> sub_flows;
+
+		struct SystemNodeInfo
+		{
+			std::size_t layer = 0;
+			Potato::TaskFlow::Flow::NodeIndex index;
+			std::u8string_view module;
+			std::u8string_view name;
+			Priority priority;
+		};
+
+		mutable std::shared_mutex system_info_mutex;
+		std::pmr::vector<SystemNodeInfo> system_info;
+
+	private:
+
+		friend struct Ptr::CurrentWrapper;
+		friend struct Ptr;
+	};
+
+
+
 	/*
 	struct Priority
 	{
@@ -48,52 +198,7 @@ export namespace Noodles
 		std::size_t user_index = 0;
 	};
 
-	struct SystemNode : public Potato::TaskGraphic::Node
-	{
-
-		struct Wrapper
-		{
-			void AddRef(SystemNode const* ptr) { ptr->AddSystemNodeRef(); }
-			void SubRef(SystemNode const* ptr) { ptr->SubSystemNodeRef(); }
-		};
-
-		using Ptr = Potato::Pointer::IntrusivePtr<SystemNode, Wrapper>;
-
-		struct Mutex
-		{
-			StructLayoutMarksInfosView component_mark;
-			StructLayoutMarksInfosView singleton_mark;
-			StructLayoutMarksInfosView thread_order_mark;
-		};
-
-		virtual Mutex GetMutex() const { return {}; };
-
-		enum class ComponentOverlappingState
-		{
-			NoUpdate,
-			IsOverlapped,
-			IsNotOverlapped
-		};
-
-		virtual ComponentOverlappingState IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return ComponentOverlappingState::NoUpdate; };
-		virtual ComponentOverlappingState IsComponentOverlapping(ComponentQuery const& target_component_filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return ComponentOverlappingState::NoUpdate; };
-		virtual bool UpdateQuery(Context& context) { return false; }
-
-	protected:
-
-		virtual void TaskGraphicNodeExecute(Potato::TaskGraphic::ContextWrapper& wrapper) override final;
-		virtual void AddTaskGraphicNodeRef() const override final { AddSystemNodeRef(); }
-		virtual void SubTaskGraphicNodeRef() const override final { SubSystemNodeRef(); }
-		virtual void SystemNodeExecute(ContextWrapper& wrapper) = 0;
-
-
-		virtual void AddSystemNodeRef() const = 0;
-		virtual void SubSystemNodeRef() const = 0;
-
-		friend struct Context;
-		friend struct LayerTaskFlow;
-		friend struct ParallelExecutor;
-	};
+	
 
 	export struct ContextWrapper
 	{

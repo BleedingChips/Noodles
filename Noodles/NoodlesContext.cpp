@@ -1,13 +1,64 @@
 module;
 
 #include <cassert>
-#include <Windows.h>
 
 module NoodlesContext;
-import PotatoFormat;
+
+
 
 namespace Noodles
 {
+
+	Instance::Instance(Config config, std::pmr::memory_resource* resource)
+		: Executor(resource),
+		component_map(config.component_class_count, resource),
+		singleton_map(config.singleton_class_count, resource),
+		thread_order_map(config.thread_order_count, resource),
+		component_manager({ config.component_class_count, config.max_archetype_count }),
+		entity_manager(component_map),
+		singleton_manager(singleton_map.GetBitFlagContainerElementCount()),
+		singleton_modify_manager(singleton_map.GetBitFlagContainerElementCount()),
+		main_flow(resource),
+		sub_flows(resource),
+		system_info(resource)
+	{
+
+	}
+
+	struct InstanceImplement : public Instance, public Potato::IR::MemoryResourceRecordIntrusiveInterface
+	{
+		InstanceImplement(Potato::IR::MemoryResourceRecord record, Config config)
+			: Instance(config, record.GetMemoryResource()), MemoryResourceRecordIntrusiveInterface(record)
+		{
+
+		}
+
+	public:
+
+		virtual void AddTaskFlowExecutorRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
+		virtual void SubTaskFlowExecutorRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
+		friend struct Ptr::CurrentWrapper;
+		friend struct Ptr;
+	};
+
+	Instance::Ptr Instance::Create(Config config, std::pmr::memory_resource* resource)
+	{
+		auto re = Potato::IR::MemoryResourceRecord::Allocate<InstanceImplement>(resource);
+		if (re)
+		{
+			return new(re.Get()) InstanceImplement{ re, config};
+		}
+		return {};
+	}
+
+
+
+
+
+
+
+
+
 	/*
 	void ContextWrapper::AddTemporarySystemNodeNextFrame(SystemNode& node, Potato::Task::Property property)
 	{

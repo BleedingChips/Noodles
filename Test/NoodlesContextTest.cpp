@@ -2,6 +2,7 @@ import std;
 import Potato;
 import Noodles;
 
+/*
 std::mutex PrintMutex;
 
 void PrintSystemProperty(Noodles::ContextWrapper& wrapper)
@@ -24,7 +25,6 @@ struct A { std::size_t i = 0; };
 
 struct B {};
 
-/*
 void Func(A a){}
 
 void Func2(SystemContext system) {}
@@ -46,6 +46,7 @@ struct Tuple2
 	std::u8string str;
 };
 
+/*
 struct TestContext : public Noodles::Context
 {
 	TestContext(Noodles::StructLayoutManager& manager,  Config config) : Context(manager, config) {}
@@ -58,6 +59,7 @@ protected:
 		std::println("Context Begin---");
 	}
 };
+
 
 
 struct TestSystem : public Noodles::SystemNode
@@ -74,12 +76,22 @@ void TestFunction(Noodles::ContextWrapper& wrapper, Noodles::AutoComponentQuery<
 	auto P = component_query.AsSpan<0>();
 	PrintSystemProperty(wrapper);
 }
+*/
+
+struct InstanceImp : public Noodles::Instance
+{
+	
+};
 
 
 int main()
 {
-	//static_assert(std::is_function_v<decltype([](){})>);
+	auto instance = Noodles::Instance::Create();
 
+
+
+	//static_assert(std::is_function_v<decltype([](){})>);
+	/*
 	Noodles::Context::Config fig;
 	fig.min_frame_time = std::chrono::seconds{ 1 };
 
@@ -132,23 +144,6 @@ int main()
 		context.AddTemporarySystemNodeNextFrame(*sys, { u8"defer_func" });
 		context.AddTemporarySystemNode(*sys, {u8"imp func"});
 
-		/*
-		std::size_t ite_index = 0;
-		while(
-			auto wrapper = context.GetContext().ReadEntity_AssumedLocked()
-			)
-		{
-			++ite_index;
-			std::span<Tuple> ref = filter.GetByIndex<0>(wrapper);
-		}
-
-		auto wrap = filter.ReadEntity_AssumedLocked(context.GetContext(), *ent, output);
-		if(wrap)
-		{
-			Tuple* ref = filter.GetByIndex<0>(wrap);
-		}
-		*/
-
 	},
 		{
 			{2, 1, 3},
@@ -162,46 +157,10 @@ int main()
 
 	int index2 = 0;
 
-	/*
-	auto b6 = context.CreateAndAddTickedAutomaticSystem([&](Noodles::ContextWrapper& wrapper)
-	{
-		auto info = wrapper.GetParrallelInfo();
-		if(info.status == Noodles::ParallelInfo::Status::None)
-		{
-			
-			PrintSystemProperty(wrapper);
-			wrapper.CommitParallelTask(0, 3, 3);
-			if(index2 % 2 == 0)
-			{
-				auto P = wrapper.CreateAutomaticSystem(
-					[&](){
-						std::lock_guard lg(PrintMutex);
-						std::println("defer - {0}", index2);
-					}
-				);
-				wrapper.AddTemporaryNodeDefer(P, { u8"temp" });
-			}
-			index2 += 1;
-		}else if(info.status == Noodles::ParallelInfo::Status::Parallel)
-		{
-			std::lock_guard lg(PrintMutex);
-			std::println("Parallel - {0} {1}", info.current_index, info.user_index);
-		}else
-		{
-			std::lock_guard lg(PrintMutex);
-			std::println("Done - {0} {1}", info.current_index, info.user_index);
-		}
-	},
-		{u8"S5", u8"G11"},
-		{1, 1, 3}
-		);
-
-	std::size_t index = 0;
-	*/
-
 	tcontext.AddGroupThread({}, 10);
 	bool re = context.Commited(tcontext, {});
 	tcontext.ExecuteContextThreadUntilNoExistTask();
+	*/
 
 	return 0;
 }
