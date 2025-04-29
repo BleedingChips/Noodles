@@ -80,13 +80,19 @@ void TestFunction(Noodles::ContextWrapper& wrapper, Noodles::AutoComponentQuery<
 
 struct InstanceImp : public Noodles::Instance
 {
-	
+
+protected:
+	virtual void AddTaskFlowExecutorRef() const override {}
+	virtual void SubTaskFlowExecutorRef() const override {}
 };
 
 
 int main()
 {
+	Potato::Task::Context context;
 	auto instance = Noodles::Instance::Create();
+	instance->Commit(context);
+	context.ExecuteContextThreadUntilNoExistTask();
 
 
 

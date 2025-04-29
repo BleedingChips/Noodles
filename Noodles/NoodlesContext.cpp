@@ -25,6 +25,14 @@ namespace Noodles
 
 	}
 
+	bool Instance::Commit(Potato::Task::Context& context, Parameter parameter)
+	{
+		Potato::TaskFlow::Executor::Parameter exe_parameter;
+		exe_parameter.node_name = parameter.instance_name;
+		exe_parameter.custom_data.data1 = parameter.duration_time.count();
+		return Executor::Commit(context, exe_parameter);
+	}
+
 	struct InstanceImplement : public Instance, public Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
 		InstanceImplement(Potato::IR::MemoryResourceRecord record, Config config)
@@ -51,6 +59,36 @@ namespace Noodles
 		return {};
 	}
 
+	void Instance::BeginFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter)
+	{
+		Potato::Log::Log<L"Noodles::Instance">(Potato::Log::Level::Log,
+			L"BeginFlow - {}", std::this_thread::get_id()
+		);
+		std::lock_guard lg(info_mutex);
+		++frame_count;
+		startup_time = std::chrono::steady_clock::now();
+	}
+
+	void Instance::EndFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter)
+	{
+		Potato::Log::Log<L"Noodles::Instance">(Potato::Log::Level::Log,
+			L"EndFlow - {}", std::this_thread::get_id()
+		);
+
+		Executor::UpdateState();
+
+		auto new_parameter = parameter;
+		auto now = std::chrono::steady_clock::now();
+		auto dur = std::chrono::milliseconds{ parameter.custom_data.data1 };
+		{
+			std::shared_lock sl(info_mutex);
+			if (now < startup_time + dur)
+			{
+				new_parameter.delay_time = startup_time + dur - now;
+			}
+		}
+		Executor::Commit(context, new_parameter);
+	}
 
 
 

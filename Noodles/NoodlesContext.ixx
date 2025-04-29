@@ -108,15 +108,31 @@ export namespace Noodles
 		using Ptr = Potato::Pointer::IntrusivePtr<Instance, Executor::Wrapper>;
 
 		static Ptr Create(Config config = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
-		bool Commite(Potato::Task::Context& context);
 
 		std::size_t GetSingletonBitFlagContainerCount() const { return singleton_map.GetBitFlagContainerElementCount(); }
 		std::size_t GetComponentBitFlagContainerCount() const { return component_map.GetBitFlagContainerElementCount(); }
 		std::size_t GetThreadOrderBitFlagContainerCount() const { return thread_order_map.GetBitFlagContainerElementCount(); }
+		std::size_t GetCurrentFrameCount() const { std::shared_lock sl{ info_mutex }; return frame_count; }
+		
+
+		struct Parameter
+		{
+			std::wstring_view instance_name = L"NoodlesInstance";
+			std::chrono::milliseconds duration_time = std::chrono::milliseconds{ 30 };
+		};
+
+		virtual bool Commit(Potato::Task::Context& context, Parameter parameter = {});
 
 	protected:
 
 		Instance(Config config, std::pmr::memory_resource* resource);
+
+		virtual void BeginFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
+		virtual void EndFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
+
+		mutable std::shared_mutex info_mutex;
+		std::chrono::steady_clock::time_point startup_time;
+		std::size_t frame_count = 0;
 
 		AsynClassBitFlagMap component_map;
 		AsynClassBitFlagMap singleton_map;
