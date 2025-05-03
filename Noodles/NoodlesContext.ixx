@@ -128,7 +128,8 @@ export namespace Noodles
 		Instance(Config config, std::pmr::memory_resource* resource);
 
 		virtual void BeginFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
-		virtual void EndFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
+		virtual void FinishFlow_AssumedLocked(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
+		//virtual void EndFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
 
 		mutable std::shared_mutex info_mutex;
 		std::chrono::steady_clock::time_point startup_time;

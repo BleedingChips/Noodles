@@ -61,7 +61,7 @@ namespace Noodles
 
 	void Instance::BeginFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter)
 	{
-		Potato::Log::Log<L"Noodles::Instance">(Potato::Log::Level::Log,
+		Potato::Log::Log<L"NoodlesIns">(Potato::Log::Level::Log,
 			L"BeginFlow - {}", std::this_thread::get_id()
 		);
 		std::lock_guard lg(info_mutex);
@@ -69,13 +69,21 @@ namespace Noodles
 		startup_time = std::chrono::steady_clock::now();
 	}
 
-	void Instance::EndFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter)
+	void Instance::FinishFlow_AssumedLocked(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter)
 	{
-		Potato::Log::Log<L"Noodles::Instance">(Potato::Log::Level::Log,
+		Potato::Log::Log<L"NoodlesIns">(Potato::Log::Level::Log,
 			L"EndFlow - {}", std::this_thread::get_id()
 		);
 
-		Executor::UpdateState();
+		bool been_modify = false;
+
+		Executor::FinishFlow_AssumedLocked(context, parameter);
+
+		Executor::UpdateState_AssumedLocked();
+
+		{
+			std::lock_guard lg(main_flow_mutex);
+		}
 
 		auto new_parameter = parameter;
 		auto now = std::chrono::steady_clock::now();
@@ -87,7 +95,8 @@ namespace Noodles
 				new_parameter.delay_time = startup_time + dur - now;
 			}
 		}
-		Executor::Commit(context, new_parameter);
+		auto re = Executor::Commit_AssumedLocked(context, new_parameter);
+		assert(re);
 	}
 
 

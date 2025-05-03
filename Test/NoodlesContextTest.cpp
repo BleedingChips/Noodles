@@ -78,14 +78,6 @@ void TestFunction(Noodles::ContextWrapper& wrapper, Noodles::AutoComponentQuery<
 }
 */
 
-struct InstanceImp : public Noodles::Instance
-{
-
-protected:
-	virtual void AddTaskFlowExecutorRef() const override {}
-	virtual void SubTaskFlowExecutorRef() const override {}
-};
-
 
 int main()
 {
