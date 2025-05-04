@@ -82,7 +82,7 @@ namespace Noodles
 		Executor::UpdateState_AssumedLocked();
 
 		{
-			std::lock_guard lg(main_flow_mutex);
+			std::lock_guard lg(flow_mutex);
 		}
 
 		auto new_parameter = parameter;
@@ -97,6 +97,24 @@ namespace Noodles
 		}
 		auto re = Executor::Commit_AssumedLocked(context, new_parameter);
 		assert(re);
+	}
+
+	bool Instance::AddSystemNode(SystemNode::Ptr node, SystemNode::Parameter parameter)
+	{
+		if(node)
+		{
+			std::lock_guard lg(flow_mutex);
+			auto ite = std::ranges::find_if(sub_flows, [&](SubFlowState& state){ return state.layer >= parameter.layer; });
+			if(ite == sub_flows.end() || ite->layer != parameter.layer)
+			{
+				SubFlowState sub_flow{ parameter.layer, sub_flows .get_allocator().resource(), true, {}};
+				ite = sub_flows.insert(ite, std::move(sub_flow));
+			}
+			assert(ite != sub_flows.end());
+
+
+			ite->flow.AddNode(*node)
+		}
 	}
 
 

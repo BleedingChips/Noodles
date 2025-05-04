@@ -20,18 +20,7 @@ import NoodlesClassBitFlag;
 
 export namespace Noodles
 {
-	struct Priority
-	{
-		std::int32_t primary = 0;
-		std::int32_t second = 0;
-		std::int32_t third = 0;
-	};
-
-	struct Parameter
-	{
-		std::size_t layout = 0;
-		Priority priority;
-	};
+	
 
 	export struct Context;
 
@@ -51,6 +40,22 @@ export namespace Noodles
 		};
 
 		using Ptr = Potato::Pointer::IntrusivePtr<SystemNode, Wrapper>;
+
+		struct Priority
+		{
+			std::int32_t primary = 0;
+			std::int32_t second = 0;
+			std::int32_t third = 0;
+		};
+
+		struct Parameter
+		{
+			std::wstring_view system_name;
+			std::int32_t layer = 0;
+			Priority priority;
+			std::wstring_view module_name;
+		};
+
 
 		struct ClassBitFlag
 		{
@@ -123,6 +128,8 @@ export namespace Noodles
 
 		virtual bool Commit(Potato::Task::Context& context, Parameter parameter = {});
 
+		virtual bool AddSystemNode(SystemNode::Ptr node, SystemNode::Parameter parameter);
+
 	protected:
 
 		Instance(Config config, std::pmr::memory_resource* resource);
@@ -151,30 +158,24 @@ export namespace Noodles
 		std::mutex singleton_modify_mutex;
 		SingletonModifyManager singleton_modify_manager;
 
-		std::mutex main_flow_mutex;
+		std::mutex flow_mutex;
 		Potato::TaskFlow::Flow main_flow;
 		bool need_update = false;
 
 		struct SubFlowState
 		{
-			std::size_t layer;
+			std::int32_t layer = 0;
 			Potato::TaskFlow::Flow flow;
 			bool need_update = false;
+			Potato::TaskFlow::Flow::NodeIndex index;
 		};
-
-		std::mutex sub_flow_mutex;
 		std::pmr::vector<SubFlowState> sub_flows;
 
 		struct SystemNodeInfo
 		{
-			std::size_t layer = 0;
 			Potato::TaskFlow::Flow::NodeIndex index;
-			std::u8string_view module;
-			std::u8string_view name;
-			Priority priority;
+			Parameter parameter;
 		};
-
-		mutable std::shared_mutex system_info_mutex;
 		std::pmr::vector<SystemNodeInfo> system_info;
 
 	private:

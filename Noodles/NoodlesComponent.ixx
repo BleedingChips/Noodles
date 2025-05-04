@@ -141,6 +141,6 @@ export namespace Noodles
 		std::pmr::vector<BitFlagContainer::Element> bit_flag_container;
 		BitFlagContainerViewer archetype_update_bitflag;
 		BitFlagContainerViewer archetype_not_empty_bitflag;
-		std::size_t max_archtype_count = 0;
+		std::size_t max_archetype_count = 0;
 	};
 }

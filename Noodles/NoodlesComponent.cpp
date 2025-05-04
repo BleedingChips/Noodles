@@ -235,7 +235,7 @@ namespace Noodles
 
 		std::size_t archtype_container_count = BitFlagContainerConstViewer::GetBitFlagContainerElementCount(config.max_archetype_count);
 
-		max_archtype_count = BitFlagContainerConstViewer::GetMaxBitFlag(config.max_archetype_count).value;
+		max_archetype_count = BitFlagContainerConstViewer::GetMaxBitFlag(config.max_archetype_count).value;
 
 		bit_flag_container.resize(archtype_container_count * 2);
 
@@ -275,13 +275,13 @@ namespace Noodles
 
 	OptionalSizeT ComponentManager::CreateComponentChunk(std::span<Archetype::Init const> archetype_init)
 	{
-		if (archetype_info.size() < max_archtype_count)
+		if (archetype_info.size() < max_archetype_count)
 		{
 			auto old_info_size = archetype_info.size();
 			auto old_chunk_size = chunks.size();
 
 			auto archtype = Archetype::Create(component_bitflag_container_element_count, archetype_init, &archetype_resource);
-			if (archtype && max_archtype_count)
+			if (archtype)
 			{
 
 				ArchetypeInfo info;
