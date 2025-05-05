@@ -90,7 +90,7 @@ export namespace Noodles
 
 	private:
 		
-		virtual void TaskFlowNodeExecute(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller) override;
+		virtual void TaskFlowNodeExecute(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller) override {}
 
 		friend struct Context;
 		friend struct LayerTaskFlow;
@@ -136,6 +136,8 @@ export namespace Noodles
 
 		virtual void BeginFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
 		virtual void FinishFlow_AssumedLocked(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
+		virtual bool UpdateFlow_AssumedLocked(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		virtual void ExecuteNode(Potato::Task::Context& context, Potato::TaskFlow::Node& node, Potato::TaskFlow::Controller& controller) override;
 		//virtual void EndFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
 
 		mutable std::shared_mutex info_mutex;
@@ -173,8 +175,9 @@ export namespace Noodles
 
 		struct SystemNodeInfo
 		{
+			bool available = false;
 			Potato::TaskFlow::Flow::NodeIndex index;
-			Parameter parameter;
+			SystemNode::Parameter parameter;
 		};
 		std::pmr::vector<SystemNodeInfo> system_info;
 

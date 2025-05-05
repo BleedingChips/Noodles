@@ -8,6 +8,8 @@ module NoodlesContext;
 
 namespace Noodles
 {
+	using namespace Potato::Log;
+
 
 	Instance::Instance(Config config, std::pmr::memory_resource* resource)
 		: Executor(resource),
@@ -30,7 +32,15 @@ namespace Noodles
 		Potato::TaskFlow::Executor::Parameter exe_parameter;
 		exe_parameter.node_name = parameter.instance_name;
 		exe_parameter.custom_data.data1 = parameter.duration_time.count();
-		return Executor::Commit(context, exe_parameter);
+		std::lock_guard lg(execute_state_mutex);
+		if (execute_state == ExecuteState::State::Ready)
+		{
+			{
+				std::lock_guard sl(flow_mutex);
+				UpdateFlow_AssumedLocked(std::pmr::get_default_resource());
+			}
+			return Executor::Commit_AssumedLocked(context, exe_parameter);
+		}
 	}
 
 	struct InstanceImplement : public Instance, public Potato::IR::MemoryResourceRecordIntrusiveInterface
@@ -61,7 +71,7 @@ namespace Noodles
 
 	void Instance::BeginFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter)
 	{
-		Potato::Log::Log<L"NoodlesIns">(Potato::Log::Level::Log,
+		Potato::Log::Log<L"NoodesIns">(Potato::Log::Level::Log,
 			L"BeginFlow - {}", std::this_thread::get_id()
 		);
 		std::lock_guard lg(info_mutex);
@@ -71,18 +81,18 @@ namespace Noodles
 
 	void Instance::FinishFlow_AssumedLocked(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter)
 	{
-		Potato::Log::Log<L"NoodlesIns">(Potato::Log::Level::Log,
+		Potato::Log::Log<L"NoodesIns">(Potato::Log::Level::Log,
 			L"EndFlow - {}", std::this_thread::get_id()
 		);
 
 		bool been_modify = false;
 
 		Executor::FinishFlow_AssumedLocked(context, parameter);
-
 		Executor::UpdateState_AssumedLocked();
 
 		{
 			std::lock_guard lg(flow_mutex);
+			Executor::UpdateFromFlow_AssumedLocked(main_flow, std::pmr::get_default_resource());
 		}
 
 		auto new_parameter = parameter;
@@ -104,24 +114,88 @@ namespace Noodles
 		if(node)
 		{
 			std::lock_guard lg(flow_mutex);
-			auto ite = std::ranges::find_if(sub_flows, [&](SubFlowState& state){ return state.layer >= parameter.layer; });
+			need_update = true;
+			auto ite = std::find_if(sub_flows.begin(), sub_flows.end(), [&](SubFlowState& state) { return state.layer >= parameter.layer; });
 			if(ite == sub_flows.end() || ite->layer != parameter.layer)
 			{
-				SubFlowState sub_flow{ parameter.layer, sub_flows .get_allocator().resource(), true, {}};
+				SubFlowState sub_flow{ parameter.layer, sub_flows.get_allocator().resource(), true, {} };
 				ite = sub_flows.insert(ite, std::move(sub_flow));
 			}
 			assert(ite != sub_flows.end());
 
+			std::size_t info_index = std::numeric_limits<std::size_t>::max();
 
-			ite->flow.AddNode(*node)
+			for (std::size_t i = 0; i < system_info.size(); ++i)
+			{
+				auto& info = system_info[i];
+				if (!info.available)
+				{
+					info_index = i;
+					break;
+				}
+			}
+
+			if (info_index == std::numeric_limits<std::size_t>::max())
+			{
+				system_info.emplace_back();
+				info_index = system_info.size() - 1;
+			}
+
+			Potato::TaskFlow::Node::Parameter t_paramter;
+			t_paramter.node_name = parameter.system_name;
+			t_paramter.custom_data.data1 = info_index;
+
+			auto node_index = ite->flow.AddNode(*node, t_paramter);
+			auto& info = system_info[info_index];
+			info.available = true;
+			info.index = node_index;
+			info.parameter = parameter;
+
+			return true;
 		}
+		return false;
 	}
 
+	bool Instance::UpdateFlow_AssumedLocked(std::pmr::memory_resource* resource)
+	{
+		if (need_update)
+		{
+			for (auto& ite : sub_flows)
+			{
+				if (ite.need_update)
+				{
+					main_flow.Remove(ite.index);
+					ite.index = main_flow.AddFlowAsNode(ite.flow);
+					ite.need_update = false;
+					for (auto& ite2 : sub_flows)
+					{
+						if (ite.index != ite2.index)
+						{
+							assert(ite.layer != ite2.layer);
+							if (ite.layer > ite2.layer)
+							{
+								main_flow.AddDirectEdge(ite.index, ite2.index);
+							}
+							else
+							{
+								main_flow.AddDirectEdge(ite2.index, ite.index);
+							}
+						}
+					}
+				}
+			}
+			need_update = false;
+			UpdateFromFlow_AssumedLocked(main_flow, resource);
+			return true;
+		}
+		return false;
+	}
 
-
-
-
-
+	void Instance::ExecuteNode(Potato::Task::Context& context, Potato::TaskFlow::Node& node, Potato::TaskFlow::Controller& controller)
+	{
+		Potato::Log::Log<L"NoodesIns">(Potato::Log::Level::Log, L"start system {}", controller.GetParameter().node_name);
+		Potato::Log::Log<L"NoodesIns">(Potato::Log::Level::Log, L"finish system {}", controller.GetParameter().node_name);
+	}
 
 
 	/*

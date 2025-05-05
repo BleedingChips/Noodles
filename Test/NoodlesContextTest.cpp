@@ -36,6 +36,15 @@ void Func3(SystemContext& context, ComponentFilter<A, B> system, ComponentFilter
 }
 */
 
+struct SysNode : public Noodles::SystemNode
+{
+	virtual void SystemNodeExecute(Noodles::Context& context) {}
+
+
+	virtual void AddSystemNodeRef() const {}
+	virtual void SubSystemNodeRef() const {}
+}test_sys;
+
 struct Tuple
 {
 	std::size_t i = 0;
@@ -78,11 +87,11 @@ void TestFunction(Noodles::ContextWrapper& wrapper, Noodles::AutoComponentQuery<
 }
 */
 
-
 int main()
 {
 	Potato::Task::Context context;
 	auto instance = Noodles::Instance::Create();
+	instance->AddSystemNode(&test_sys, {L"Fuck!!"});
 	instance->Commit(context);
 	context.ExecuteContextThreadUntilNoExistTask();
 
