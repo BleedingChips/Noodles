@@ -76,8 +76,26 @@ export namespace Noodles
 		//virtual ComponentOverlappingState IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return ComponentOverlappingState::NoUpdate; };
 		//virtual ComponentOverlappingState IsComponentOverlapping(ComponentQuery const& target_component_filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return ComponentOverlappingState::NoUpdate; };
 		virtual bool UpdateQuery(Context& context) { return false; }
+		
+		struct RWClassBitFlagViewer
+		{
+			BitFlagContainerConstViewer usagne_class;
+			BitFlagContainerConstViewer writed_class;
+		};
+
+		struct SystemClassBitFlagViewer
+		{
+			RWClassBitFlagViewer component;
+			RWClassBitFlagViewer singleton;
+			RWClassBitFlagViewer exclusion;
+		};
+
+		virtual SystemClassBitFlagViewer GetSystemClassBitFlagViewer() const { return {}; }
 
 	protected:
+
+		virtual bool IsComponentQueryConflict(SystemNode& target, BitFlagContainerConstViewer archetype_usage) { return false; }
+		virtual bool IsComponentQueryConflict(BitFlagContainerConstViewer component_usage, BitFlagContainerConstViewer component_writed, BitFlagContainerConstViewer query_archetype_usage, BitFlagContainerConstViewer archetype_usage) { return false; }
 
 		virtual void SystemNodeExecute(Context& context) = 0;
 
@@ -105,7 +123,7 @@ export namespace Noodles
 		{
 			std::size_t component_class_count = 128;
 			std::size_t singleton_class_count = 128;
-			std::size_t thread_order_count = 128;
+			std::size_t exclusion_class_count = 128;
 			std::size_t max_archetype_count = 128;
 		};
 
@@ -116,9 +134,11 @@ export namespace Noodles
 
 		std::size_t GetSingletonBitFlagContainerCount() const { return singleton_map.GetBitFlagContainerElementCount(); }
 		std::size_t GetComponentBitFlagContainerCount() const { return component_map.GetBitFlagContainerElementCount(); }
-		std::size_t GetThreadOrderBitFlagContainerCount() const { return thread_order_map.GetBitFlagContainerElementCount(); }
+		std::size_t GetExclusionBitFlagContainerCount() const { return exclusion_map.GetBitFlagContainerElementCount(); }
 		std::size_t GetCurrentFrameCount() const { std::shared_lock sl{ info_mutex }; return frame_count; }
-		
+		std::chrono::duration<float> GetDeltaTime() const { std::shared_lock sl(info_mutex); return delta_time; }
+
+		//float GetDeltaTimeInSecond() const { std::sha }
 
 		struct Parameter
 		{
@@ -143,10 +163,11 @@ export namespace Noodles
 		mutable std::shared_mutex info_mutex;
 		std::chrono::steady_clock::time_point startup_time;
 		std::size_t frame_count = 0;
+		std::chrono::duration<float> delta_time;
 
 		AsynClassBitFlagMap component_map;
 		AsynClassBitFlagMap singleton_map;
-		AsynClassBitFlagMap thread_order_map;
+		AsynClassBitFlagMap exclusion_map;
 
 		mutable std::shared_mutex component_mutex;
 		ComponentManager component_manager;

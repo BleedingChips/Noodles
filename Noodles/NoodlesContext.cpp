@@ -15,7 +15,7 @@ namespace Noodles
 		: Executor(resource),
 		component_map(config.component_class_count, resource),
 		singleton_map(config.singleton_class_count, resource),
-		thread_order_map(config.thread_order_count, resource),
+		exclusion_map(config.exclusion_class_count, resource),
 		component_manager({ config.component_class_count, config.max_archetype_count }),
 		entity_manager(component_map),
 		singleton_manager(singleton_map.GetBitFlagContainerElementCount()),
@@ -41,6 +41,7 @@ namespace Noodles
 			}
 			return Executor::Commit_AssumedLocked(context, exe_parameter);
 		}
+		return false;
 	}
 
 	struct InstanceImplement : public Instance, public Potato::IR::MemoryResourceRecordIntrusiveInterface
@@ -71,42 +72,47 @@ namespace Noodles
 
 	void Instance::BeginFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter)
 	{
+		{
+			auto now = std::chrono::steady_clock::now();
+			std::lock_guard lg(info_mutex);
+			if (frame_count == 0)
+			{
+				delta_time = std::chrono::milliseconds{parameter.custom_data.data1};
+			}
+			else {
+				delta_time = now - startup_time;
+			}
+			++frame_count;
+			startup_time = now;
+		}
 		Potato::Log::Log<L"NoodesIns">(Potato::Log::Level::Log,
-			L"BeginFlow - {}", std::this_thread::get_id()
+			L"Begin At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()
 		);
-		std::lock_guard lg(info_mutex);
-		++frame_count;
-		startup_time = std::chrono::steady_clock::now();
 	}
 
 	void Instance::FinishFlow_AssumedLocked(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter)
 	{
-		Potato::Log::Log<L"NoodesIns">(Potato::Log::Level::Log,
-			L"EndFlow - {}", std::this_thread::get_id()
-		);
-
-		bool been_modify = false;
-
 		Executor::FinishFlow_AssumedLocked(context, parameter);
-		Executor::UpdateState_AssumedLocked();
 
 		{
 			std::lock_guard lg(flow_mutex);
-			Executor::UpdateFromFlow_AssumedLocked(main_flow, std::pmr::get_default_resource());
+			UpdateFlow_AssumedLocked();
 		}
 
+		Executor::UpdateState_AssumedLocked();
+
 		auto new_parameter = parameter;
-		auto now = std::chrono::steady_clock::now();
 		auto dur = std::chrono::milliseconds{ parameter.custom_data.data1 };
 		{
 			std::shared_lock sl(info_mutex);
-			if (now < startup_time + dur)
-			{
-				new_parameter.delay_time = startup_time + dur - now;
-			}
+			new_parameter.trigger_time = startup_time + dur;
 		}
 		auto re = Executor::Commit_AssumedLocked(context, new_parameter);
 		assert(re);
+
+		Potato::Log::Log<L"NoodesIns">(Potato::Log::Level::Log,
+			L"Finish At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()
+		);
 	}
 
 	bool Instance::AddSystemNode(SystemNode::Ptr node, SystemNode::Parameter parameter)
