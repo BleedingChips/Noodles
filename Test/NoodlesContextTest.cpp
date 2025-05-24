@@ -91,7 +91,7 @@ int main()
 {
 	Potato::Task::Context context;
 	auto instance = Noodles::Instance::Create();
-	instance->AddSystemNode(&test_sys, {L"Fuck!!"});
+	instance->AddSystemNode(&test_sys, {L"TestSystem1!!"});
 	instance->Commit(context);
 	context.ExecuteContextThreadUntilNoExistTask();
 

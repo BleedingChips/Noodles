@@ -20,7 +20,7 @@ import NoodlesClassBitFlag;
 
 export namespace Noodles
 {
-	
+	constexpr auto InstanceLogCategory = Potato::Log::LogCategory(L"Noodles");
 
 	export struct Context;
 
@@ -135,8 +135,8 @@ export namespace Noodles
 		std::size_t GetSingletonBitFlagContainerCount() const { return singleton_map.GetBitFlagContainerElementCount(); }
 		std::size_t GetComponentBitFlagContainerCount() const { return component_map.GetBitFlagContainerElementCount(); }
 		std::size_t GetExclusionBitFlagContainerCount() const { return exclusion_map.GetBitFlagContainerElementCount(); }
-		std::size_t GetCurrentFrameCount() const { std::shared_lock sl{ info_mutex }; return frame_count; }
-		std::chrono::duration<float> GetDeltaTime() const { std::shared_lock sl(info_mutex); return delta_time; }
+		std::size_t GetCurrentFrameCount() const { return frame_count; }
+		std::chrono::duration<float> GetDeltaTime() const { return delta_time; }
 
 		//float GetDeltaTimeInSecond() const { std::sha }
 
@@ -148,7 +148,7 @@ export namespace Noodles
 
 		virtual bool Commit(Potato::Task::Context& context, Parameter parameter = {});
 
-		virtual bool AddSystemNode(SystemNode::Ptr node, SystemNode::Parameter parameter);
+		virtual std::optional<std::size_t> AddSystemNode(SystemNode::Ptr node, SystemNode::Parameter parameter);
 
 	protected:
 
@@ -160,10 +160,11 @@ export namespace Noodles
 		virtual void ExecuteNode(Potato::Task::Context& context, Potato::TaskFlow::Node& node, Potato::TaskFlow::Controller& controller) override;
 		//virtual void EndFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
 
+		std::atomic_size_t frame_count = 0;
+		std::atomic<std::chrono::duration<float>> delta_time;
+
 		mutable std::shared_mutex info_mutex;
 		std::chrono::steady_clock::time_point startup_time;
-		std::size_t frame_count = 0;
-		std::chrono::duration<float> delta_time;
 
 		AsynClassBitFlagMap component_map;
 		AsynClassBitFlagMap singleton_map;
@@ -201,6 +202,7 @@ export namespace Noodles
 			SystemNode::Parameter parameter;
 		};
 		std::pmr::vector<SystemNodeInfo> system_info;
+		std::pmr::vector<BitFlagContainer::Element> system_bitflag_container;
 
 	private:
 

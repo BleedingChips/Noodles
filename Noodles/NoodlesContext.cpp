@@ -77,17 +77,35 @@ namespace Noodles
 			std::lock_guard lg(info_mutex);
 			if (frame_count == 0)
 			{
-				delta_time = std::chrono::milliseconds{parameter.custom_data.data1};
+				delta_time = std::chrono::duration_cast<decltype(delta_time)::value_type>(std::chrono::microseconds{parameter.custom_data.data1});
 			}
 			else {
-				delta_time = now - startup_time;
+				delta_time = std::chrono::duration_cast<decltype(delta_time)::value_type>(now - startup_time);
 			}
 			++frame_count;
 			startup_time = now;
 		}
-		Potato::Log::Log<L"NoodesIns">(Potato::Log::Level::Log,
+		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log,
 			L"Begin At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()
 		);
+
+		bool component_modify = false;
+		bool singleton_modify = false;
+		{
+			std::lock_guard lg(component_mutex);
+			std::lock_guard lg2(entity_mutex);
+			component_manager.ClearBitFlag();
+			component_modify = entity_manager.FlushEntityModify(component_manager);
+		}
+		{
+			std::lock_guard lg(singleton_mutex);
+			std::lock_guard lg2(singleton_modify_mutex);
+			singleton_modify = singleton_modify_manager.FlushSingletonModify(singleton_manager);
+		}
+		if (component_modify || singleton_modify)
+		{
+
+		}
 	}
 
 	void Instance::FinishFlow_AssumedLocked(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter)
@@ -110,7 +128,7 @@ namespace Noodles
 		auto re = Executor::Commit_AssumedLocked(context, new_parameter);
 		assert(re);
 
-		Potato::Log::Log<L"NoodesIns">(Potato::Log::Level::Log,
+		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log,
 			L"Finish At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()
 		);
 	}
@@ -199,8 +217,8 @@ namespace Noodles
 
 	void Instance::ExecuteNode(Potato::Task::Context& context, Potato::TaskFlow::Node& node, Potato::TaskFlow::Controller& controller)
 	{
-		Potato::Log::Log<L"NoodesIns">(Potato::Log::Level::Log, L"start system {}", controller.GetParameter().node_name);
-		Potato::Log::Log<L"NoodesIns">(Potato::Log::Level::Log, L"finish system {}", controller.GetParameter().node_name);
+		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"start system {}", controller.GetParameter().node_name);
+		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"finish system {}", controller.GetParameter().node_name);
 	}
 
 
