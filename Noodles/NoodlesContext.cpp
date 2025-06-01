@@ -10,12 +10,10 @@ namespace Noodles
 {
 	using namespace Potato::Log;
 
-
 	Instance::Instance(Config config, std::pmr::memory_resource* resource)
 		: Executor(resource),
 		component_map(config.component_class_count, resource),
 		singleton_map(config.singleton_class_count, resource),
-		exclusion_map(config.exclusion_class_count, resource),
 		component_manager({ config.component_class_count, config.max_archetype_count }),
 		entity_manager(component_map),
 		singleton_manager(singleton_map.GetBitFlagContainerElementCount()),
@@ -24,7 +22,6 @@ namespace Noodles
 		sub_flows(resource),
 		system_info(resource)
 	{
-
 	}
 
 	bool Instance::Commit(Potato::Task::Context& context, Parameter parameter)
@@ -133,11 +130,124 @@ namespace Noodles
 		);
 	}
 
-	bool Instance::AddSystemNode(SystemNode::Ptr node, SystemNode::Parameter parameter)
+	/*
+	Instance::SystemIndex Instance::RegisterSystem(SystemNode::Ptr node, SystemNode::Name name)
+	{
+		if (node)
+		{
+			
+		}
+	}
+	*/
+
+
+	Instance::SystemIndex Instance::AddSystemNode(SystemNode::Ptr node, SystemNode::Parameter parameter)
 	{
 		if(node)
 		{
-			std::lock_guard lg(flow_mutex);
+			SystemInitializer init{*this};
+			node->Init(init);
+
+			std::lock_guard lg(system_mutex);
+			auto finded = std::find_if(system_info.begin(), system_info.end(), [](SystemNodeInfo const& info) { return !info.node; });
+			if (finded == system_info.end())
+			{
+				SystemNodeInfo node_info;
+				node_info.component_query_index = { component_query.size(), component_query.size()};
+				node_info.singleton_query_index = { singleton_query.size(), singleton_query.size()};
+				node_info.class_bit_flag_container_offset = system_bitflag_container.size();
+				auto total_bitflag_container_count = component_map.GetBitFlagContainerElementCount() * 2
+					+ singleton_map.GetBitFlagContainerElementCount() * 2
+					;
+				system_bitflag_container.resize(system_bitflag_container.size() + total_bitflag_container_count);
+				BitFlagContainerViewer view{ std::span(system_bitflag_container).subspan(node_info.class_bit_flag_container_offset) };
+				view.Reset();
+				finded = system_info.insert(finded, node_info);
+			}
+
+			finded->version += 1;
+			finded->parameter = parameter;
+			finded->node = std::move(node);
+			finded->layer = parameter.layer;
+
+			bool has_new_query = false;
+
+			if (!init.component_list.empty())
+			{
+				has_new_query = true;
+
+				BitFlagContainerViewer component_viewer{
+					std::span(system_bitflag_container).subspan(finded->class_bit_flag_container_offset, component_map.GetBitFlagContainerElementCount())
+				};
+
+				BitFlagContainerViewer component_write_viewer{
+					std::span(system_bitflag_container).subspan(finded->class_bit_flag_container_offset + component_map.GetBitFlagContainerElementCount(), component_map.GetBitFlagContainerElementCount())
+				};
+
+				for (auto& ite : init.component_list)
+				{
+					auto r1 = component_viewer.Union(ite->GetRequireContainerConstViewer());
+					assert(r1);
+					auto r2 = component_write_viewer.Union(ite->GetWritedContainerConstViewer());
+					assert(r2);
+				}
+
+				finded->component_query_index.BackwardEnd(init.component_list.size());
+
+				component_query.insert_range(
+					component_query.begin() + finded->component_query_index.Begin(),
+					std::ranges::as_rvalue_view(init.component_list)
+				);
+
+				
+			}
+
+			if (!init.singleton_list.empty())
+			{
+				has_new_query = true;
+
+				BitFlagContainerViewer singleton_viewer{
+					std::span(system_bitflag_container).subspan(
+						finded->class_bit_flag_container_offset + component_map.GetBitFlagContainerElementCount() * 2,
+						singleton_map.GetBitFlagContainerElementCount()
+					)
+				};
+
+				BitFlagContainerViewer singleton_write_viewer{
+					std::span(system_bitflag_container).subspan(
+						finded->class_bit_flag_container_offset + component_map.GetBitFlagContainerElementCount() * 2 + singleton_map.GetBitFlagContainerElementCount(),
+						singleton_map.GetBitFlagContainerElementCount()
+					)
+				};
+
+				for (auto& ite : init.singleton_list)
+				{
+					auto r1 = singleton_viewer.Union(ite->GetRequireContainerConstViewer());
+					assert(r1);
+					auto r2 = singleton_write_viewer.Union(ite->GetWritedContainerConstViewer());
+					assert(r2);
+				}
+
+				finded->singleton_query_index.BackwardEnd(init.component_list.size());
+
+				singleton_query.insert_range(
+					singleton_query.begin() + finded->singleton_query_index.Begin(),
+					std::ranges::as_rvalue_view(init.singleton_list)
+				);
+			}
+
+			if (has_new_query)
+			{
+				for (auto ite = finded + 1; ite != system_info.end(); ++ite)
+				{
+					ite->component_query_index.WholeOffset(init.component_list.size());
+					ite->singleton_query_index.WholeOffset(init.singleton_list.size());
+				}
+			}
+
+			SystemIndex system_index = {static_cast<std::size_t>(finded - system_info.begin()), finded->version};
+
+			std::lock_guard lg2(flow_mutex);
 			need_update = true;
 			auto ite = std::find_if(sub_flows.begin(), sub_flows.end(), [&](SubFlowState& state) { return state.layer >= parameter.layer; });
 			if(ite == sub_flows.end() || ite->layer != parameter.layer)
@@ -147,37 +257,15 @@ namespace Noodles
 			}
 			assert(ite != sub_flows.end());
 
-			std::size_t info_index = std::numeric_limits<std::size_t>::max();
-
-			for (std::size_t i = 0; i < system_info.size(); ++i)
-			{
-				auto& info = system_info[i];
-				if (!info.available)
-				{
-					info_index = i;
-					break;
-				}
-			}
-
-			if (info_index == std::numeric_limits<std::size_t>::max())
-			{
-				system_info.emplace_back();
-				info_index = system_info.size() - 1;
-			}
-
 			Potato::TaskFlow::Node::Parameter t_paramter;
-			t_paramter.node_name = parameter.system_name;
-			t_paramter.custom_data.data1 = info_index;
+			t_paramter.node_name = parameter.name;
+			t_paramter.custom_data.data1 = system_index.index;
 
-			auto node_index = ite->flow.AddNode(*node, t_paramter);
-			auto& info = system_info[info_index];
-			info.available = true;
-			info.index = node_index;
-			info.parameter = parameter;
+			finded->index = ite->flow.AddNode(*finded->node, t_paramter);
 
-			return true;
+			return system_index;
 		}
-		return false;
+		return {};
 	}
 
 	bool Instance::UpdateFlow_AssumedLocked(std::pmr::memory_resource* resource)
@@ -218,6 +306,9 @@ namespace Noodles
 	void Instance::ExecuteNode(Potato::Task::Context& context, Potato::TaskFlow::Node& node, Potato::TaskFlow::Controller& controller)
 	{
 		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"start system {}", controller.GetParameter().node_name);
+		SystemNode* sys_node = static_cast<SystemNode*>(&node);
+		Context instance_context{context, controller, *this};
+		sys_node->SystemNodeExecute(instance_context);
 		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"finish system {}", controller.GetParameter().node_name);
 	}
 

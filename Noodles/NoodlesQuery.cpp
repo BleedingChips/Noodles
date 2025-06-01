@@ -6,68 +6,57 @@ module NoodlesQuery;
 
 namespace Noodles
 {
+
 	ComponentQuery::Ptr ComponentQuery::Create(
 		std::size_t archetype_container_count,
 		std::size_t component_container_count,
-		std::span<BitFlag const> require_component_bitflag,
-		std::span<BitFlag const> require_write_component_bitflag,
-		std::span<BitFlag const> refuse_component_bitflag,
+		std::size_t require_count,
+		void (*init_func)(void*, std::span<BitFlag> require, BitFlagContainerViewer writed, BitFlagContainerViewer refuse),
+		void* append_data,
 		std::pmr::memory_resource* resource
 	)
 	{
 		auto layout = Potato::MemLayout::MemLayoutCPP::Get<ComponentQuery>();
+		auto require_offset = layout.Insert(Potato::IR::Layout::GetArray<BitFlag>(require_count));
+		auto bitflag_offset = layout.Insert(Potato::IR::Layout::GetArray<BitFlagContainerViewer::Element>(component_container_count * 3 + archetype_container_count));
+		
+		auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
 
-		auto bitflag_container_count = 2;
-		if (!refuse_component_bitflag.empty())
+		if (record)
 		{
-			bitflag_container_count += 1;
-		}
 
-		auto bit_flag_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlagContainer::Element>(component_container_count * bitflag_container_count));
-		auto archetype_usage_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlagContainer::Element>(archetype_container_count));
-		auto component_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlag>(require_component_bitflag.size()));
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
-		if (re)
-		{
-			std::span<BitFlagContainer::Element> bitflag_container = { new (re.GetByte(bit_flag_offset)) BitFlagContainer::Element[component_container_count * bitflag_container_count], component_container_count * bitflag_container_count };
-			std::span<BitFlagContainer::Element> archetype_container = { new (re.GetByte(archetype_usage_offset)) BitFlagContainer::Element[archetype_container_count], archetype_container_count };
-			std::span<BitFlag> component = { new (re.GetByte(component_offset)) BitFlag[require_component_bitflag.size()], require_component_bitflag.size() };
+			auto require_span = std::span<BitFlag>{
+				new (static_cast<void*>(record.GetByte(require_offset))) BitFlag[require_count],
+				require_count
+			};
 
-			BitFlagContainerViewer require = bitflag_container.subspan(0, component_container_count);
-			BitFlagContainerViewer refuse = bitflag_container.subspan(component_container_count, !refuse_component_bitflag.empty() ? component_container_count : 0);
-			BitFlagContainerViewer require_write = bitflag_container.subspan(!refuse_component_bitflag.empty() ? component_container_count * 2 : component_container_count, component_container_count);
-			BitFlagContainerViewer archetype_conatiner_viewer = archetype_container;
+			auto bitflag_conatiner_span = std::span<BitFlagContainerViewer::Element>{
+				new (static_cast<void*>(record.GetByte(bitflag_offset))) std::size_t[component_container_count * 3 + archetype_container_count],
+				component_container_count * 3 + archetype_container_count
+			};
+
+			BitFlagContainerViewer require = bitflag_conatiner_span.subspan(0, component_container_count);
+			BitFlagContainerViewer refuse = bitflag_conatiner_span.subspan(component_container_count, component_container_count);
+			BitFlagContainerViewer writed = bitflag_conatiner_span.subspan(component_container_count * 2, component_container_count);
+			BitFlagContainerViewer archetype_usage = bitflag_conatiner_span.subspan(component_container_count * 3, archetype_container_count);
 			require.Reset();
 			refuse.Reset();
-			require_write.Reset();
-			archetype_conatiner_viewer.Reset();
+			writed.Reset();
+			archetype_usage.Reset();
 
-			auto ite_span = component;
+			(*init_func)(append_data, require_span, writed, refuse);
 
-			for (auto ite : require_component_bitflag)
+			for (auto ite : require_span)
 			{
 				auto re = require.SetValue(ite);
-				assert(re && !*re);
-				ite_span[0] = ite;
-				ite_span = ite_span.subspan(1);
+				assert(re);
 			}
 
-			for (auto ite : require_write_component_bitflag)
-			{
-				auto re = require.SetValue(ite);
-				assert(re && *re);
-				re = require_write.SetValue(ite);
-				assert(re && !*re);
-			}
+			assert(*require.Inclusion(writed));
 
-			for (auto ite : refuse_component_bitflag)
-			{
-				auto re = refuse.SetValue(ite);
-				assert(re && !*re);
-			}
-
-			return new (re.Get()) ComponentQuery{ re, require, require_write, refuse, archetype_container, component };
+			return new (record.Get()) ComponentQuery{ record, require, writed, refuse, archetype_usage, require_span };
 		}
+
 		return {};
 	}
 
@@ -78,16 +67,16 @@ namespace Noodles
 			bool has_been_modify = false;
 			for (std::size_t index = updated_archetype_count; index < manager.GetArchetypeCount(); ++index)
 			{
-				if (manager.IsArchetypeAcceptQuery(index, require_component, refuse_component))
+				if (manager.IsArchetypeAcceptQuery(index, require_bitflag_viewer, refuse_bitflag_viewer))
 				{
 					has_been_modify = true;
 					++archetype_count;
 					auto old_size = query_data.size();
-					query_data.resize(query_data.size() + 1 + component_bitflag.size() * ComponentManager::GetQueryDataCount());
+					query_data.resize(query_data.size() + 1 + require_bitflag.size() * ComponentManager::GetQueryDataCount());
 					query_data[old_size] = index;
-					auto re = manager.TranslateClassToQueryData(index, component_bitflag, std::span(query_data).subspan(old_size + 1));
+					auto re = manager.TranslateClassToQueryData(index, require_bitflag, std::span(query_data).subspan(old_size + 1));
 					assert(re);
-					archetype_usable.SetValue(BitFlag{index});
+					archetype_bitflag_viewer.SetValue(BitFlag{index});
 				}
 			}
 			updated_archetype_count = manager.GetArchetypeCount();
@@ -112,7 +101,7 @@ namespace Noodles
 
 	bool ComponentQuery::QueryComponent(ComponentManager& manager, ComponentManager::Index entity_index, std::span<void*> output_component)
 	{
-		auto re = archetype_usable.GetValue(BitFlag{entity_index.archetype_index});
+		auto re = archetype_bitflag_viewer.GetValue(BitFlag{entity_index.archetype_index});
 		if (re.has_value() && *re)
 		{
 			auto span = std::span<std::size_t>(query_data);
@@ -130,43 +119,56 @@ namespace Noodles
 
 	SingletonQuery::Ptr SingletonQuery::Create(
 		std::size_t singleton_container_count,
-		std::span<BitFlag const> singleton_bitflag,
+		std::size_t singleton_count,
+		void (*init_func)(void*, std::span<BitFlag> require, BitFlagContainerViewer writed),
+		void* append_data,
 		std::pmr::memory_resource* resource
 	)
 	{
-		auto layout = Potato::MemLayout::MemLayoutCPP::Get<SingletonQuery>();
+		auto layout = Potato::MemLayout::MemLayoutCPP::Get<ComponentQuery>();
+		auto query_data_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<std::size_t>(singleton_count * SingletonManager::GetQueryDataCount()));
+		auto require_offset = layout.Insert(Potato::IR::Layout::GetArray<BitFlag>(singleton_count));
+		auto bitflag_offset = layout.Insert(Potato::IR::Layout::GetArray<BitFlagContainerViewer::Element>(singleton_container_count * 2));
 
-		auto query_data_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<std::size_t>(singleton_bitflag.size() * SingletonManager::GetQueryDataCount()));
-		auto info_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlag>(singleton_bitflag.size()));
-		auto usage_offset = layout.Insert(Potato::MemLayout::Layout::GetArray<BitFlagContainer::Element>(singleton_container_count));
 
-		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
+		
+		auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, layout.Get());
 
-		if (re)
+		if (record)
 		{
-			std::span<std::size_t> query_data = { reinterpret_cast<std::size_t*>(re.GetByte(query_data_offset)), singleton_bitflag.size() * SingletonManager::GetQueryDataCount() };
-
-			SingletonManager::ResetQueryData(query_data);
-
-			std::span<BitFlag> singleton = { 
-				reinterpret_cast<BitFlag*>(re.GetByte(info_offset)), 
-				singleton_bitflag.size() 
+			auto query_data = std::span<std::size_t>{
+				new (static_cast<void*>(record.GetByte(query_data_offset))) std::size_t[singleton_count * SingletonManager::GetQueryDataCount()],
+				singleton_count* SingletonManager::GetQueryDataCount()
 			};
-			
-			for (std::size_t i = 0; i < singleton.size(); ++i)
+
+			auto require_span = std::span<BitFlag>{
+				new (static_cast<void*>(record.GetByte(require_offset))) BitFlag[singleton_count],
+				singleton_count
+			};
+
+			auto bitflag_conatiner_span = std::span<BitFlagContainerViewer::Element>{
+				new (static_cast<void*>(record.GetByte(bitflag_offset))) std::size_t[singleton_container_count * 2],
+				singleton_container_count
+			};
+
+			BitFlagContainerViewer require = bitflag_conatiner_span.subspan(0, singleton_container_count);
+			BitFlagContainerViewer writed = bitflag_conatiner_span.subspan(singleton_container_count, singleton_container_count);
+			require.Reset();
+			writed.Reset();
+
+			(*init_func)(append_data, require_span, writed);
+
+			for (auto ite : require_span)
 			{
-				singleton[i] = singleton_bitflag[i];
+				auto re = require.SetValue(ite);
+				assert(re);
 			}
 
-			BitFlagContainerViewer usgae = std::span<BitFlagContainerConstViewer::Element>{ 
-				reinterpret_cast<BitFlagContainerConstViewer::Element*>(re.GetByte(usage_offset)),
-				singleton_container_count 
-			};
+			assert(*require.Inclusion(writed));
 
-			usgae.Reset();
-
-			return new(re.Get()) SingletonQuery{ re, usgae, singleton, query_data };
+			return new (record.Get()) SingletonQuery{ record, require, writed, require_span, query_data };
 		}
+
 		return {};
 	}
 

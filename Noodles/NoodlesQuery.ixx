@@ -15,20 +15,45 @@ import NoodlesSingleton;
 export namespace Noodles
 {
 
+	template<typename InitFunction>
+	concept ComponentQueryInitFunction = std::is_invocable_v<std::remove_cvref_t<InitFunction>, std::span<BitFlag>, BitFlagContainerViewer, BitFlagContainerViewer>;
+
 	struct ComponentQuery : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<ComponentQuery>;
 
-		BitFlagContainerConstViewer GetRequire() const { return require_component; }
-		BitFlagContainerConstViewer GetRefuse() const { return refuse_component; }
-		BitFlagContainerConstViewer GetUsage() const { return archetype_usable; }
+		std::span<BitFlag const> GetRequireBitFlag() const { return require_bitflag; }
+		BitFlagContainerConstViewer GetRequireContainerConstViewer() const { return require_bitflag_viewer; }
+		BitFlagContainerConstViewer GetWritedContainerConstViewer() const { return require_bitflag_viewer; }
+		BitFlagContainerConstViewer GetArchetypeContainerConstViewer() const { return require_bitflag_viewer; }
+
+		template<ComponentQueryInitFunction InitFunction>
+		static Ptr Create(
+			std::size_t archetype_container_count,
+			std::size_t component_container_count,
+			std::size_t require_count,
+			InitFunction&& function,
+			std::pmr::memory_resource* resource = std::pmr::get_default_resource()
+		)
+		{
+			return Create(
+				archetype_container_count,
+				component_container_count,
+				require_count,
+				[](void* data, std::span<BitFlag> require, BitFlagContainerViewer writed, BitFlagContainerViewer refuse) {
+					(*static_cast<InitFunction*>(data))(require, writed, refuse);
+				},
+				&function,
+				resource
+			);
+		}
 
 		static Ptr Create(
 			std::size_t archetype_container_count, 
-			std::size_t component_container_count, 
-			std::span<BitFlag const> require_component_bitflag,
-			std::span<BitFlag const> require_write_component_bitflag,
-			std::span<BitFlag const> refuse_component_bitflag,
+			std::size_t component_container_count,
+			std::size_t require_count,
+			void (*init_func)(void*, std::span<BitFlag> require, BitFlagContainerViewer writed, BitFlagContainerViewer refuse),
+			void* append_data,
 			std::pmr::memory_resource* resource = std::pmr::get_default_resource()
 		);
 
@@ -45,29 +70,29 @@ export namespace Noodles
 
 		ComponentQuery(
 			Potato::IR::MemoryResourceRecord record,
-			BitFlagContainerConstViewer require_component,
-			BitFlagContainerConstViewer require_write_component,
-			BitFlagContainerConstViewer refuse_component,
-			BitFlagContainerViewer archetype_usable,
-			std::span<BitFlag const> component_bitflag
+			BitFlagContainerConstViewer require_bitflag_viewer,
+			BitFlagContainerConstViewer writed_bitflag_viewer,
+			BitFlagContainerConstViewer refuse_bitflag_viewer,
+			BitFlagContainerViewer archetype_bitflag_viewer,
+			std::span<BitFlag const> require_bitflag
 		)
 			:MemoryResourceRecordIntrusiveInterface(record), 
-			require_component(require_component),
-			require_write_component(require_write_component),
-			refuse_component(refuse_component),
-			archetype_usable(archetype_usable),
-			component_bitflag(component_bitflag),
+			require_bitflag_viewer(require_bitflag_viewer),
+			writed_bitflag_viewer(writed_bitflag_viewer),
+			refuse_bitflag_viewer(refuse_bitflag_viewer),
+			archetype_bitflag_viewer(archetype_bitflag_viewer),
+			require_bitflag(require_bitflag),
 			query_data(record.GetMemoryResource())
 		{
-			query_data_fast_offset = component_bitflag.size() * ComponentManager::GetQueryDataCount() + 1;
+			query_data_fast_offset = require_bitflag.size() * ComponentManager::GetQueryDataCount() + 1;
 		}
 
 
-		BitFlagContainerConstViewer require_component;
-		BitFlagContainerConstViewer require_write_component;
-		BitFlagContainerConstViewer refuse_component;
-		BitFlagContainerViewer archetype_usable;
-		std::span<BitFlag const> component_bitflag;
+		BitFlagContainerConstViewer require_bitflag_viewer;
+		BitFlagContainerConstViewer writed_bitflag_viewer;
+		BitFlagContainerConstViewer refuse_bitflag_viewer;
+		BitFlagContainerViewer archetype_bitflag_viewer;
+		std::span<BitFlag const> require_bitflag;
 		std::pmr::vector<std::size_t> query_data;
 		std::size_t archetype_count = 0;
 		std::size_t updated_archetype_count = 0;
@@ -76,15 +101,41 @@ export namespace Noodles
 		friend struct Ptr::CurrentWrapper;
 	};
 
+	template<typename InitFunction>
+	concept SingletonQueryInitFunction = std::is_invocable_v<std::remove_cvref_t<InitFunction>, std::span<BitFlag>, BitFlagContainerViewer>;
+
 	struct SingletonQuery : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<SingletonQuery>;
 
-		BitFlagContainerConstViewer GetUsage() const { return singleton_usable; }
+		std::span<BitFlag const> GetRequireBitFlag() const { return singleton_bitflag; }
+		BitFlagContainerConstViewer GetRequireContainerConstViewer() const { return require_bitflag_viewer; }
+		BitFlagContainerConstViewer GetWritedContainerConstViewer() const { return write_bitflag_viewer; }
+		
+		template<SingletonQueryInitFunction InitFunction>
+		static Ptr Create(
+			std::size_t singleton_container_count,
+			std::size_t singleton_count,
+			InitFunction&& function,
+			std::pmr::memory_resource* resource = std::pmr::get_default_resource()
+		)
+		{
+			return Create(
+				singleton_container_count,
+				singleton_count,
+				[](void* data, std::span<BitFlag> require, BitFlagContainerViewer writed) {
+					(*static_cast<InitFunction*>(data))(require, writed);
+				},
+				&function,
+				resource
+			);
+		}
 
 		static Ptr Create(
 			std::size_t singleton_container_count,
-			std::span<BitFlag const> singleton_bitflag,
+			std::size_t singleton_count,
+			void (*init_func)(void*, std::span<BitFlag> require, BitFlagContainerViewer writed),
+			void* append_data,
 			std::pmr::memory_resource* resource = std::pmr::get_default_resource()
 		);
 
@@ -98,18 +149,21 @@ export namespace Noodles
 
 		SingletonQuery(
 			Potato::IR::MemoryResourceRecord record,
-			BitFlagContainerViewer singleton_usable,
+			BitFlagContainerViewer require_bitflag_viewer,
+			BitFlagContainerViewer write_bitflag_viewer,
 			std::span<BitFlag const> singleton_bitflag,
 			std::span<std::size_t> query_data
 		)
 			:MemoryResourceRecordIntrusiveInterface(record),
-			singleton_usable(singleton_usable),
+			require_bitflag_viewer(require_bitflag_viewer),
+			write_bitflag_viewer(write_bitflag_viewer),
 			singleton_bitflag(singleton_bitflag),
 			query_data(query_data)
 		{
 		}
 
-		BitFlagContainerViewer singleton_usable;
+		BitFlagContainerViewer require_bitflag_viewer;
+		BitFlagContainerViewer write_bitflag_viewer;
 		std::span<BitFlag const> singleton_bitflag;
 		std::span<std::size_t> query_data;
 		std::size_t current_version = 0;

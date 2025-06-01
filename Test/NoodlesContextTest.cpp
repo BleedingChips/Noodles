@@ -2,6 +2,11 @@ import std;
 import Potato;
 import Noodles;
 
+struct A { std::size_t i = 0; };
+
+struct B { std::size_t i[2] = {1, 2}; };
+
+
 /*
 std::mutex PrintMutex;
 
@@ -38,7 +43,22 @@ void Func3(SystemContext& context, ComponentFilter<A, B> system, ComponentFilter
 
 struct SysNode : public Noodles::SystemNode
 {
-	virtual void SystemNodeExecute(Noodles::Context& context) {}
+	virtual void SystemNodeExecute(Noodles::Context& context) {
+		std::this_thread::sleep_for(std::chrono::seconds{1});
+	}
+
+	virtual void Init(Noodles::SystemInitializer& initlizer) override
+	{
+		initlizer.CreateComponentQuery(2, [](std::span<Noodles::BitFlag> require, Noodles::BitFlagContainerViewer writed, Noodles::BitFlagContainerViewer refuse, Noodles::AsynClassBitFlagMap& map) {
+			require[0] = *map.LocateOrAdd<A>();
+			require[1] = *map.LocateOrAdd<B>();
+		});
+
+		initlizer.CreateSingletonQuery(2, [](std::span<Noodles::BitFlag> require, Noodles::BitFlagContainerViewer writed, Noodles::AsynClassBitFlagMap& map) {
+			require[0] = *map.LocateOrAdd<A>();
+			require[1] = *map.LocateOrAdd<B>();
+		});
+	}
 
 
 	virtual void AddSystemNodeRef() const {}
@@ -92,7 +112,10 @@ int main()
 	Potato::Task::Context context;
 	auto instance = Noodles::Instance::Create();
 	instance->AddSystemNode(&test_sys, {L"TestSystem1!!"});
-	instance->Commit(context);
+	instance->AddSystemNode(&test_sys, { L"TestSystem2!!" });
+	Noodles::Instance::Parameter par;
+	par.duration_time = std::chrono::milliseconds{ 1000 };
+	instance->Commit(context, par);
 	context.ExecuteContextThreadUntilNoExistTask();
 
 

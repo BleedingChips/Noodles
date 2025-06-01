@@ -23,6 +23,7 @@ export namespace Noodles
 	constexpr auto InstanceLogCategory = Potato::Log::LogCategory(L"Noodles");
 
 	export struct Context;
+	export struct SystemInitializer;
 
 	struct RWClassBitFlagConstViewer
 	{
@@ -50,52 +51,15 @@ export namespace Noodles
 
 		struct Parameter
 		{
-			std::wstring_view system_name;
+			std::wstring_view name;
 			std::int32_t layer = 0;
 			Priority priority;
 			std::wstring_view module_name;
 		};
 
-
-		struct ClassBitFlag
-		{
-			RWClassBitFlagConstViewer component;
-			RWClassBitFlagConstViewer singleton;
-			RWClassBitFlagConstViewer thread_order;
-		};
-
-		virtual ClassBitFlag GetClassBitFlag() const { return {}; };
-
-		enum class ComponentOverlappingState
-		{
-			NoUpdate,
-			IsOverlapped,
-			IsNotOverlapped
-		};
-
-		//virtual ComponentOverlappingState IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return ComponentOverlappingState::NoUpdate; };
-		//virtual ComponentOverlappingState IsComponentOverlapping(ComponentQuery const& target_component_filter, std::span<MarkElement const> archetype_update, std::span<MarkElement const> archetype_usage_count) const { return ComponentOverlappingState::NoUpdate; };
-		virtual bool UpdateQuery(Context& context) { return false; }
-		
-		struct RWClassBitFlagViewer
-		{
-			BitFlagContainerConstViewer usagne_class;
-			BitFlagContainerConstViewer writed_class;
-		};
-
-		struct SystemClassBitFlagViewer
-		{
-			RWClassBitFlagViewer component;
-			RWClassBitFlagViewer singleton;
-			RWClassBitFlagViewer exclusion;
-		};
-
-		virtual SystemClassBitFlagViewer GetSystemClassBitFlagViewer() const { return {}; }
-
 	protected:
 
-		virtual bool IsComponentQueryConflict(SystemNode& target, BitFlagContainerConstViewer archetype_usage) { return false; }
-		virtual bool IsComponentQueryConflict(BitFlagContainerConstViewer component_usage, BitFlagContainerConstViewer component_writed, BitFlagContainerConstViewer query_archetype_usage, BitFlagContainerConstViewer archetype_usage) { return false; }
+		virtual void Init(SystemInitializer& initializer) {}
 
 		virtual void SystemNodeExecute(Context& context) = 0;
 
@@ -108,9 +72,10 @@ export namespace Noodles
 
 	private:
 		
-		virtual void TaskFlowNodeExecute(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller) override {}
+		virtual void TaskFlowNodeExecute(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller) override {};
 
 		friend struct Context;
+		friend struct Instance;
 		friend struct LayerTaskFlow;
 		friend struct ParallelExecutor;
 
@@ -134,7 +99,6 @@ export namespace Noodles
 
 		std::size_t GetSingletonBitFlagContainerCount() const { return singleton_map.GetBitFlagContainerElementCount(); }
 		std::size_t GetComponentBitFlagContainerCount() const { return component_map.GetBitFlagContainerElementCount(); }
-		std::size_t GetExclusionBitFlagContainerCount() const { return exclusion_map.GetBitFlagContainerElementCount(); }
 		std::size_t GetCurrentFrameCount() const { return frame_count; }
 		std::chrono::duration<float> GetDeltaTime() const { return delta_time; }
 
@@ -148,9 +112,13 @@ export namespace Noodles
 
 		virtual bool Commit(Potato::Task::Context& context, Parameter parameter = {});
 
-		virtual std::optional<std::size_t> AddSystemNode(SystemNode::Ptr node, SystemNode::Parameter parameter);
+		using SystemIndex = Potato::Misc::VersionIndex;
+
+		SystemIndex AddSystemNode(SystemNode::Ptr index, SystemNode::Parameter parameter);
 
 	protected:
+
+		using IndexSpan = Potato::Misc::IndexSpan<>;
 
 		Instance(Config config, std::pmr::memory_resource* resource);
 
@@ -168,7 +136,6 @@ export namespace Noodles
 
 		AsynClassBitFlagMap component_map;
 		AsynClassBitFlagMap singleton_map;
-		AsynClassBitFlagMap exclusion_map;
 
 		mutable std::shared_mutex component_mutex;
 		ComponentManager component_manager;
@@ -194,23 +161,141 @@ export namespace Noodles
 			Potato::TaskFlow::Flow::NodeIndex index;
 		};
 		std::pmr::vector<SubFlowState> sub_flows;
+		
 
 		struct SystemNodeInfo
 		{
-			bool available = false;
-			Potato::TaskFlow::Flow::NodeIndex index;
+			std::size_t version = 0;
+			SystemNode::Ptr node;
 			SystemNode::Parameter parameter;
+			std::size_t layer = 0;
+			Potato::TaskFlow::Flow::NodeIndex index;
+			std::size_t class_bit_flag_container_offset = 0;
+			IndexSpan component_query_index;
+			IndexSpan singleton_query_index;
 		};
+
+		std::shared_mutex system_mutex;
 		std::pmr::vector<SystemNodeInfo> system_info;
 		std::pmr::vector<BitFlagContainer::Element> system_bitflag_container;
+		std::pmr::vector<ComponentQuery::Ptr> component_query;
+		std::pmr::vector<SingletonQuery::Ptr> singleton_query;
 
 	private:
 
 		friend struct Ptr::CurrentWrapper;
 		friend struct Ptr;
+		friend struct SystemInitializer;
+		friend struct Context;
+	};
+
+	template<typename InitFunction>
+	concept SystemInitializerComponentQueryInitFunction
+		= std::is_invocable_v<
+			std::remove_cvref_t<InitFunction>,
+			std::span<BitFlag>, BitFlagContainerViewer, BitFlagContainerViewer, AsynClassBitFlagMap&
+		>;
+
+	template<typename InitFunction>
+	concept SystemInitializerSingletonQueryInitFunction
+		= std::is_invocable_v<
+			std::remove_cvref_t<InitFunction>,
+			std::span<BitFlag>, BitFlagContainerViewer, AsynClassBitFlagMap&
+		>;
+
+
+	struct SystemInitializer
+	{
+
+		struct Config
+		{
+			std::pmr::memory_resource* component_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* singleton_resource = std::pmr::get_default_resource();
+			std::pmr::memory_resource* resource = std::pmr::get_default_resource();
+		};
+
+		template<SystemInitializerComponentQueryInitFunction InitFunction>
+		OptionalSizeT CreateComponentQuery(std::size_t component_count, InitFunction&& func);
+
+		template<SystemInitializerSingletonQueryInitFunction InitFunction>
+		OptionalSizeT CreateSingletonQuery(std::size_t singleton_count, InitFunction&& func);
+
+	protected:
+		SystemInitializer(Instance& instance, Config config = {})
+			: instance(instance), component_list(config.resource), singleton_list(config.resource),
+			component_resource(config.component_resource), singleton_resource(config.singleton_resource),
+			temp_resource(config.resource)
+		{}
+
+		Instance& instance;
+		std::pmr::vector<ComponentQuery::Ptr> component_list;
+		std::pmr::vector<SingletonQuery::Ptr> singleton_list;
+		std::pmr::memory_resource* component_resource;
+		std::pmr::memory_resource* singleton_resource;
+		std::pmr::memory_resource* temp_resource;
+
+		friend struct Instance;
+	};
+
+	struct Context
+	{
+
+	protected:
+		Context(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller, Instance& instance)
+			: context(context), controller(controller), instance(instance)
+		{
+
+		}
+
+		Potato::Task::Context& context;
+		Potato::TaskFlow::Controller& controller;
+		Instance& instance;
+
+		friend struct SystemNode;
+		friend struct Instance;
 	};
 
 
+	template<SystemInitializerComponentQueryInitFunction InitFunction>
+	OptionalSizeT SystemInitializer::CreateComponentQuery(std::size_t component_count, InitFunction&& function)
+	{
+		auto ptr = ComponentQuery::Create(
+			instance.component_manager.GetArchetypeBitFlagContainerCount(),
+			instance.component_map.GetBitFlagContainerElementCount(),
+			component_count,
+			[&](std::span<BitFlag> output, BitFlagContainerViewer writed, BitFlagContainerViewer refuse) 
+			{
+				function(output, writed, refuse, instance.component_map);
+			},
+			component_resource
+		);
+		if (ptr)
+		{
+			component_list.emplace_back(std::move(ptr));
+			return component_list.size() - 1;
+		}
+		return {};
+	}
+
+	template<SystemInitializerSingletonQueryInitFunction InitFunction>
+	OptionalSizeT SystemInitializer::CreateSingletonQuery(std::size_t singleton_count, InitFunction&& func)
+	{
+		auto ptr = SingletonQuery::Create(
+			instance.singleton_map.GetBitFlagContainerElementCount(),
+			singleton_count,
+			[&](std::span<BitFlag> output, BitFlagContainerViewer writed)
+			{
+				func(output, writed, instance.component_map);
+			},
+			singleton_resource
+		);
+		if (ptr)
+		{
+			singleton_list.emplace_back(std::move(ptr));
+			return singleton_list.size() - 1;
+		}
+		return {};
+	}
 
 	/*
 	struct Priority

@@ -84,8 +84,8 @@ int main()
 		*map.LocateOrAdd<A>(),
 	};
 
-	std::array<BitFlag, 1> pt2 = {
-		*map.LocateOrAdd<A>()
+	std::array<std::size_t, 1> pt2 = {
+		1
 	};
 
 	std::array<void*, 2> output;
@@ -93,9 +93,14 @@ int main()
 	auto query = ComponentQuery::Create(
 		map.GetBitFlagContainerElementCount(), 
 		c_manager.GetArchetypeBitFlagContainerCount(),
-		pt,
-		pt2,
-		{}
+		pt.size(),
+		[&](std::span<BitFlag> require, BitFlagContainerViewer writed, BitFlagContainerViewer refuse) {
+			for (std::size_t i = 0; i < pt.size(); ++i)
+			{
+				require[i] = pt[i];
+			}
+			writed.SetValue(pt[1]);
+		}
 	);
 	
 	query->UpdateQueryData(c_manager);
@@ -133,7 +138,15 @@ int main()
 
 	std::array<void*, 3> output2;
 
-	auto s_query = SingletonQuery::Create(map.GetBitFlagContainerElementCount(), info);
+	auto s_query = SingletonQuery::Create(map.GetBitFlagContainerElementCount(), info.size(), 
+		[&](std::span<BitFlag> require, BitFlagContainerViewer writed) {
+			for (auto& ite : info)
+			{
+				require[0] = ite;
+				require = require.subspan(1);
+			}
+		}
+	);
 
 	s_query->UpdateQueryData(s_manager);
 	s_query->QuerySingleton(s_manager, output2);
