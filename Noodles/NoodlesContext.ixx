@@ -25,10 +25,23 @@ export namespace Noodles
 	export struct Context;
 	export struct SystemInitializer;
 
-	struct RWClassBitFlagConstViewer
+	struct RequireBitFlagViewer
 	{
-		BitFlagContainerConstViewer read_bitflag;
-		BitFlagContainerConstViewer write_bitflag;
+		BitFlagContainerViewer require;
+		BitFlagContainerViewer write;
+	};
+
+	struct SystemRequireBitFlagViewer
+	{
+		RequireBitFlagViewer component;
+		RequireBitFlagViewer singleton;
+	};
+
+	enum class SystemCategory
+	{
+		Tick,
+		Template,
+		HighFrequencyTemplate
 	};
 
 	struct SystemNode : public Potato::TaskFlow::Node
@@ -47,6 +60,8 @@ export namespace Noodles
 			std::int32_t primary = 0;
 			std::int32_t second = 0;
 			std::int32_t third = 0;
+			std::strong_ordering operator<=>(Priority const&) const = default;
+			bool operator==(Priority const&) const = default;
 		};
 
 		struct Parameter
@@ -114,13 +129,20 @@ export namespace Noodles
 
 		using SystemIndex = Potato::Misc::VersionIndex;
 
-		SystemIndex AddSystemNode(SystemNode::Ptr index, SystemNode::Parameter parameter);
+		
+
+		SystemIndex PrepareSystemNode(SystemNode::Ptr index, SystemNode::Parameter parameter, SystemCategory category = SystemCategory::Tick);
+		bool LoadSystemNode(SystemIndex index, std::size_t startup_system_index = std::numeric_limits<std::size_t>::max());
 
 	protected:
 
 		using IndexSpan = Potato::Misc::IndexSpan<>;
 
 		Instance(Config config, std::pmr::memory_resource* resource);
+
+		std::tuple<std::size_t, std::size_t> GetQuery(std::size_t system_index, std::span<ComponentQuery::OPtr> component_query, std::span<SingletonQuery::OPtr> singleton_query);
+
+		SystemRequireBitFlagViewer GetSystemRequireBitFlagViewer_AssumedLocked(std::size_t system_info_index);
 
 		virtual void BeginFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
 		virtual void FinishFlow_AssumedLocked(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
@@ -151,7 +173,7 @@ export namespace Noodles
 
 		std::mutex flow_mutex;
 		Potato::TaskFlow::Flow main_flow;
-		bool need_update = false;
+		bool flow_need_update = false;
 
 		struct SubFlowState
 		{
@@ -168,11 +190,10 @@ export namespace Noodles
 			std::size_t version = 0;
 			SystemNode::Ptr node;
 			SystemNode::Parameter parameter;
-			std::size_t layer = 0;
-			Potato::TaskFlow::Flow::NodeIndex index;
-			std::size_t class_bit_flag_container_offset = 0;
+			Potato::TaskFlow::Flow::NodeIndex flow_index;
 			IndexSpan component_query_index;
 			IndexSpan singleton_query_index;
+			SystemCategory category = SystemCategory::Tick;
 		};
 
 		std::shared_mutex system_mutex;
@@ -189,18 +210,64 @@ export namespace Noodles
 		friend struct Context;
 	};
 
+	template<typename Type>
+	concept IsQueryWriteType = std::is_same_v<Type, std::remove_cvref_t<Type>>;
+
+	template<typename Type>
+	concept IsQueryReadType = std::is_same_v<Type, std::add_const_t<std::remove_cvref_t<Type>>>;
+
+	template<typename Type>
+	concept AcceptableQueryType = IsQueryWriteType<Type> || IsQueryReadType<Type>;
+
+	struct SingletonQueryInitializer
+	{
+		SingletonQueryInitializer(std::span<BitFlag> require, BitFlagContainerViewer writed, AsynClassBitFlagMap& bitflag_map)
+			: require(require), writed(writed), bitflag_map(bitflag_map) {
+		}
+		bool SetRequire(Potato::IR::StructLayout::Ptr struct_layout, bool is_writed);
+		template<AcceptableQueryType RequireType>
+		bool SetRequire() {
+			return SetRequire(
+				Potato::IR::StructLayout::GetStatic<std::remove_cvref_t<RequireType>>(),
+				IsQueryWriteType<RequireType>
+			);
+		}
+	protected:
+		std::span<BitFlag> require;
+		std::size_t iterator_index = 0;
+		BitFlagContainerViewer writed;
+		AsynClassBitFlagMap& bitflag_map;
+	};
+
+	struct ComponentQueryInitializer : public SingletonQueryInitializer
+	{
+		ComponentQueryInitializer(std::span<BitFlag> require, BitFlagContainerViewer writed, AsynClassBitFlagMap& bitflag_map, BitFlagContainerViewer refuse)
+			: SingletonQueryInitializer(require, writed, bitflag_map), refuse(refuse)
+		{}
+		bool SetRefuse(Potato::IR::StructLayout::Ptr struct_layout);
+		template<AcceptableQueryType RequireType>
+		bool SetRefuse() {
+			return SetRefuse(
+				Potato::IR::StructLayout::GetStatic<std::remove_cvref_t<RequireType>>(),
+				IsQueryWriteType<RequireType>
+			);
+		}
+	protected:
+		BitFlagContainerViewer refuse;
+	};
+
 	template<typename InitFunction>
 	concept SystemInitializerComponentQueryInitFunction
 		= std::is_invocable_v<
 			std::remove_cvref_t<InitFunction>,
-			std::span<BitFlag>, BitFlagContainerViewer, BitFlagContainerViewer, AsynClassBitFlagMap&
+			ComponentQueryInitializer&
 		>;
 
 	template<typename InitFunction>
 	concept SystemInitializerSingletonQueryInitFunction
 		= std::is_invocable_v<
 			std::remove_cvref_t<InitFunction>,
-			std::span<BitFlag>, BitFlagContainerViewer, AsynClassBitFlagMap&
+			SingletonQueryInitializer&
 		>;
 
 
@@ -239,10 +306,13 @@ export namespace Noodles
 
 	struct Context
 	{
-
+		std::tuple<std::size_t, std::size_t> GetQuery(std::span<ComponentQuery::OPtr> component_query, std::span<SingletonQuery::OPtr> singleton_query)
+		{
+			return instance.GetQuery(system_index, component_query, singleton_query);
+		}
 	protected:
-		Context(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller, Instance& instance)
-			: context(context), controller(controller), instance(instance)
+		Context(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller, Instance& instance, std::size_t system_index)
+			: context(context), controller(controller), instance(instance), system_index(system_index)
 		{
 
 		}
@@ -250,6 +320,7 @@ export namespace Noodles
 		Potato::Task::Context& context;
 		Potato::TaskFlow::Controller& controller;
 		Instance& instance;
+		std::size_t system_index;
 
 		friend struct SystemNode;
 		friend struct Instance;
@@ -265,7 +336,8 @@ export namespace Noodles
 			component_count,
 			[&](std::span<BitFlag> output, BitFlagContainerViewer writed, BitFlagContainerViewer refuse) 
 			{
-				function(output, writed, refuse, instance.component_map);
+				ComponentQueryInitializer initializer(output, writed, instance.component_map, refuse);
+				function(initializer);
 			},
 			component_resource
 		);
@@ -285,7 +357,8 @@ export namespace Noodles
 			singleton_count,
 			[&](std::span<BitFlag> output, BitFlagContainerViewer writed)
 			{
-				func(output, writed, instance.component_map);
+				SingletonQueryInitializer initializer(output, writed, instance.component_map);
+				func(initializer);
 			},
 			singleton_resource
 		);

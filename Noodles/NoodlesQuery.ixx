@@ -21,6 +21,7 @@ export namespace Noodles
 	struct ComponentQuery : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<ComponentQuery>;
+		using OPtr = Potato::Pointer::ObserverPtr<ComponentQuery>;
 
 		std::span<BitFlag const> GetRequireBitFlag() const { return require_bitflag; }
 		BitFlagContainerConstViewer GetRequireContainerConstViewer() const { return require_bitflag_viewer; }
@@ -107,6 +108,7 @@ export namespace Noodles
 	struct SingletonQuery : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
 		using Ptr = Potato::Pointer::IntrusivePtr<SingletonQuery>;
+		using OPtr = Potato::Pointer::ObserverPtr<SingletonQuery>;
 
 		std::span<BitFlag const> GetRequireBitFlag() const { return singleton_bitflag; }
 		BitFlagContainerConstViewer GetRequireContainerConstViewer() const { return require_bitflag_viewer; }

@@ -44,19 +44,25 @@ void Func3(SystemContext& context, ComponentFilter<A, B> system, ComponentFilter
 struct SysNode : public Noodles::SystemNode
 {
 	virtual void SystemNodeExecute(Noodles::Context& context) {
+
+		std::array<Noodles::ComponentQuery::OPtr, 10> out_comp;
+		std::array<Noodles::SingletonQuery::OPtr, 10> out_sing;
+
+		auto [s, p] = context.GetQuery(out_comp, out_sing);
+		
 		std::this_thread::sleep_for(std::chrono::seconds{1});
 	}
 
 	virtual void Init(Noodles::SystemInitializer& initlizer) override
 	{
-		initlizer.CreateComponentQuery(2, [](std::span<Noodles::BitFlag> require, Noodles::BitFlagContainerViewer writed, Noodles::BitFlagContainerViewer refuse, Noodles::AsynClassBitFlagMap& map) {
-			require[0] = *map.LocateOrAdd<A>();
-			require[1] = *map.LocateOrAdd<B>();
+		initlizer.CreateComponentQuery(2, [](Noodles::ComponentQueryInitializer& comp_init) {
+			comp_init.SetRequire<A const>();
+			comp_init.SetRequire<B const>();
 		});
 
-		initlizer.CreateSingletonQuery(2, [](std::span<Noodles::BitFlag> require, Noodles::BitFlagContainerViewer writed, Noodles::AsynClassBitFlagMap& map) {
-			require[0] = *map.LocateOrAdd<A>();
-			require[1] = *map.LocateOrAdd<B>();
+		initlizer.CreateSingletonQuery(2, [](Noodles::SingletonQueryInitializer& sing_init) {
+			sing_init.SetRequire<A const>();
+			sing_init.SetRequire<B>();
 		});
 	}
 
@@ -111,11 +117,14 @@ int main()
 {
 	Potato::Task::Context context;
 	auto instance = Noodles::Instance::Create();
-	instance->AddSystemNode(&test_sys, {L"TestSystem1!!"});
-	instance->AddSystemNode(&test_sys, { L"TestSystem2!!" });
+	auto s1 = instance->PrepareSystemNode(&test_sys, {L"TestSystem1!!"});
+	auto s2 = instance->PrepareSystemNode(&test_sys, { L"TestSystem2!!" });
+	instance->LoadSystemNode(s1);
+	instance->LoadSystemNode(s2);
 	Noodles::Instance::Parameter par;
-	par.duration_time = std::chrono::milliseconds{ 1000 };
+	par.duration_time = std::chrono::milliseconds{ 20000 };
 	instance->Commit(context, par);
+	context.CreateThreads(2);
 	context.ExecuteContextThreadUntilNoExistTask();
 
 
