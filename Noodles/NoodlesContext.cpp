@@ -325,10 +325,12 @@ namespace Noodles
 					t_paramter.custom_data.data2 = std::numeric_limits<std::size_t>::max();
 					auto cur_bitflag = GetSystemRequireBitFlagViewer_AssumedLocked(index.index);
 
+					/*
 					Executor::AddTemplateNode(*ref.node, [&](Potato::TaskFlow::Sequencer& sequencer) -> bool {
 						// todo
 						return true;
 						}, t_paramter, startup_system_index);
+					*/
 
 					return false;
 				}
