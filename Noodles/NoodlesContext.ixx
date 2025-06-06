@@ -40,8 +40,8 @@ export namespace Noodles
 	enum class SystemCategory
 	{
 		Tick,
-		Template,
-		HighFrequencyTemplate
+		Conditional,
+		Once
 	};
 
 	struct SystemNode : public Potato::TaskFlow::Node
@@ -129,10 +129,9 @@ export namespace Noodles
 
 		using SystemIndex = Potato::Misc::VersionIndex;
 
-		
-
 		SystemIndex PrepareSystemNode(SystemNode::Ptr index, SystemNode::Parameter parameter, SystemCategory category = SystemCategory::Tick);
-		bool LoadSystemNode(SystemIndex index, std::size_t startup_system_index = std::numeric_limits<std::size_t>::max());
+		bool LoadSystemNode(SystemIndex index);
+		bool LoadSystemNode(Potato::Task::Context& context, SystemIndex index, bool force_next_frame = false);
 
 	protected:
 
@@ -194,6 +193,7 @@ export namespace Noodles
 			IndexSpan component_query_index;
 			IndexSpan singleton_query_index;
 			SystemCategory category = SystemCategory::Tick;
+			std::size_t waiting_count = 0;
 		};
 
 		std::shared_mutex system_mutex;
@@ -201,6 +201,12 @@ export namespace Noodles
 		std::pmr::vector<BitFlagContainer::Element> system_bitflag_container;
 		std::pmr::vector<ComponentQuery::Ptr> component_query;
 		std::pmr::vector<SingletonQuery::Ptr> singleton_query;
+		struct DelayNode
+		{
+			std::int32_t layer;
+			SystemIndex index;
+		};
+		std::pmr::vector<DelayNode> delayed_system_node;
 
 	private:
 

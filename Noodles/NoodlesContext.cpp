@@ -185,7 +185,6 @@ namespace Noodles
 			finded->parameter = parameter;
 			finded->node = std::move(node);
 			finded->category = category;
-			finded->flow_index = {};
 
 			std::size_t index = static_cast<std::size_t>(finded - system_info.begin());
 
@@ -249,7 +248,7 @@ namespace Noodles
 		return {};
 	}
 
-	bool Instance::LoadSystemNode(SystemIndex index, std::size_t startup_system_index)
+	bool Instance::LoadSystemNode(SystemIndex index)
 	{
 		std::lock_guard sl(system_mutex);
 		if (index && index.index < system_info.size())
@@ -314,29 +313,23 @@ namespace Noodles
 
 					return true;
 				}
-				else if (
-					ref.category == SystemCategory::Template
-					|| ref.category == SystemCategory::HighFrequencyTemplate
-					)
-				{
-					Potato::TaskFlow::Node::Parameter t_paramter;
-					t_paramter.node_name = ref.parameter.name;
-					t_paramter.custom_data.data1 = index.index;
-					t_paramter.custom_data.data2 = std::numeric_limits<std::size_t>::max();
-					auto cur_bitflag = GetSystemRequireBitFlagViewer_AssumedLocked(index.index);
-
-					/*
-					Executor::AddTemplateNode(*ref.node, [&](Potato::TaskFlow::Sequencer& sequencer) -> bool {
-						// todo
-						return true;
-						}, t_paramter, startup_system_index);
-					*/
-
-					return false;
-				}
 				else
 				{
-					assert(false);
+					assert(ref.category == SystemCategory::Conditional || ref.category == SystemCategory::Once);
+					if (ref.waiting_count == 0)
+					{
+						ref.waiting_count = 1;
+					}
+					ref.waiting_count += 1;
+					
+					auto find = std::find_if(
+						delayed_system_node.begin(), delayed_system_node.end(),
+						[&](DelayNode const& node) {  return ref.parameter.layer >= node.layer; }
+					);
+
+					delayed_system_node.insert(find, DelayNode{ ref.parameter.layer, index});
+
+					return true;
 				}
 			}
 		}
