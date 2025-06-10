@@ -156,7 +156,7 @@ namespace Noodles
 		return result;
 	}
 
-	Instance::SystemIndex Instance::PrepareSystemNode(SystemNode::Ptr node, SystemNode::Parameter parameter, SystemCategory category)
+	Instance::SystemIndex Instance::PrepareSystemNode(SystemNode::Ptr node, bool temporary)
 	{
 		if (node)
 		{
@@ -168,9 +168,10 @@ namespace Noodles
 			auto finded = std::find_if(system_info.begin(), system_info.end(), [](SystemNodeInfo const& info) { return !info.node; });
 			if (finded == system_info.end())
 			{
-				SystemNodeInfo node_info;
-				node_info.component_query_index = { component_query.size(), component_query.size() };
-				node_info.singleton_query_index = { singleton_query.size(), singleton_query.size() };
+				SystemNodeInfo added_system_info;
+
+				added_system_info.component_query_index = { component_query.size(), component_query.size() };
+				added_system_info.singleton_query_index = { singleton_query.size(), singleton_query.size() };
 				auto total_bitflag_container_count = component_map.GetBitFlagContainerElementCount() * 2
 					+ singleton_map.GetBitFlagContainerElementCount() * 2
 					;
@@ -178,13 +179,12 @@ namespace Noodles
 				system_bitflag_container.resize(old_size + total_bitflag_container_count);
 				BitFlagContainerViewer view{ std::span(system_bitflag_container).subspan(old_size) };
 				view.Reset();
-				finded = system_info.insert(finded, node_info);
+				finded = system_info.insert(system_info.end(), added_system_info);
 			}
 
 			finded->version += 1;
-			finded->parameter = parameter;
+			finded->temporary = temporary;
 			finded->node = std::move(node);
-			finded->category = category;
 
 			std::size_t index = static_cast<std::size_t>(finded - system_info.begin());
 
@@ -248,41 +248,69 @@ namespace Noodles
 		return {};
 	}
 
-	bool Instance::LoadSystemNode(SystemIndex index)
+	Instance::ExecuteSystemIndex Instance::FindAvailableSystemIndex_AssumedLocked()
 	{
-		std::lock_guard sl(system_mutex);
+		auto finded = std::find_if(
+			execute_system_info.begin(),
+			execute_system_info.end(),
+			[](ExecuteSystemNodeInfo const& ref) { return !ref.category.has_value();  }
+		);
+
+		if (finded == execute_system_info.end())
+		{
+			ExecuteSystemNodeInfo sys_info;
+			finded = execute_system_info.insert(execute_system_info.end(), sys_info);
+		}
+
+		assert(finded != execute_system_info.end());
+		
+		return { static_cast<std::size_t>(finded - execute_system_info.begin()), finded->version };
+	}
+
+	bool Instance::LoadSystemNode(SystemCategory category, SystemIndex index, SystemNode::Parameter parameter)
+	{
+		std::shared_lock sl(system_mutex);
 		if (index && index.index < system_info.size())
 		{
-			auto& ref = system_info[index.index];
-			if (index.version == ref.version && ref.node && !ref.flow_index)
+			auto& target_system = system_info[index.index];
+			if (target_system.version == index.version)
 			{
-				if (ref.category == SystemCategory::Tick)
+				switch (category)
 				{
-					std::lock_guard lg(flow_mutex);
+				case Noodles::SystemCategory::Tick:
+				{
+					std::lock_guard lg(execute_system_mutex);
+					auto execute_sys_index = FindAvailableSystemIndex_AssumedLocked();
+
+					assert(execute_sys_index);
+
+					auto& ref = execute_system_info[execute_sys_index.index];
+
+					std::lock_guard lg2(flow_mutex);
 					flow_need_update = true;
 					auto ite = std::find_if(sub_flows.begin(), sub_flows.end(), [&](SubFlowState& state) { return state.layer >= ref.parameter.layer; });
-					if (ite == sub_flows.end() || ite->layer != ref.parameter.layer)
+					if (ite == sub_flows.end() || ite->layer != parameter.layer)
 					{
-						SubFlowState sub_flow{ ref.parameter.layer, sub_flows.get_allocator().resource(), true, {} };
+						SubFlowState sub_flow{ parameter.layer, sub_flows.get_allocator().resource(), true, {} };
 						ite = sub_flows.insert(ite, std::move(sub_flow));
 					}
 					assert(ite != sub_flows.end());
 
-					std::size_t sub_flow_index = static_cast<std::size_t>(ite - sub_flows.begin());
-
 					Potato::TaskFlow::Node::Parameter t_paramter;
 					t_paramter.node_name = ref.parameter.name;
-					t_paramter.custom_data.data1 = index.index;
-					t_paramter.custom_data.data2 = sub_flow_index;
+					t_paramter.custom_data.data1 = execute_sys_index.index;
+					t_paramter.custom_data.data2 = index.index;
 
-					auto flow_index = ite->flow.AddNode(*ref.node, t_paramter);
+					auto flow_index = ite->flow.AddNode(*target_system.node, t_paramter);
+					
+					assert(flow_index);
 
 					auto current_bitflag = GetSystemRequireBitFlagViewer_AssumedLocked(index.index);
 
 					std::size_t ite_index = 0;
-					for (auto& ite_sys : system_info)
+					for (auto& ite_sys : execute_system_info)
 					{
-						if (ite_sys.category == SystemCategory::Tick && ite_sys.flow_index && ite_sys.parameter.layer == ref.parameter.layer)
+						if (ite_sys.category.has_value() && ite_sys.category == SystemCategory::Tick && ite_sys.parameter.layer == parameter.layer)
 						{
 							auto ite_bitflag = GetSystemRequireBitFlagViewer_AssumedLocked(ite_index);
 
@@ -306,32 +334,46 @@ namespace Noodles
 								}
 							}
 						}
-						ite_index += 1;
+						ite_index += 1;					
 					}
 
 					ref.flow_index = flow_index;
-
+					ref.category = Noodles::SystemCategory::Tick;
+					ref.parameter = std::move(parameter);
 					return true;
 				}
-				else
+					break;
+				case Noodles::SystemCategory::OnceNextFrame:
 				{
-					assert(ref.category == SystemCategory::Conditional || ref.category == SystemCategory::Once);
-					if (ref.waiting_count == 0)
-					{
-						ref.waiting_count = 1;
-					}
-					ref.waiting_count += 1;
-					
-					auto find = std::find_if(
-						delayed_system_node.begin(), delayed_system_node.end(),
-						[&](DelayNode const& node) {  return ref.parameter.layer >= node.layer; }
-					);
-
-					delayed_system_node.insert(find, DelayNode{ ref.parameter.layer, index});
-
+					std::lock_guard lg(execute_system_mutex);
+					OnceSystemInfo once_sys_info;
+					once_sys_info.parameter = parameter;
+					once_sys_info.index = index;
 					return true;
 				}
+					break;
+				default:
+					return false;
+					break;
+				}
+				return true;
 			}
+		}
+		return false;
+	}
+
+	bool Instance::LoadSystemNode(Potato::Task::Context& context, SystemCategory category, SystemIndex index, SystemNode::Parameter parameter)
+	{
+		switch (category)
+		{
+		case SystemCategory::Tick:
+		case SystemCategory::OnceNextFrame:
+			return LoadSystemNode(category, index, parameter);
+		case SystemCategory::Once:
+		{
+			return false;
+			break;
+		}
 		}
 		return false;
 	}

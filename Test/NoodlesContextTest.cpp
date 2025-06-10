@@ -117,10 +117,10 @@ int main()
 {
 	Potato::Task::Context context;
 	auto instance = Noodles::Instance::Create();
-	auto s1 = instance->PrepareSystemNode(&test_sys, {L"TestSystem1!!"});
-	auto s2 = instance->PrepareSystemNode(&test_sys, { L"TestSystem2!!" });
-	instance->LoadSystemNode(s1);
-	instance->LoadSystemNode(s2);
+	auto s1 = instance->PrepareSystemNode(&test_sys);
+	//auto s2 = instance->PrepareSystemNode(&test_sys);
+	instance->LoadSystemNode(Noodles::SystemCategory::Tick, s1, { L"TestSystem1!!" });
+	instance->LoadSystemNode(Noodles::SystemCategory::Tick, s1, { L"TestSystem2!!" });
 	Noodles::Instance::Parameter par;
 	par.duration_time = std::chrono::milliseconds{ 20000 };
 	instance->Commit(context, par);

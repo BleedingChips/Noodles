@@ -40,8 +40,8 @@ export namespace Noodles
 	enum class SystemCategory
 	{
 		Tick,
-		Conditional,
-		Once
+		Once,
+		OnceNextFrame,
 	};
 
 	struct SystemNode : public Potato::TaskFlow::Node
@@ -129,9 +129,9 @@ export namespace Noodles
 
 		using SystemIndex = Potato::Misc::VersionIndex;
 
-		SystemIndex PrepareSystemNode(SystemNode::Ptr index, SystemNode::Parameter parameter, SystemCategory category = SystemCategory::Tick);
-		bool LoadSystemNode(SystemIndex index);
-		bool LoadSystemNode(Potato::Task::Context& context, SystemIndex index, bool force_next_frame = false);
+		SystemIndex PrepareSystemNode(SystemNode::Ptr index, bool temporary = false);
+		bool LoadSystemNode(SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
+		bool LoadSystemNode(Potato::Task::Context& context, SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
 
 	protected:
 
@@ -147,6 +147,11 @@ export namespace Noodles
 		virtual void FinishFlow_AssumedLocked(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
 		virtual bool UpdateFlow_AssumedLocked(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 		virtual void ExecuteNode(Potato::Task::Context& context, Potato::TaskFlow::Node& node, Potato::TaskFlow::Controller& controller) override;
+		
+		using ExecuteSystemIndex = Potato::Misc::VersionIndex;
+
+		ExecuteSystemIndex FindAvailableSystemIndex_AssumedLocked();
+
 		//virtual void EndFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
 
 		std::atomic_size_t frame_count = 0;
@@ -188,12 +193,17 @@ export namespace Noodles
 		{
 			std::size_t version = 0;
 			SystemNode::Ptr node;
-			SystemNode::Parameter parameter;
-			Potato::TaskFlow::Flow::NodeIndex flow_index;
 			IndexSpan component_query_index;
 			IndexSpan singleton_query_index;
-			SystemCategory category = SystemCategory::Tick;
-			std::size_t waiting_count = 0;
+			bool temporary = false;
+		};
+
+		struct ExecuteSystemNodeInfo
+		{
+			std::optional<SystemCategory> category;
+			Potato::TaskFlow::Flow::NodeIndex flow_index;
+			SystemNode::Parameter parameter;
+			std::size_t version = 0;
 		};
 
 		std::shared_mutex system_mutex;
@@ -201,12 +211,19 @@ export namespace Noodles
 		std::pmr::vector<BitFlagContainer::Element> system_bitflag_container;
 		std::pmr::vector<ComponentQuery::Ptr> component_query;
 		std::pmr::vector<SingletonQuery::Ptr> singleton_query;
-		struct DelayNode
+
+		std::mutex execute_system_mutex;
+		std::pmr::vector<ExecuteSystemNodeInfo> execute_system_info;
+
+		struct OnceSystemInfo
 		{
-			std::int32_t layer;
+			SystemNode::Parameter parameter;
 			SystemIndex index;
 		};
-		std::pmr::vector<DelayNode> delayed_system_node;
+
+		std::pmr::vector<OnceSystemInfo> once_system_node;
+		std::size_t current_frame_once_system_iterator = 0;
+		std::size_t current_frame_once_system_count = 0;
 
 	private:
 
