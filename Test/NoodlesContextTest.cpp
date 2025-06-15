@@ -130,13 +130,18 @@ int main()
 		instance->LoadSystemNode(Noodles::SystemCategory::Tick, s1, sys_par);
 		sys_par.name = L"TestSystem2!!";
 		instance->LoadSystemNode(Noodles::SystemCategory::Tick, s1, sys_par);
+
+		sys_par.name = L"TestSystem3!!";
+		instance->LoadSystemNode(Noodles::SystemCategory::OnceNextFrame, s1, sys_par);
+		sys_par.name = L"TestSystem4!!";
+		instance->LoadSystemNode(Noodles::SystemCategory::OnceNextFrame, s1, sys_par);
 		Noodles::Instance::Parameter par;
 		par.duration_time = std::chrono::milliseconds{ 3000 };
 		auto enti = instance->CreateEntity();
 		instance->AddEntityComponent(*enti, A{ 10086 });
 		instance->AddEntityComponent(*enti, B{ 100862 });
 		instance->Commit(context, par);
-		context.CreateThreads(2);
+		//context.CreateThreads(2);
 		context.ExecuteContextThreadUntilNoExistTask();
 	}
 	

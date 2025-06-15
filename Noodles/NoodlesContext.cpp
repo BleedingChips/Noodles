@@ -20,7 +20,7 @@ namespace Noodles
 			{
 				auto param = context.controller.GetParameter();
 				auto& instance = context.instance;
-				std::int32_t layer = static_cast<std::int32_t>(param.custom_data.data1);
+				std::int32_t layer = static_cast<std::int32_t>(param.custom_data.data2);
 				std::lock_guard lg(instance.once_system_mutex);
 				instance.current_layer = layer;
 
@@ -74,6 +74,7 @@ namespace Noodles
 	{
 		Potato::TaskFlow::Node::Parameter parameter;
 		parameter.node_name = L"EndingSystemNode";
+		parameter.custom_data.data1 = std::numeric_limits<std::size_t>::max();
 		ending_system_index = main_flow.AddNode(ending_system_node, parameter);
 	}
 
@@ -520,8 +521,93 @@ namespace Noodles
 		case SystemCategory::OnceNextFrame:
 			return LoadSystemNode(category, index, parameter);
 		case SystemCategory::Once:
+		{
+			{
+				std::lock_guard sl(once_system_mutex);
+				if (parameter.layer > current_layer)
+				{
+					auto finded = std::find_if(
+						once_system_node.begin() + current_frame_once_system_iterator, 
+						once_system_node.begin() + current_frame_once_system_count,
+						[&](OnceSystemInfo const& info) {
+							auto re = parameter.layer <=> info.parameter.layer;
+							if (re == std::strong_ordering::equal)
+							{
+								re = parameter.priority <=> info.parameter.priority;
+							}
+							return re == std::strong_ordering::greater;
+						}
+						);
+					once_system_node.insert(finded, OnceSystemInfo{parameter, index });
+					++current_frame_once_system_count;
+					return ExecuteSystemIndex{};
+				}
+			}
+		}
 		case SystemCategory::OnceIgnoreLayer:
 		{
+			std::shared_lock sl(system_mutex);
+			if (index.index < system_info.size())
+			{
+				auto& ref = system_info[index.index];
+				if (ref.version == index.version)
+				{
+					std::lock_guard lg(execute_system_mutex);
+					
+					auto exe_index = FindAvailableSystemIndex_AssumedLocked();
+					auto& exe_ref = execute_system_info[index.index];
+					exe_ref.category = SystemCategory::Once;
+					exe_ref.parameter = parameter;
+					exe_ref.system_info_index = index.index;
+
+
+					Potato::TaskFlow::Node::Parameter t_paramter;
+					t_paramter.custom_data.data1 = exe_index.index;
+					t_paramter.node_name = parameter.name;
+					t_paramter.custom_data.data2 = index.index;
+					
+					std::shared_lock sl2(component_mutex);
+					auto current_view = GetSystemRequireBitFlagViewer_AssumedLocked(index.index);
+					auto add_result = context.controller.AddTemporaryNode(
+						context.context, *ref.node, [&](Potato::TaskFlow::Sequencer& sequencer) -> bool {
+
+							auto parameter = sequencer.GetCurrentParameter();
+
+							if (
+								parameter.custom_data.data1 == std::numeric_limits<std::size_t>::max()
+								|| parameter.custom_data.data1 == std::numeric_limits<std::size_t>::max() - 1
+								)
+							{
+								return true;
+							}
+
+							auto tar_sys_index = sequencer.GetCurrentParameter().custom_data.data2;
+							assert(tar_sys_index < system_info.size());
+							auto target_view = GetSystemRequireBitFlagViewer_AssumedLocked(tar_sys_index);
+
+							if (
+								*target_view.singleton.require.IsOverlapping(current_view.singleton.write)
+								|| *current_view.singleton.require.IsOverlapping(target_view.singleton.write)
+								)
+							{
+								return true;
+							}
+
+							if (
+								*target_view.component.require.IsOverlapping(current_view.component.write)
+								|| *current_view.component.require.IsOverlapping(target_view.component.write)
+								)
+							{
+								return DetectSystemComponentOverlapping_AssumedLocked(index.index, tar_sys_index);
+							}
+
+							return false;
+						},
+						t_paramter
+					);
+					return ExecutedSystemIndex{};
+				}
+			}
 			break;
 		}
 		}
@@ -540,8 +626,8 @@ namespace Noodles
 					main_flow.Remove(ite.index);
 					Potato::TaskFlow::Node::Parameter parameter;
 					parameter.node_name = L"SubFlowBoundary";
-					parameter.custom_data.data1 = static_cast<std::size_t>(ite.layer);
-					parameter.custom_data.data2 = sub_flow_index;
+					parameter.custom_data.data1 = std::numeric_limits<std::size_t>::max() - 1;
+					parameter.custom_data.data2 = static_cast<std::size_t>(ite.layer);
 					ite.index = main_flow.AddFlowAsNode(ite.flow, &sub_flow_system_node, parameter);
 					ite.need_update = false;
 					for (auto& ite2 : sub_flows)
@@ -572,11 +658,13 @@ namespace Noodles
 
 	void Instance::ExecuteNode(Potato::Task::Context& context, Potato::TaskFlow::Node& node, Potato::TaskFlow::Controller& controller)
 	{
-		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"start system {}", controller.GetParameter().node_name);
+		if(controller.GetCategory() != Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"start system {}", controller.GetParameter().node_name);
 		SystemNode* sys_node = static_cast<SystemNode*>(&node);
 		Context instance_context{context, controller, *this, controller.GetParameter().custom_data.data1};
 		sys_node->SystemNodeExecute(instance_context);
-		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"finish system {}", controller.GetParameter().node_name);
+		if (controller.GetCategory() != Potato::TaskFlow::EncodedFlow::Category::SubFlowBegin)
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"finish system {}", controller.GetParameter().node_name);
 	}
 
 	void Instance::UpdateSystems()
