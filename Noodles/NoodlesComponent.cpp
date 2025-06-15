@@ -237,10 +237,11 @@ namespace Noodles
 
 		max_archetype_count = BitFlagContainerConstViewer::GetMaxBitFlag(config.max_archetype_count).value;
 
-		bit_flag_container.resize(archtype_container_count * 2);
+		bit_flag_container.resize(archtype_container_count * 3);
 
 		archetype_not_empty_bitflag = std::span(bit_flag_container).subspan(0, archtype_container_count);
-		archetype_update_bitflag = std::span(bit_flag_container).subspan(archtype_container_count);
+		archetype_update_bitflag = std::span(bit_flag_container).subspan(archtype_container_count, archtype_container_count);
+		archetype_not_empty_bitflag_lastframe = std::span(bit_flag_container).subspan(archtype_container_count * 2);
 	}
 
 	ComponentManager::~ComponentManager()
@@ -289,10 +290,9 @@ namespace Noodles
 				info.chunk_span = { old_chunk_size, old_chunk_size };
 
 				archetype_info.emplace_back(std::move(info));
-
 				BitFlag archtype_bitflag = BitFlag{ old_info_size };
-
 				auto re = archetype_update_bitflag.SetValue(archtype_bitflag);
+				has_new_archetype = true;
 				assert(re.has_value());
 				return old_info_size;
 			}
@@ -482,9 +482,16 @@ namespace Noodles
 		return std::nullopt;
 	}
 
-	void ComponentManager::ClearBitFlag()
+	void ComponentManager::ResetUpdatedState()
 	{
 		archetype_update_bitflag.Reset();
+		has_new_archetype = false;
+	}
+
+	void ComponentManager::UpdateUpdatedState()
+	{
+		archetype_update_bitflag.ExclusiveOr(archetype_not_empty_bitflag, archetype_not_empty_bitflag_lastframe);
+		archetype_not_empty_bitflag_lastframe.CopyFrom(archetype_not_empty_bitflag);
 	}
 
 	bool ComponentManager::IsArchetypeAcceptQuery(std::size_t archetype_index, BitFlagContainerConstViewer query_class, BitFlagContainerConstViewer refuse_qurey_class) const

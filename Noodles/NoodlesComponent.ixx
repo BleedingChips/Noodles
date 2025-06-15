@@ -77,6 +77,7 @@ export namespace Noodles
 
 		BitFlagContainerConstViewer GetArchetypeUpdateBitFlag() const { return archetype_update_bitflag; }
 		BitFlagContainerConstViewer GetArchetypeNotEmptyBitFlag() const { return archetype_not_empty_bitflag; }
+		bool HasArchetypeCreated() const { return has_new_archetype; }
 
 		OptionalSizeT LocateComponentChunk(BitFlagContainerConstViewer component_bitflag) const;
 		OptionalSizeT CreateComponentChunk(std::span<Archetype::Init const> archetype_init);
@@ -110,7 +111,9 @@ export namespace Noodles
 		std::optional<Index> AllocateEntityWithoutConstruct(std::size_t archetype_index);
 
 		std::optional<bool> PopBackEntityToFillHole(Index hole_index, Index pop_back_limited);
-		void ClearBitFlag();
+
+		void ResetUpdatedState();
+		void UpdateUpdatedState();
 		
 		bool IsArchetypeAcceptQuery(std::size_t archetype_index, BitFlagContainerConstViewer query_class, BitFlagContainerConstViewer refuse_qurey_class) const;
 		bool TranslateClassToQueryData(std::size_t archetype_index, std::span<BitFlag const> target_class, std::span<std::size_t> outoput_query_data) const;
@@ -141,6 +144,8 @@ export namespace Noodles
 		std::pmr::vector<BitFlagContainer::Element> bit_flag_container;
 		BitFlagContainerViewer archetype_update_bitflag;
 		BitFlagContainerViewer archetype_not_empty_bitflag;
+		BitFlagContainerViewer archetype_not_empty_bitflag_lastframe;
+		bool has_new_archetype = false;
 		std::size_t max_archetype_count = 0;
 	};
 }

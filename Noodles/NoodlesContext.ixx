@@ -35,6 +35,7 @@ export namespace Noodles
 	{
 		RequireBitFlagViewer component;
 		RequireBitFlagViewer singleton;
+		BitFlagContainerViewer archetype_usage;
 	};
 
 	enum class SystemCategory
@@ -42,6 +43,7 @@ export namespace Noodles
 		Tick,
 		Once,
 		OnceNextFrame,
+		OnceIgnoreLayer
 	};
 
 	struct SystemNode : public Potato::TaskFlow::Node
@@ -97,6 +99,9 @@ export namespace Noodles
 		friend struct Ptr::CurrentWrapper;
 	};
 
+	struct SubFlowSystemNode;
+	struct EndingSystemNode;
+
 	struct Instance : protected Potato::TaskFlow::Executor
 	{
 		struct Config
@@ -128,10 +133,23 @@ export namespace Noodles
 		virtual bool Commit(Potato::Task::Context& context, Parameter parameter = {});
 
 		using SystemIndex = Potato::Misc::VersionIndex;
+		using ExecutedSystemIndex = Potato::Misc::VersionIndex;
 
-		SystemIndex PrepareSystemNode(SystemNode::Ptr index, bool temporary = false);
-		bool LoadSystemNode(SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
-		bool LoadSystemNode(Potato::Task::Context& context, SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
+		SystemIndex PrepareSystemNode(SystemNode::Ptr index);
+		std::optional<ExecutedSystemIndex> LoadSystemNode(SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
+		std::optional<ExecutedSystemIndex> LoadSystemNode(Context& context, SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
+		decltype(auto) CreateEntity() {
+			std::lock_guard lg(entity_mutex);
+			return entity_manager.CreateEntity();
+		}
+
+		template<typename ComponentT>
+		decltype(auto) AddEntityComponent(Entity& entity, ComponentT&& component) 
+		{
+			BitFlag component_bit_flag = *component_map.LocateOrAdd<ComponentT>();
+			std::lock_guard lg(entity_mutex);
+			return entity_manager.AddEntityComponent(entity, std::forward<ComponentT>(component), component_bit_flag);
+		}
 
 	protected:
 
@@ -142,10 +160,12 @@ export namespace Noodles
 		std::tuple<std::size_t, std::size_t> GetQuery(std::size_t system_index, std::span<ComponentQuery::OPtr> component_query, std::span<SingletonQuery::OPtr> singleton_query);
 
 		SystemRequireBitFlagViewer GetSystemRequireBitFlagViewer_AssumedLocked(std::size_t system_info_index);
+		bool DetectSystemComponentOverlapping_AssumedLocked(std::size_t system_index, std::size_t system_index2);
 
 		virtual void BeginFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
 		virtual void FinishFlow_AssumedLocked(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
 		virtual bool UpdateFlow_AssumedLocked(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		virtual void UpdateSystems();
 		virtual void ExecuteNode(Potato::Task::Context& context, Potato::TaskFlow::Node& node, Potato::TaskFlow::Controller& controller) override;
 		
 		using ExecuteSystemIndex = Potato::Misc::VersionIndex;
@@ -175,10 +195,11 @@ export namespace Noodles
 		std::mutex singleton_modify_mutex;
 		SingletonModifyManager singleton_modify_manager;
 
+		Potato::TaskFlow::Flow::NodeIndex ending_system_index;
+
 		std::mutex flow_mutex;
 		Potato::TaskFlow::Flow main_flow;
-		bool flow_need_update = false;
-
+		bool flow_need_update = true;
 		struct SubFlowState
 		{
 			std::int32_t layer = 0;
@@ -188,22 +209,23 @@ export namespace Noodles
 		};
 		std::pmr::vector<SubFlowState> sub_flows;
 		
-
 		struct SystemNodeInfo
 		{
 			std::size_t version = 0;
 			SystemNode::Ptr node;
 			IndexSpan component_query_index;
 			IndexSpan singleton_query_index;
-			bool temporary = false;
 		};
 
 		struct ExecuteSystemNodeInfo
 		{
+			std::size_t version = 0;
+			bool has_dynamic_edges = false;
 			std::optional<SystemCategory> category;
 			Potato::TaskFlow::Flow::NodeIndex flow_index;
+			std::size_t system_info_index = 0;
+			std::size_t sub_flow_index = 0;
 			SystemNode::Parameter parameter;
-			std::size_t version = 0;
 		};
 
 		std::shared_mutex system_mutex;
@@ -213,7 +235,21 @@ export namespace Noodles
 		std::pmr::vector<SingletonQuery::Ptr> singleton_query;
 
 		std::mutex execute_system_mutex;
+		bool execute_system_need_update = true;
 		std::pmr::vector<ExecuteSystemNodeInfo> execute_system_info;
+		bool has_template_system = false;
+
+		struct DynamicEdge
+		{
+			std::size_t from_system_index;
+			std::size_t from_execute_system_index;
+			std::size_t to_system_index;
+			std::size_t to_execute_system_index;
+			bool is_mutex = false;
+			bool added = false;
+		};
+
+		std::pmr::vector<DynamicEdge> dynamic_edges;
 
 		struct OnceSystemInfo
 		{
@@ -221,7 +257,9 @@ export namespace Noodles
 			SystemIndex index;
 		};
 
+		std::mutex once_system_mutex;
 		std::pmr::vector<OnceSystemInfo> once_system_node;
+		std::int32_t current_layer = std::numeric_limits<std::int32_t>::max();
 		std::size_t current_frame_once_system_iterator = 0;
 		std::size_t current_frame_once_system_count = 0;
 
@@ -231,6 +269,8 @@ export namespace Noodles
 		friend struct Ptr;
 		friend struct SystemInitializer;
 		friend struct Context;
+		friend struct SubFlowSystemNode;
+		friend struct EndingSystemNode;
 	};
 
 	template<typename Type>
@@ -327,13 +367,17 @@ export namespace Noodles
 		friend struct Instance;
 	};
 
+	
+
 	struct Context
 	{
 		std::tuple<std::size_t, std::size_t> GetQuery(std::span<ComponentQuery::OPtr> component_query, std::span<SingletonQuery::OPtr> singleton_query)
 		{
 			return instance.GetQuery(system_index, component_query, singleton_query);
 		}
+
 	protected:
+
 		Context(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller, Instance& instance, std::size_t system_index)
 			: context(context), controller(controller), instance(instance), system_index(system_index)
 		{
@@ -347,6 +391,8 @@ export namespace Noodles
 
 		friend struct SystemNode;
 		friend struct Instance;
+		friend struct SubFlowSystemNode;
+		friend struct EndingSystemNode;
 	};
 
 
@@ -392,227 +438,4 @@ export namespace Noodles
 		}
 		return {};
 	}
-
-	/*
-	struct Priority
-	{
-		std::int32_t layout = 0;
-		std::int32_t primary = 0;
-		std::int32_t second = 0;
-		std::int32_t third = 0;
-		std::strong_ordering operator<=>(Priority const&) const = default;
-		bool operator==(const Priority&) const = default;
-	};
-
-	export struct Context;
-	export struct LayerTaskFlow;
-	export struct ParallelExecutor;
-	export struct ContextWrapper;
-
-	struct ParallelInfo
-	{
-		enum class Status
-		{
-			None,
-			Parallel,
-			Done
-		};
-		Status status = Status::None;
-		std::size_t total_count = 0;
-		std::size_t current_index = 0;
-		std::size_t user_index = 0;
-	};
-
-	
-
-	export struct ContextWrapper
-	{
-		Context& GetContext() const { return context; }
-		void AddTemporarySystemNodeNextFrame(SystemNode& node, Potato::Task::Property property);
-		void AddTemporarySystemNode(SystemNode& node, Potato::Task::Property property);
-		ContextWrapper(Potato::TaskGraphic::ContextWrapper& wrapper, Context& context, LayerTaskFlow& layer_flow)
-			: wrapper(wrapper), context(context), layer_flow(layer_flow) {}
-		Potato::Task::Property& GetNodeProperty() const { return wrapper.GetNodeProperty(); }
-	protected:
-		Potato::TaskGraphic::ContextWrapper& wrapper;
-		Context& context;
-		LayerTaskFlow& layer_flow;
-	};
-
-	enum class Order
-	{
-		MUTEX,
-		SMALLER,
-		BIGGER,
-		UNDEFINE
-	};
-
-	using OrderFunction = Order(*)(std::u8string_view p1, std::u8string_view p2);
-
-	struct Property
-	{
-		Priority priority;
-		Potato::Task::Property property;
-		OrderFunction order_function = nullptr;
-	};
-
-	export struct LayerTaskFlow : protected Potato::TaskGraphic::Flow, protected Potato::IR::MemoryResourceRecordIntrusiveInterface
-	{
-		using Ptr = Potato::Pointer::IntrusivePtr<LayerTaskFlow, Flow::Wrapper>;
-
-		bool AddTemporaryNode(SystemNode& node, Potato::Task::Property property);
-		void AddTemporaryNodeNextFrame(SystemNode& node, Potato::Task::Property property);
-
-	protected:
-
-		
-		bool AddTickedNode(SystemNode& node, Property property);
-		virtual void TaskFlowExecuteBegin_AssumedLocked(Potato::Task::ContextWrapper& context) override;
-		virtual void TaskFlowPostUpdateProcessNode_AssumedLocked(Potato::Task::ContextWrapper& wrapper) override;
-		static bool TemporaryNodeDetect(Context& context, SystemNode& node, Potato::Task::Property& property, SystemNode const& t_node, Potato::Task::Property const& target_property);
-
-		bool AddTemporaryNode_AssumedLocked(SystemNode& node, Potato::Task::Property property);
-
-		LayerTaskFlow(Potato::IR::MemoryResourceRecord record, std::int32_t layout)
-			: MemoryResourceRecordIntrusiveInterface(record), layout(layout)
-		{
-		}
-
-		Context& GetContextFromTrigger();
-
-		virtual void AddTaskGraphicFlowRef() const override { MemoryResourceRecordIntrusiveInterface::AddRef(); }
-		virtual void SubTaskGraphicFlowRef() const override { MemoryResourceRecordIntrusiveInterface::SubRef(); }
-
-		std::int32_t layout;
-
-		Potato::Graph::DirectedAcyclicGraphImmediately worst_graph;
-		
-		struct SystemNodeInfo
-		{
-			SystemNode::Ptr node;
-			Priority priority;
-			OrderFunction order_func = nullptr;
-			Potato::Graph::GraphNode task_node;
-			Potato::Graph::GraphNode worst_graph_node;
-			std::u8string_view system_name;
-		};
-
-		struct DynamicEdge
-		{
-			bool is_mutex = false;
-			bool component_overlapping = false;
-			bool singleton_overlapping = false;
-			Potato::Graph::GraphNode pre_process_from;
-			Potato::Graph::GraphNode pre_process_to;
-			bool need_edge = false;
-		};
-
-		std::pmr::vector<SystemNodeInfo> system_infos;
-		std::pmr::vector<DynamicEdge> dynamic_edges;
-
-		struct DeferInfo
-		{
-			SystemNode::Ptr node;
-			Potato::Task::Property property;
-		};
-
-		std::pmr::vector<DeferInfo> defer_temporary_system_node;
-
-		friend struct Flow::Wrapper;
-		friend struct Ptr;
-		friend struct Context;
-		friend struct SystemNode;
-		friend struct ContextWrapper;
-		friend struct ParallelExecutor;
-		friend struct LayerTaskFlowProcessContext;
-	};
-
-	export struct Context : public Potato::TaskGraphic::Flow
-	{
-		struct Config
-		{
-			std::chrono::milliseconds min_frame_time = std::chrono::milliseconds{ 13 };
-			std::size_t max_component_count = 128;
-			std::size_t max_archetype_count = 128;
-			std::size_t max_singleton_count = 128;
-			std::size_t max_thread_order_count = 128;
-		};
-
-		struct Wrapper
-		{
-			void AddRef(Context const* ptr) { ptr->AddContextRef(); }
-			void SubRef(Context const* ptr) { ptr->SubContextRef(); }
-		};
-
-		using Ptr = Potato::Pointer::IntrusivePtr<Context, Wrapper>;
-
-		static Ptr Create(StructLayoutManager& manager, Config config = {}, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
-
-		Entity::Ptr CreateEntity() { return entity_manager.CreateEntity(); }
-
-		template<typename Type>
-		bool AddEntityComponent(Entity& entity, Type&& type) { return entity_manager.AddEntityComponent(entity, std::forward<Type>(type)); }
-
-		bool RemoveSystemDefer(std::u8string_view system_name);
-		bool AddTickedSystemNode(SystemNode& node, Property property);
-		bool AddTemporarySystemNodeNextFrame(SystemNode& node, std::int32_t layout, Potato::Task::Property property);
-
-		bool RemoveEntity(Entity::Ptr entity) { return entity_manager.ReleaseEntity(std::move(entity)); }
-
-		template<typename Type>
-		bool AddSingleton(Type&& type) { return singleton_manager.AddSingleton(std::forward<Type>(type)); }
-
-		bool IterateComponent_AssumedLocked(ComponentQuery const& query, std::size_t ite_index, QueryData& accessor) const { return component_manager.ReadComponentRow_AssumedLocked(query, ite_index, accessor); }
-		bool ReadEntity_AssumedLocked(Entity const& entity, ComponentQuery const& query, QueryData& accessor) const { { return entity_manager.ReadEntityComponents_AssumedLocked(component_manager, entity, query, accessor); } }
-		//decltype(auto) ReadEntityDirect_AssumedLocked(Entity const& entity, ComponentFilter const& filter, std::span<void*> output, bool prefer_modifier = true) const { return manager.ReadEntityDirect_AssumedLocked(entity, filter, output, prefer_modifier); };
-		bool ReadSingleton_AssumedLocked(SingletonQuery const& query, QueryData& accessor) const { return singleton_manager.ReadSingleton_AssumedLocked(query, accessor); }
-		bool UpdateQuery(ComponentQuery& query) const { return component_manager.UpdateFilter_AssumedLocked(query); }
-		bool UpdateQuery(SingletonQuery& query) const { return singleton_manager.UpdateFilter_AssumedLocked(query); }
-
-		void Quit();
-
-		
-		std::chrono::steady_clock::duration GetFramedDuration() const { return framed_duration; }
-		float GetFramedDurationInSecond() const
-		{
-			auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(GetFramedDuration());
-			return ms.count() / 1000.0f;
-		}
-
-		StructLayoutManager& GetStructLayoutManager() const { return *manager; }
-
-	protected:
-
-		Context(StructLayoutManager& manager, Config config = {});
-
-		LayerTaskFlow* FindSubContextTaskFlow_AssumedLocked(std::int32_t layer);
-		LayerTaskFlow::Ptr FindOrCreateContextTaskFlow_AssumedLocked(std::int32_t layer);
-
-		virtual void TaskFlowExecuteBegin_AssumedLocked(Potato::Task::ContextWrapper& context) override;
-		virtual void TaskFlowExecuteEnd_AssumedLocked(Potato::Task::ContextWrapper& context) override;
-		virtual void AddContextRef() const = 0;
-		virtual void SubContextRef() const = 0;
-		virtual void AddTaskGraphicFlowRef() const final { AddContextRef(); }
-		virtual void SubTaskGraphicFlowRef() const final { SubContextRef(); }
-
-		std::atomic<std::chrono::steady_clock::duration> framed_duration;
-
-		StructLayoutMarkIndexManager thread_order_manager;
-
-		std::mutex mutex;
-		Config config;
-		bool require_quit = false;
-		std::chrono::steady_clock::time_point start_up_tick_lock;
-
-		StructLayoutManager::Ptr manager;
-		ComponentManager component_manager;
-		EntityManager entity_manager;
-		SingletonManager singleton_manager;
-
-		friend struct Potato::TaskGraphic::Flow::Wrapper;
-		friend struct SystemNode;
-		friend struct ParallelExecutor;
-		friend struct LayerTaskFlow;
-	};
-	*/
 }

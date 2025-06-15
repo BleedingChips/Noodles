@@ -253,7 +253,7 @@ namespace Noodles
 	{
 		bool has_been_update = false;
 
-		manager.ClearBitFlag();
+		manager.ResetUpdatedState();
 
 		std::pmr::vector<ComponentManager::Index> removed_list(temp_resource);
 
@@ -466,6 +466,7 @@ namespace Noodles
 
 		entity_modifier.clear();
 		entity_modifier_event.clear();
+		manager.UpdateUpdatedState();
 		return has_been_update;
 	}
 }

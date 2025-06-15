@@ -55,15 +55,19 @@ struct SysNode : public Noodles::SystemNode
 
 	virtual void Init(Noodles::SystemInitializer& initlizer) override
 	{
+		
 		initlizer.CreateComponentQuery(2, [](Noodles::ComponentQueryInitializer& comp_init) {
 			comp_init.SetRequire<A const>();
-			comp_init.SetRequire<B const>();
-		});
+			comp_init.SetRequire<B>();
+		})
+		;
 
+		/*
 		initlizer.CreateSingletonQuery(2, [](Noodles::SingletonQueryInitializer& sing_init) {
 			sing_init.SetRequire<A const>();
 			sing_init.SetRequire<B>();
 		});
+		*/
 	}
 
 
@@ -115,17 +119,27 @@ void TestFunction(Noodles::ContextWrapper& wrapper, Noodles::AutoComponentQuery<
 
 int main()
 {
-	Potato::Task::Context context;
-	auto instance = Noodles::Instance::Create();
-	auto s1 = instance->PrepareSystemNode(&test_sys);
-	//auto s2 = instance->PrepareSystemNode(&test_sys);
-	instance->LoadSystemNode(Noodles::SystemCategory::Tick, s1, { L"TestSystem1!!" });
-	instance->LoadSystemNode(Noodles::SystemCategory::Tick, s1, { L"TestSystem2!!" });
-	Noodles::Instance::Parameter par;
-	par.duration_time = std::chrono::milliseconds{ 20000 };
-	instance->Commit(context, par);
-	context.CreateThreads(2);
-	context.ExecuteContextThreadUntilNoExistTask();
+	{
+		Potato::Task::Context context;
+		auto instance = Noodles::Instance::Create();
+		auto s1 = instance->PrepareSystemNode(&test_sys);
+		//auto s2 = instance->PrepareSystemNode(&test_sys);
+		Noodles::SystemNode::Parameter sys_par;
+		sys_par.name = L"TestSystem1!!";
+		sys_par.layer = -1;
+		instance->LoadSystemNode(Noodles::SystemCategory::Tick, s1, sys_par);
+		sys_par.name = L"TestSystem2!!";
+		instance->LoadSystemNode(Noodles::SystemCategory::Tick, s1, sys_par);
+		Noodles::Instance::Parameter par;
+		par.duration_time = std::chrono::milliseconds{ 3000 };
+		auto enti = instance->CreateEntity();
+		instance->AddEntityComponent(*enti, A{ 10086 });
+		instance->AddEntityComponent(*enti, B{ 100862 });
+		instance->Commit(context, par);
+		context.CreateThreads(2);
+		context.ExecuteContextThreadUntilNoExistTask();
+	}
+	
 
 
 
