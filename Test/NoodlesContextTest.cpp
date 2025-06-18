@@ -6,6 +6,8 @@ struct A { std::size_t i = 0; };
 
 struct B { std::size_t i[2] = {1, 2}; };
 
+struct C { std::size_t i[2] = { 1, 2 }; };
+
 
 /*
 std::mutex PrintMutex;
@@ -119,9 +121,19 @@ void TestFunction(Noodles::ContextWrapper& wrapper, Noodles::AutoComponentQuery<
 
 int main()
 {
+	auto sys = Noodles::CreateAutoSystemNode([](
+		Noodles::Context& context, 
+		Noodles::AutoComponentQuery<A>::template Refuse<C> query,
+		Noodles::AutoSingletonQuery<A> s_query
+		) {
+		volatile int  i = 0;
+	});
+
+
 	{
 		Potato::Task::Context context;
 		auto instance = Noodles::Instance::Create();
+		auto sys_index = instance->PrepareSystemNode(sys);
 		auto s1 = instance->PrepareSystemNode(&test_sys);
 		//auto s2 = instance->PrepareSystemNode(&test_sys);
 		Noodles::SystemNode::Parameter sys_par;
@@ -135,6 +147,9 @@ int main()
 		instance->LoadSystemNode(Noodles::SystemCategory::OnceNextFrame, s1, sys_par);
 		sys_par.name = L"TestSystem4!!";
 		instance->LoadSystemNode(Noodles::SystemCategory::OnceNextFrame, s1, sys_par);
+
+		sys_par.name = L"TestSystem66!!";
+		instance->LoadSystemNode(Noodles::SystemCategory::Tick, sys_index, sys_par);
 		Noodles::Instance::Parameter par;
 		par.duration_time = std::chrono::milliseconds{ 3000 };
 		auto enti = instance->CreateEntity();

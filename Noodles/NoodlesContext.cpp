@@ -560,7 +560,6 @@ namespace Noodles
 					exe_ref.parameter = parameter;
 					exe_ref.system_info_index = index.index;
 
-
 					Potato::TaskFlow::Node::Parameter t_paramter;
 					t_paramter.custom_data.data1 = exe_index.index;
 					t_paramter.node_name = parameter.name;
@@ -658,13 +657,15 @@ namespace Noodles
 
 	void Instance::ExecuteNode(Potato::Task::Context& context, Potato::TaskFlow::Node& node, Potato::TaskFlow::Controller& controller)
 	{
-		if(controller.GetCategory() != Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
-			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"start system {}", controller.GetParameter().node_name);
+		if(controller.GetCategory() == Potato::TaskFlow::EncodedFlow::Category::SubFlowBegin)
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"SubFlow Begin {}", controller.GetParameter().node_name);
+		else if(controller.GetCategory() == Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"SubFlow End {}", controller.GetParameter().node_name);
+		else
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"Execute System {}", controller.GetParameter().node_name);
 		SystemNode* sys_node = static_cast<SystemNode*>(&node);
-		Context instance_context{context, controller, *this, controller.GetParameter().custom_data.data1};
+		Context instance_context{context, controller, *this, controller.GetParameter().custom_data.data2};
 		sys_node->SystemNodeExecute(instance_context);
-		if (controller.GetCategory() != Potato::TaskFlow::EncodedFlow::Category::SubFlowBegin)
-			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"finish system {}", controller.GetParameter().node_name);
 	}
 
 	void Instance::UpdateSystems()
@@ -888,7 +889,7 @@ namespace Noodles
 			auto re = bitflag_map.LocateOrAdd(*struct_layout);
 			if (re)
 			{
-				auto re2 = writed.SetValue(*re);
+				auto re2 = refuse.SetValue(*re);
 				if (re2)
 				{
 					return true;

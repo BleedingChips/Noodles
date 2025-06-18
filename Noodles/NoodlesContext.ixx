@@ -376,6 +376,11 @@ export namespace Noodles
 			return instance.GetQuery(system_index, component_query, singleton_query);
 		}
 
+		std::optional<Instance::ExecuteSystemIndex> LoadSystemNode(SystemCategory category, Instance::SystemIndex system_index, SystemNode::Parameter parameter = {})
+		{
+			return instance.LoadSystemNode(*this, category, system_index, std::move(parameter));
+		}
+
 	protected:
 
 		Context(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller, Instance& instance, std::size_t system_index)

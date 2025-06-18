@@ -18,6 +18,317 @@ import NoodlesEntity;
 
 export namespace Noodles
 {
+	
+	struct AutoSystemContext
+	{
+		std::span<ComponentQuery::OPtr> component;
+		std::span<SingletonQuery::OPtr> singleton;
+	};
+
+
+	template<AcceptableQueryType ...ComponentT>
+	struct AutoComponentQueryIterator
+	{
+		AutoComponentQueryIterator(Context& context, ComponentQuery::OPtr query)
+			: context(context), query(std::move(query)) 
+		{
+			//assert(query);
+			//query->QueryComponentArrayWithIterator()
+		}
+
+		AutoComponentQueryIterator(AutoComponentQueryIterator const&) = default;
+
+	protected:
+		std::tuple<ComponentT*...> data = {(Potato::TMP::ItSelf<ComponentT>(), nullptr)...};
+		Context& context;
+		ComponentQuery::OPtr query;
+		std::size_t archetype_iterator = 0;
+	};
+
+	export template<AcceptableQueryType ...ComponentT>
+		struct AutoComponentQuery;
+
+	export template<typename Require, typename Refuse>
+		struct AutoComponentQueryWrapper;
+
+	template<typename RequireTypeTuple, typename RefuseTypeTuple>
+	struct AutoComponentQueryWithRefuse;
+
+	template<AcceptableQueryType ...Require, AcceptableQueryType ...Refuse>
+	struct AutoComponentQueryWrapper<Potato::TMP::TypeTuple<Require...>, Potato::TMP::TypeTuple<Refuse...>>
+	{
+		void Init(SystemInitializer& initializer)
+		{
+			initializer.CreateComponentQuery(
+				sizeof...(Require),
+				[](ComponentQueryInitializer& init) {
+					
+					static std::array<
+						std::tuple<Potato::IR::StructLayout::Ptr, bool>,
+						sizeof...(Require)
+					> static_require_struct_layout = { std::tuple<Potato::IR::StructLayout::Ptr, bool>{Potato::IR::StructLayout::GetStatic<Require>(), IsQueryWriteType<Require>}...};
+					
+					for (auto& ite : static_require_struct_layout)
+					{
+						init.SetRequire(std::get<0>(ite), std::get<1>(ite));
+					}
+					
+					static std::array<
+						Potato::IR::StructLayout::Ptr,
+						sizeof...(Refuse)
+					> static_refuse_struct_layout = { Potato::IR::StructLayout::GetStatic<Refuse>()...};
+
+					for (auto& ite : static_refuse_struct_layout)
+					{
+						init.SetRefuse(ite);
+					}
+				}
+			);
+		}
+
+		auto Translate(Context& context, AutoSystemContext& sys_context)
+		{
+			assert(sys_context.component.size() > 0);
+			if constexpr (sizeof...(Refuse) == 0)
+			{
+				AutoComponentQuery<Require...> result{ context, sys_context.component[0] };
+				sys_context.component = sys_context.component.subspan(1);
+				return result;
+			}
+			else {
+				AutoComponentQueryWithRefuse<Potato::TMP::TypeTuple<Require...>, Potato::TMP::TypeTuple<Refuse...>> result{ context, sys_context.component[0] };
+				sys_context.component = sys_context.component.subspan(1);
+				return result;
+			}
+			
+		}
+	};
+
+	export template<AcceptableQueryType ...ComponentT>
+		struct AutoComponentQuery
+	{
+		using Wrapper = AutoComponentQueryWrapper<Potato::TMP::TypeTuple<ComponentT...>, Potato::TMP::TypeTuple<>>;
+		AutoComponentQuery(AutoComponentQuery&&) = default;
+		AutoComponentQuery(Context& context, ComponentQuery::OPtr query)
+			: context(context), query(std::move(query)) {}
+
+		template<AcceptableQueryType ...RefuseComponentT>
+		using Refuse = AutoComponentQueryWithRefuse<
+			Potato::TMP::TypeTuple<ComponentT...>,
+			Potato::TMP::TypeTuple<RefuseComponentT...>
+		>;
+
+	protected:
+		Context& context;
+		ComponentQuery::OPtr query;
+	};
+
+	template<typename ...RequireTypeTuple, typename ...RefuseTypeTuple>
+	struct AutoComponentQueryWithRefuse<Potato::TMP::TypeTuple<RequireTypeTuple...>, Potato::TMP::TypeTuple<RefuseTypeTuple...>>
+		: public AutoComponentQuery<RequireTypeTuple...>
+	{
+		using Wrapper = AutoComponentQueryWrapper<Potato::TMP::TypeTuple<RequireTypeTuple...>, Potato::TMP::TypeTuple<RefuseTypeTuple...>>;
+		AutoComponentQueryWithRefuse(AutoComponentQueryWithRefuse&&) = default;
+		AutoComponentQueryWithRefuse(Context& context, ComponentQuery::OPtr query)
+			: AutoComponentQuery<RequireTypeTuple...>(context, std::move(query))
+		{
+		}
+	};
+
+
+	export template<AcceptableQueryType ...SingletonT>
+		struct AutoSingletonQuery;
+
+	template<AcceptableQueryType ...RequireSingletonT>
+	struct AutoSingletonQueryWrapper
+	{
+		void Init(SystemInitializer& initializer)
+		{
+			initializer.CreateSingletonQuery(
+				sizeof...(RequireSingletonT),
+				[](SingletonQueryInitializer& init) {
+
+					static std::array<
+						std::tuple<Potato::IR::StructLayout::Ptr, bool>,
+						sizeof...(RequireSingletonT)
+					> static_require_struct_layout = { std::tuple<Potato::IR::StructLayout::Ptr, bool>{Potato::IR::StructLayout::GetStatic<RequireSingletonT>(), IsQueryWriteType<RequireSingletonT>}... };
+
+					for (auto& ite : static_require_struct_layout)
+					{
+						init.SetRequire(std::get<0>(ite), std::get<1>(ite));
+					}
+				}
+			);
+		}
+
+		auto Translate(Context& context, AutoSystemContext& sys_context)
+		{
+			assert(sys_context.singleton.size() > 0);
+			AutoSingletonQuery<RequireSingletonT...> result{ context, sys_context.singleton[0] };
+			sys_context.singleton = sys_context.singleton.subspan(1);
+			return result;
+		}
+	};
+
+	export template<AcceptableQueryType ...SingletonT>
+		struct AutoSingletonQuery
+	{
+		using Wrapper = AutoSingletonQueryWrapper<SingletonT...>;
+		AutoSingletonQuery(AutoSingletonQuery&&) = default;
+		AutoSingletonQuery(Context& context, SingletonQuery::OPtr query)
+			: context(context), query(std::move(query)) {
+		}
+
+	protected:
+		Context& context;
+		SingletonQuery::OPtr query;
+	};
+
+	struct ContextWrapper
+	{
+		void Init(SystemInitializer& initializer) {};
+		Context& Translate(Context& context, AutoSystemContext& auto_context)
+		{
+			return context;
+		}
+	};
+
+	template<typename TargetType>
+	struct AutoSystemWrapperGetter
+	{
+		using Type = TargetType;
+	};
+
+	template<typename ...TargetType>
+	struct AutoSystemWrapperGetter<AutoComponentQuery<TargetType...>>
+	{
+		using Type = AutoComponentQuery<TargetType...>::Wrapper;
+	};
+
+	template<typename TargetType, typename RefuseType>
+	struct AutoSystemWrapperGetter<AutoComponentQueryWithRefuse<TargetType, RefuseType>>
+	{
+		using Type = typename AutoComponentQueryWithRefuse<TargetType, RefuseType>::Wrapper;
+	};
+
+	template<typename ...TargetType>
+	struct AutoSystemWrapperGetter<AutoSingletonQuery<TargetType...>>
+	{
+		using Type = AutoSingletonQuery<TargetType...>::Wrapper;
+	};
+
+	template<>
+	struct AutoSystemWrapperGetter<Context>
+	{
+		using Type = ContextWrapper;
+	};
+
+	template<typename ...WrapperT>
+	struct AutoSystemWrapperList;
+
+	template<>
+	struct AutoSystemWrapperList<>
+	{
+		static constexpr std::size_t ParameterCount = 0;
+
+		void Init(SystemInitializer& initializer){}
+
+		template<typename Func, typename ...OtherParameter>
+		void Execute(Context& context, AutoSystemContext& auto_context, Func&& func, OtherParameter&& ...para)
+		{
+			std::forward<Func>(func)(std::forward<OtherParameter>(para)...);
+		}
+	};
+
+	template<typename ThisWrapperT, typename ...OtherWrapperT>
+	struct AutoSystemWrapperList<ThisWrapperT, OtherWrapperT...> : public AutoSystemWrapperList<OtherWrapperT...>
+	{
+		static constexpr std::size_t ParameterCount = sizeof...(OtherWrapperT) + 1;
+		using Type = AutoSystemWrapperGetter<std::remove_cvref_t<ThisWrapperT>>::Type;
+
+		Type wrapper;
+
+
+		void Init(SystemInitializer& initializer)
+		{
+			wrapper.Init(initializer);
+			AutoSystemWrapperList<OtherWrapperT...>::Init(initializer);
+		}
+
+		template<typename Func, typename ...OtherParameter>
+		void Execute(Context& context, AutoSystemContext& auto_context, Func&& func, OtherParameter&& ...para)
+		{
+			AutoSystemWrapperList<OtherWrapperT...>::Execute(
+				context, auto_context, std::forward<Func>(func), std::forward<OtherParameter>(para)..., wrapper.Translate(context, auto_context)
+			);
+		}
+	};
+	
+
+	template<typename Func>
+	struct AutoSystemNode : public SystemNode, public Potato::IR::MemoryResourceRecordIntrusiveInterface
+	{
+
+		AutoSystemNode(Potato::IR::MemoryResourceRecord record, Func&& func)
+			: MemoryResourceRecordIntrusiveInterface(record), func(std::move(func)) 
+		{
+
+		}
+
+		using WrapperListType = typename Potato::TMP::FunctionInfo<std::remove_cvref_t<Func>>::template PackParameters<AutoSystemWrapperList>;
+
+		WrapperListType wrappers;
+		Func func;
+
+		virtual void Init(SystemInitializer& initializer) override
+		{
+			wrappers.Init(initializer);
+		}
+
+		virtual void SystemNodeExecute(Context& context) override
+		{
+			if constexpr (WrapperListType::ParameterCount != 0)
+			{
+				std::array<ComponentQuery::OPtr, WrapperListType::ParameterCount> component_list;
+				std::array<SingletonQuery::OPtr, WrapperListType::ParameterCount> singleton_list;
+
+				auto [cc, sc] = context.GetQuery(std::span(component_list), std::span(singleton_list));
+
+				AutoSystemContext auto_context{
+					std::span(component_list).subspan(0, cc),
+					std::span(singleton_list).subspan(0, sc)
+				};
+
+				wrappers.Execute(context, auto_context, func);
+			}
+			else {
+				AutoSystemContext auto_context{ {}, {} };
+
+				wrappers.Execute(context, auto_context, func);
+			}
+		}
+
+		virtual void AddSystemNodeRef() const { MemoryResourceRecordIntrusiveInterface::AddRef(); }
+		virtual void SubSystemNodeRef() const { MemoryResourceRecordIntrusiveInterface::SubRef(); }
+	};
+
+
+
+
+	template<typename Func>
+	SystemNode::Ptr CreateAutoSystemNode(Func&& func, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+	{
+		using Type = AutoSystemNode<Func>;
+
+		auto re = Potato::IR::MemoryResourceRecord::Allocate<Type>(resource);
+		if (re)
+		{
+			return new(re.Get()) Type{re, std::forward<Func>(func)};
+		}
+		return {};
+	}
+
+
 	/*
 	export template<AcceptableQueryType ...ComponentT>
 	struct AutoComponentQuery;
@@ -25,84 +336,7 @@ export namespace Noodles
 	template<AcceptableQueryType Require, AcceptableQueryType Refuse>
 	struct AutoComponentQueryStorage;
 
-	template<AcceptableQueryType ...Require, AcceptableQueryType ...Refuse>
-	struct AutoComponentQueryStorage<Potato::TMP::TypeTuple<Require...>, Potato::TMP::TypeTuple<Refuse...>>
-	{
-		
-		static std::span<StructLayoutWriteProperty const> GetRequire()
-		{
-			static std::array<StructLayoutWriteProperty, sizeof...(Require)> temp_buffer = {
-				StructLayoutWriteProperty::GetComponent<Require>()...
-			};
-			return std::span(temp_buffer);
-		}
-		static std::span<StructLayout::Ptr const> GetRefuse()
-		{
-			static std::array<StructLayout::Ptr, sizeof...(Refuse)> temp_buffer = {
-				Potato::IR::StructLayout::GetStatic<Refuse>()...
-			};
-			return std::span(temp_buffer);
-		}
-		AutoComponentQueryStorage(StructLayoutManager& manager, std::pmr::memory_resource* resource)
-		{
-			query = ComponentQuery::Create(
-				manager, GetRequire(), GetRefuse(), resource
-			);
-			assert(query);
-		}
-		SystemNode::Mutex GetSystemNodeMutex() const
-		{
-			return {
-				query->GetRequiredStructLayoutMarks(),
-				{},
-				{}
-			};
-		}
-
-		SystemNode::ComponentOverlappingState IsComponentOverlapping(SystemNode const& target_node, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
-		{
-			if (MarkElement::IsOverlapping(query->GetArchetypeMarkArray(), archetype_update))
-			{
-				return target_node.IsComponentOverlapping(*query, archetype_update, component_usage);
-			}
-			else
-			{
-				return SystemNode::ComponentOverlappingState::NoUpdate;
-			}
-		}
-
-		SystemNode::ComponentOverlappingState IsComponentOverlapping(ComponentQuery const& query, std::span<MarkElement const> archetype_update, std::span<MarkElement const> component_usage) const
-		{
-			std::shared_lock sl(query.GetMutex());
-			std::shared_lock sl2(this->query->GetMutex());
-			if (MarkElement::IsOverlapping(this->query->GetArchetypeMarkArray(), archetype_update))
-			{
-				if (MarkElement::IsOverlappingWithMask(
-					this->query->GetArchetypeMarkArray(),
-					query.GetArchetypeMarkArray(),
-					component_usage
-				) && this->query->GetRequiredStructLayoutMarks().WriteConfig(query.GetRequiredStructLayoutMarks()))
-				{
-					return SystemNode::ComponentOverlappingState::IsOverlapped;
-				}
-				return SystemNode::ComponentOverlappingState::IsNotOverlapped;
-			}
-			else
-			{
-				return SystemNode::ComponentOverlappingState::NoUpdate;
-			}
-		}
-
-		bool UpdateQuery(Context& context)
-		{
-			return context.UpdateQuery(*query);
-		}
-	protected:
-		ComponentQuery::Ptr query;
-
-		template<AcceptableQueryType ...ComponentT>
-		friend struct AutoComponentQuery;
-	};
+	
 
 
 	export template<AcceptableQueryType ...ComponentT>
