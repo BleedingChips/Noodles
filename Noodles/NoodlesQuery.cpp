@@ -85,11 +85,11 @@ namespace Noodles
 		return false;
 	}
 
-	std::optional<std::size_t> ComponentQuery::QueryComponentArrayWithIterator(ComponentManager& manager, std::size_t iterator, std::size_t chunk_index, std::span<void*> output_component)
+	std::optional<std::size_t> ComponentQuery::QueryComponentArrayWithIterator(ComponentManager& manager, std::size_t iterator, std::size_t chunk_index, std::span<void*> output_component) const
 	{
 		if (iterator < archetype_count)
 		{
-			auto span = std::span<std::size_t>(query_data).subspan(query_data_fast_offset * iterator, query_data_fast_offset);
+			auto span = std::span<std::size_t const>(query_data).subspan(query_data_fast_offset * iterator, query_data_fast_offset);
 			auto re = manager.QueryComponentArray(span[0], chunk_index, span.subspan(1), output_component);
 			if (re)
 			{
@@ -99,13 +99,27 @@ namespace Noodles
 		return {};
 	}
 
-	bool ComponentQuery::QueryComponent(ComponentManager& manager, ComponentManager::Index entity_index, std::span<void*> output_component)
+	std::optional<std::size_t> ComponentQuery::GetChunkCount(ComponentManager& manager, std::size_t iterator) const
+	{
+		if (iterator < archetype_count)
+		{
+			auto span = std::span<std::size_t const>(query_data).subspan(query_data_fast_offset * iterator, query_data_fast_offset);
+			auto re =  manager.GetChunkCount(span[0]);
+			if (re)
+			{
+				return re.Get();
+			}
+		}
+		return {};
+	}
+
+	bool ComponentQuery::QueryComponent(ComponentManager& manager, ComponentManager::Index entity_index, std::span<void*> output_component) const
 	{
 		auto re = archetype_bitflag_viewer.GetValue(BitFlag{entity_index.archetype_index});
 		if (re.has_value() && *re)
 		{
-			auto span = std::span<std::size_t>(query_data);
-			for (std::size_t i = 0; i < archetype_count; ++archetype_count)
+			auto span = std::span<std::size_t const>(query_data);
+			for (std::size_t i = 0; i < archetype_count; ++i)
 			{
 				auto ite_span = span.subspan(query_data_fast_offset * i, query_data_fast_offset);
 				if (entity_index.archetype_index == ite_span[0])
@@ -183,13 +197,11 @@ namespace Noodles
 		return false;
 	}
 
-	bool SingletonQuery::QuerySingleton(SingletonManager const& manager, std::span<void*> output_component)
+	bool SingletonQuery::QuerySingleton(SingletonManager const& manager, std::span<void*> output_component) const
 	{
 		if (current_version == manager.GetSingletonVersion())
 		{
-			current_version = manager.GetSingletonVersion();
-			manager.QuerySingletonData(query_data, output_component);
-			return true;
+			return manager.QuerySingletonData(query_data, output_component) != 0;
 		}
 		return false;
 	}

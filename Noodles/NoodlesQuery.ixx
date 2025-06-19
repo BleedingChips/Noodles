@@ -62,8 +62,9 @@ export namespace Noodles
 
 		std::size_t GetArchetypeCount() const { return archetype_count; }
 
-		std::optional<std::size_t> QueryComponentArrayWithIterator(ComponentManager& manager, std::size_t iterator, std::size_t chunk_index, std::span<void*> output_component);
-		bool QueryComponent(ComponentManager& manager, ComponentManager::Index component_index, std::span<void*> output_component);
+		std::optional<std::size_t> QueryComponentArrayWithIterator(ComponentManager& manager, std::size_t iterator, std::size_t chunk_index, std::span<void*> output_component) const;
+		std::optional<std::size_t> GetChunkCount(ComponentManager& manager, std::size_t iterator) const;
+		bool QueryComponent(ComponentManager& manager, ComponentManager::Index component_index, std::span<void*> output_component) const;
 
 		~ComponentQuery() = default;
 
@@ -142,7 +143,7 @@ export namespace Noodles
 
 		bool UpdateQueryData(SingletonManager const& manager);
 
-		bool QuerySingleton(SingletonManager const& manager, std::span<void*> output_component);
+		bool QuerySingleton(SingletonManager const& manager, std::span<void*> output_component) const;
 
 		~SingletonQuery() = default;
 

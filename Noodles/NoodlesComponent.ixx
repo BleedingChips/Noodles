@@ -120,7 +120,7 @@ export namespace Noodles
 		bool QueryComponent(Index index, std::span<std::size_t const> query_data, std::span<void*> output) const;
 		OptionalSizeT QueryComponentArray(std::size_t archetype_index, std::size_t chunk_index, std::span<std::size_t const> query_data, std::span<void*> output) const;
 		static void Sort(std::span<Archetype::Init> init_list);
-
+		OptionalSizeT GetChunkCount(std::size_t archetype_index) const;
 
 	protected:
 

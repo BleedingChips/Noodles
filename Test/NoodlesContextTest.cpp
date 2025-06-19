@@ -8,41 +8,6 @@ struct B { std::size_t i[2] = {1, 2}; };
 
 struct C { std::size_t i[2] = { 1, 2 }; };
 
-
-/*
-std::mutex PrintMutex;
-
-void PrintSystemProperty(Noodles::ContextWrapper& wrapper)
-{
-	auto wstr = *Potato::Encode::StrEncoder<char8_t, wchar_t>::EncodeToString(wrapper.GetNodeProperty().node_name);
-	auto sstr = *Potato::Encode::StrEncoder<wchar_t, char>::EncodeToString(std::wstring_view{wstr});
-	{
-		std::lock_guard lg(PrintMutex);
-		std::println("	StartSystemNode -- <{0}>", sstr);
-	}
-	std::this_thread::sleep_for(std::chrono::seconds{1});
-	{
-		std::lock_guard lg(PrintMutex);
-		std::println("	EndSystemNode -- <{0}>", sstr);
-	}
-}
-
-
-struct A { std::size_t i = 0; };
-
-struct B {};
-
-void Func(A a){}
-
-void Func2(SystemContext system) {}
-
-void Func3(SystemContext& context, ComponentFilter<A, B> system, ComponentFilter<A, B> system2, std::size_t& I)
-{
-	I = 10086;
-	volatile int i = 0;
-}
-*/
-
 struct SysNode : public Noodles::SystemNode
 {
 	virtual void SystemNodeExecute(Noodles::Context& context) {
@@ -87,47 +52,34 @@ struct Tuple2
 	std::u8string str;
 };
 
-/*
-struct TestContext : public Noodles::Context
-{
-	TestContext(Noodles::StructLayoutManager& manager,  Config config) : Context(manager, config) {}
-protected:
-	void AddContextRef() const override {}
-	void SubContextRef() const override {}
-	void TaskFlowExecuteBegin_AssumedLocked(Potato::Task::ContextWrapper& wrapper) override
-	{
-		Context::TaskFlowExecuteBegin_AssumedLocked(wrapper);
-		std::println("Context Begin---");
-	}
-};
-
-
-
-struct TestSystem : public Noodles::SystemNode
-{
-	void AddSystemNodeRef() const override {}
-	void SubSystemNodeRef() const override {}
-	void SystemNodeExecute(Noodles::ContextWrapper& context) override { PrintSystemProperty(context); }
-};
-
-void TestFunction(Noodles::ContextWrapper& wrapper, Noodles::AutoComponentQuery<Tuple2> component_query, Noodles::AutoSingletonQuery<Tuple2> singleton_query)
-{
-	component_query.IterateComponent(wrapper, 0);
-	singleton_query.GetSingletons(wrapper);
-	auto P = component_query.AsSpan<0>();
-	PrintSystemProperty(wrapper);
-}
-*/
-
 int main()
 {
-	auto sys = Noodles::CreateAutoSystemNode([](
-		Noodles::Context& context, 
-		Noodles::AutoComponentQuery<A>::template Refuse<C> query,
-		Noodles::AutoSingletonQuery<A> s_query
-		) {
-		volatile int  i = 0;
-	});
+	auto sys = Noodles::CreateAutoSystemNode(
+		[](
+			Noodles::Context& context, 
+			Noodles::AutoComponentQuery<A, B>::template Refuse<C> query,
+			Noodles::AutoSingletonQuery<A> s_query
+		) 
+		{
+			Noodles::AutoComponentQueryIterator iterator;
+			auto component_query_data = query.GetQueryData();
+			auto singleton_query_data = s_query.GetQueryData();
+
+			while (query.QuerySpanAndMoveToNext(context, iterator, component_query_data))
+			{
+				auto p = component_query_data.Get<0>();
+				auto p2 = component_query_data.Get<1>();
+				volatile int i = 0;
+			}
+
+			if (s_query.Query(context, singleton_query_data))
+			{
+				auto p = singleton_query_data.Get<0>();
+				volatile int i = 0;
+			}
+
+		}
+	);
 
 
 	{

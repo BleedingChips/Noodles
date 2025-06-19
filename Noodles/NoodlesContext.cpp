@@ -657,15 +657,23 @@ namespace Noodles
 
 	void Instance::ExecuteNode(Potato::Task::Context& context, Potato::TaskFlow::Node& node, Potato::TaskFlow::Controller& controller)
 	{
+		std::shared_lock sl(component_mutex);
+		std::shared_lock s2(singleton_mutex);
 		if(controller.GetCategory() == Potato::TaskFlow::EncodedFlow::Category::SubFlowBegin)
 			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"SubFlow Begin {}", controller.GetParameter().node_name);
-		else if(controller.GetCategory() == Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
-			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"SubFlow End {}", controller.GetParameter().node_name);
-		else
-			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"Execute System {}", controller.GetParameter().node_name);
+		else if(controller.GetCategory() != Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"+--Execute Begin System {}", controller.GetParameter().node_name);
 		SystemNode* sys_node = static_cast<SystemNode*>(&node);
 		Context instance_context{context, controller, *this, controller.GetParameter().custom_data.data2};
 		sys_node->SystemNodeExecute(instance_context);
+		if (controller.GetCategory() == Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
+		{
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"SubFlow End {}", controller.GetParameter().node_name);
+		}
+		else if (controller.GetCategory() != Potato::TaskFlow::EncodedFlow::Category::SubFlowBegin)
+		{
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"+--Execute End System {}", controller.GetParameter().node_name);
+		}
 	}
 
 	void Instance::UpdateSystems()

@@ -381,6 +381,26 @@ export namespace Noodles
 			return instance.LoadSystemNode(*this, category, system_index, std::move(parameter));
 		}
 
+		std::optional<std::size_t> QueryComponentArray(ComponentQuery const& query, std::size_t archetype_index, std::size_t chunk_index, std::span<void*> output)
+		{
+			return query.QueryComponentArrayWithIterator(instance.component_manager, archetype_index, chunk_index, output);
+		}
+
+		bool QueryEntity(ComponentQuery const& query, Entity const& entity, std::span<void*> output)
+		{
+			auto index = entity.GetEntityIndex();
+			if (index.has_value())
+			{
+				return query.QueryComponent(instance.component_manager, *index, output);
+			}
+			return false;
+		}
+
+		bool QuerySingleton(SingletonQuery const& query, std::span<void*> output)
+		{
+			return query.QuerySingleton(instance.singleton_manager, output);
+		}
+
 	protected:
 
 		Context(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller, Instance& instance, std::size_t system_index)

@@ -559,6 +559,16 @@ namespace Noodles
 		return {};
 	}
 
+	OptionalSizeT ComponentManager::GetChunkCount(std::size_t archetype_index) const
+	{
+		if (archetype_index < archetype_info.size())
+		{
+			auto& archetype = archetype_info[archetype_index];
+			return archetype.chunk_span.Size();
+		}
+		return {};
+	}
+
 	bool ComponentManager::QueryComponent(Index index, std::span<std::size_t const> query_data, std::span<void*> output) const
 	{
 		if (index.archetype_index < archetype_info.size() && query_data.size() <= output.size() * 2)
