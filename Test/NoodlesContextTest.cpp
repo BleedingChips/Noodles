@@ -4,7 +4,7 @@ import Noodles;
 
 struct A { std::size_t i = 0; };
 
-struct B { std::size_t i[2] = {1, 2}; };
+struct B { using NoodlesThreadSafeType = void;  std::size_t i[2] = { 1, 2 }; };
 
 struct C { std::size_t i[2] = { 1, 2 }; };
 
@@ -96,9 +96,9 @@ int main()
 		instance->LoadSystemNode(Noodles::SystemCategory::Tick, s1, sys_par);
 
 		sys_par.name = L"TestSystem3!!";
-		instance->LoadSystemNode(Noodles::SystemCategory::OnceNextFrame, s1, sys_par);
+		//instance->LoadSystemNode(Noodles::SystemCategory::OnceNextFrame, s1, sys_par);
 		sys_par.name = L"TestSystem4!!";
-		instance->LoadSystemNode(Noodles::SystemCategory::OnceNextFrame, s1, sys_par);
+		//instance->LoadSystemNode(Noodles::SystemCategory::OnceNextFrame, s1, sys_par);
 
 		sys_par.name = L"TestSystem66!!";
 		instance->LoadSystemNode(Noodles::SystemCategory::Tick, sys_index, sys_par);
@@ -108,84 +108,9 @@ int main()
 		instance->AddEntityComponent(*enti, A{ 10086 });
 		instance->AddEntityComponent(*enti, B{ 100862 });
 		instance->Commit(context, par);
-		//context.CreateThreads(2);
+		context.CreateThreads(2);
 		context.ExecuteContextThreadUntilNoExistTask();
 	}
-	
-
-
-
-	//static_assert(std::is_function_v<decltype([](){})>);
-	/*
-	Noodles::Context::Config fig;
-	fig.min_frame_time = std::chrono::seconds{ 1 };
-
-	auto manager = Noodles::StructLayoutManager::Create();
-
-	TestContext context{*manager, fig};
-
-	Potato::Task::Context tcontext;
-	TestSystem systm;
-
-	auto ent = context.CreateEntity();
-	context.AddEntityComponent(*ent, Tuple{10086});
-	context.AddEntityComponent(*ent, Tuple2{ u8"" });
-
-	for(std::size_t o = 0; o < 100; ++o)
-	{
-		auto ent2 = context.CreateEntity();
-		context.AddEntityComponent(*ent2, Tuple{o});
-	}
-
-	auto Lambda = [](Noodles::ContextWrapper& context, Noodles::AutoComponentQuery<Tuple2> query)
-	{
-		PrintSystemProperty(context);
-	};
-
-	auto Ker = context.AddSingleton(Tuple2{ std::u8string{u8"Fff"} });
-
-
-	auto b1 = Noodles::CreateAndAddAutomaticSystem(context, Lambda,
-		Noodles::Property{
-			{1, 1, 1},
-			{u8"fun1 1_1_1"}
-		}
-	);
-	auto b2 = Noodles::CreateAndAddAutomaticSystem(context, Lambda,
-		{
-			{1, 2, 1},
-			{u8"fun2 1-2-1"}
-		});
-	auto b3 = Noodles::CreateAndAddAutomaticSystem(context, Lambda,
-		{
-			{2, 1, 1},
-			u8"fun2 2_1_1"
-	});
-
-	auto b4 = Noodles::CreateAndAddAutomaticSystem(context, [&](Noodles::ContextWrapper& context, Noodles::AutoComponentQuery<Tuple> query)
-	{
-		PrintSystemProperty(context);
-		auto sys = Noodles::CreateAutomaticSystem(context.GetContext().GetStructLayoutManager(), Lambda);
-		context.AddTemporarySystemNodeNextFrame(*sys, { u8"defer_func" });
-		context.AddTemporarySystemNode(*sys, {u8"imp func"});
-
-	},
-		{
-			{2, 1, 3},
-			u8"TempTemp 2-1-3"
-		});
-	auto b5 = Noodles::CreateAndAddAutomaticSystem(context, TestFunction,
-		{
-			{1,1,3},
-			u8"fun4 1-1-3"
-		});
-
-	int index2 = 0;
-
-	tcontext.AddGroupThread({}, 10);
-	bool re = context.Commited(tcontext, {});
-	tcontext.ExecuteContextThreadUntilNoExistTask();
-	*/
 
 	return 0;
 }

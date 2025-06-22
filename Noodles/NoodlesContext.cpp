@@ -570,6 +570,9 @@ namespace Noodles
 					auto add_result = context.controller.AddTemporaryNode(
 						context.context, *ref.node, [&](Potato::TaskFlow::Sequencer& sequencer) -> bool {
 
+							if (sequencer.GetSearchDepth() >= 6)
+								return true;
+
 							auto parameter = sequencer.GetCurrentParameter();
 
 							if (

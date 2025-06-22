@@ -274,10 +274,16 @@ export namespace Noodles
 	};
 
 	template<typename Type>
-	concept IsQueryWriteType = std::is_same_v<Type, std::remove_cvref_t<Type>>;
+	concept IsThreadSafeType = requires(Type)
+	{
+		typename Type::NoodlesThreadSafeType;
+	};
 
 	template<typename Type>
-	concept IsQueryReadType = std::is_same_v<Type, std::add_const_t<std::remove_cvref_t<Type>>>;
+	concept IsQueryWriteType = std::is_same_v<Type, std::remove_cvref_t<Type>> && !IsThreadSafeType<Type>;
+
+	template<typename Type>
+	concept IsQueryReadType = std::is_same_v<Type, std::add_const_t<std::remove_cvref_t<Type>>> || IsThreadSafeType<Type>;
 
 	template<typename Type>
 	concept AcceptableQueryType = IsQueryWriteType<Type> || IsQueryReadType<Type>;

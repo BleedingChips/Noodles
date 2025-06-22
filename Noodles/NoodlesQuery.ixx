@@ -25,7 +25,7 @@ export namespace Noodles
 
 		std::span<BitFlag const> GetRequireBitFlag() const { return require_bitflag; }
 		BitFlagContainerConstViewer GetRequireContainerConstViewer() const { return require_bitflag_viewer; }
-		BitFlagContainerConstViewer GetWritedContainerConstViewer() const { return require_bitflag_viewer; }
+		BitFlagContainerConstViewer GetWritedContainerConstViewer() const { return writed_bitflag_viewer; }
 		BitFlagContainerConstViewer GetArchetypeContainerConstViewer() const { return archetype_bitflag_viewer; }
 
 		template<ComponentQueryInitFunction InitFunction>
