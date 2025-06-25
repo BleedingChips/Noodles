@@ -223,7 +223,7 @@ namespace Noodles
 		return result;
 	}
 
-	Instance::SystemIndex Instance::PrepareSystemNode(SystemNode::Ptr node)
+	Instance::SystemIndex Instance::PrepareSystemNode(SystemNode::Ptr node, bool temporary)
 	{
 		if (node)
 		{
@@ -268,6 +268,7 @@ namespace Noodles
 
 			finded->version += 1;
 			finded->node = std::move(node);
+			finded->temporary = temporary;
 
 			std::size_t index = static_cast<std::size_t>(finded - system_info.begin());
 
@@ -681,6 +682,7 @@ namespace Noodles
 
 	void Instance::UpdateSystems()
 	{
+
 		bool component_has_modify = false;
 		{
 			std::lock(component_mutex, entity_mutex);
@@ -702,14 +704,89 @@ namespace Noodles
 		}
 
 		{
-			std::lock(system_mutex, execute_system_mutex, flow_mutex);
+			std::lock(system_mutex, execute_system_mutex, flow_mutex, once_system_mutex);
 
 			std::lock_guard sl(system_mutex, std::adopt_lock);
 			std::lock_guard s2(execute_system_mutex, std::adopt_lock);
 			std::lock_guard s3(flow_mutex, std::adopt_lock);
+			std::lock_guard lg(once_system_mutex, std::adopt_lock);
 
 			std::shared_lock sl4(component_mutex);
 			std::shared_lock sl5(singleton_mutex);
+
+			{
+				assert(current_frame_once_system_iterator == current_frame_once_system_count);
+
+				once_system_node.erase(
+					once_system_node.begin(),
+					once_system_node.begin() + current_frame_once_system_iterator
+				);
+
+				current_frame_once_system_iterator = 0;
+				current_frame_once_system_count = once_system_node.size();
+
+				std::sort(
+					once_system_node.begin(),
+					once_system_node.end(),
+					[](OnceSystemInfo const& sys1, OnceSystemInfo const& sys2)
+					{
+						auto re = sys1.parameter.layer <=> sys2.parameter.layer;
+
+						if (re == std::strong_ordering::equal)
+						{
+							re = sys1.parameter.priority <=> sys2.parameter.priority;
+						}
+
+						return re == std::strong_ordering::less;
+					}
+				);
+
+				current_layer = std::numeric_limits<std::int32_t>::max();
+			}
+
+			if (has_template_system)
+			{
+				bool need_remove_temporary_system = false;
+				has_template_system = false;
+				for (auto& execute_system_ite : execute_system_info)
+				{
+					if (execute_system_ite.category.has_value() && execute_system_ite.category == SystemCategory::Once)
+					{
+						auto version = execute_system_ite.version;
+						system_info[execute_system_ite.system_info_index].has_temporary_last_frame = true;
+						if (system_info[execute_system_ite.system_info_index].temporary)
+						{
+							need_remove_temporary_system = true;
+						}
+						execute_system_ite = ExecuteSystemNodeInfo{};
+						execute_system_ite.version = version + 1;
+					}
+				}
+				if (need_remove_temporary_system)
+				{
+					for (auto& ite : once_system_node)
+					{
+						if (ite.index.index < system_info.size())
+						{
+							auto& ref = system_info[ite.index.index];
+							if (ref.version == ref.version)
+							{
+								ref.has_temporary_last_frame = false;
+							}
+						}
+					}
+
+					for (auto& ite : system_info)
+					{
+						if (ite.node && ite.temporary && ite.has_temporary_last_frame)
+						{
+							auto version = ite.version;
+							ite = SystemNodeInfo{};
+							ite.version = version + 1;
+						}
+					}
+				}
+			}
 
 			if (component_has_modify || singleton_has_modify)
 			{
@@ -741,20 +818,6 @@ namespace Noodles
 						}
 					}
 					system_info_index += 1;
-				}
-			}
-
-			if (has_template_system)
-			{
-				has_template_system = false;
-				for (auto& execute_system_ite : execute_system_info)
-				{
-					if (execute_system_ite.category.has_value() && execute_system_ite.category == SystemCategory::Once)
-					{
-						auto version = execute_system_ite.version;
-						execute_system_ite = ExecuteSystemNodeInfo{};
-						execute_system_ite.version = version + 1;
-					}
 				}
 			}
 
@@ -807,39 +870,6 @@ namespace Noodles
 						}
 					}
 				}
-			}
-
-
-			{
-				std::lock_guard lg(once_system_mutex);
-
-				assert(current_frame_once_system_iterator == current_frame_once_system_count);
-
-				once_system_node.erase(
-					once_system_node.begin(),
-					once_system_node.begin() + current_frame_once_system_iterator
-				);
-
-				current_frame_once_system_iterator = 0;
-				current_frame_once_system_count = once_system_node.size();
-
-				std::sort(
-					once_system_node.begin(),
-					once_system_node.end(),
-					[](OnceSystemInfo const& sys1, OnceSystemInfo const& sys2)
-					{
-						auto re = sys1.parameter.layer <=> sys2.parameter.layer;
-
-						if (re == std::strong_ordering::equal)
-						{
-							re = sys1.parameter.priority <=> sys2.parameter.priority;
-						}
-
-						return re == std::strong_ordering::less;
-					}
-				);
-
-				current_layer = std::numeric_limits<std::int32_t>::max();
 			}
 
 			UpdateFlow_AssumedLocked();

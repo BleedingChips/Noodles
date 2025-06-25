@@ -135,7 +135,7 @@ export namespace Noodles
 		using SystemIndex = Potato::Misc::VersionIndex;
 		using ExecutedSystemIndex = Potato::Misc::VersionIndex;
 
-		SystemIndex PrepareSystemNode(SystemNode::Ptr index);
+		SystemIndex PrepareSystemNode(SystemNode::Ptr index, bool temporary = false);
 		std::optional<ExecutedSystemIndex> LoadSystemNode(SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
 		std::optional<ExecutedSystemIndex> LoadSystemNode(Context& context, SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
 		decltype(auto) CreateEntity() {
@@ -149,6 +149,13 @@ export namespace Noodles
 			BitFlag component_bit_flag = *component_map.LocateOrAdd<ComponentT>();
 			std::lock_guard lg(entity_mutex);
 			return entity_manager.AddEntityComponent(entity, std::forward<ComponentT>(component), component_bit_flag);
+		}
+
+		template<typename SingletonT>
+		bool AddSingleton(SingletonT&& singleton)
+		{
+			std::lock_guard lg(singleton_modify_mutex);
+			return singleton_modify_manager.AddSingleton(std::forward<SingletonT>(singleton), singleton_map);
 		}
 
 	protected:
@@ -215,6 +222,9 @@ export namespace Noodles
 			SystemNode::Ptr node;
 			IndexSpan component_query_index;
 			IndexSpan singleton_query_index;
+			bool temporary = false;
+			bool has_temporary_last_frame = false;
+			std::size_t execute_node_last_frame = 0;
 		};
 
 		struct ExecuteSystemNodeInfo
@@ -286,7 +296,7 @@ export namespace Noodles
 	concept IsQueryReadType = std::is_same_v<Type, std::add_const_t<std::remove_cvref_t<Type>>> || IsThreadSafeType<Type>;
 
 	template<typename Type>
-	concept AcceptableQueryType = IsQueryWriteType<Type> || IsQueryReadType<Type>;
+	concept AcceptableQueryType = std::is_same_v<Type, std::remove_cvref_t<Type>> || std::is_same_v<Type, std::add_const_t<std::remove_cvref_t<Type>>>;
 
 	struct SingletonQueryInitializer
 	{
@@ -406,6 +416,8 @@ export namespace Noodles
 		{
 			return query.QuerySingleton(instance.singleton_manager, output);
 		}
+
+		Instance& GetInstance() const { return instance; }
 
 	protected:
 
