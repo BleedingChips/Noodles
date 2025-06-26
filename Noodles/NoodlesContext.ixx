@@ -469,7 +469,7 @@ export namespace Noodles
 			singleton_count,
 			[&](std::span<BitFlag> output, BitFlagContainerViewer writed)
 			{
-				SingletonQueryInitializer initializer(output, writed, instance.component_map);
+				SingletonQueryInitializer initializer(output, writed, instance.singleton_map);
 				func(initializer);
 			},
 			singleton_resource

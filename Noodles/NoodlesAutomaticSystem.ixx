@@ -91,7 +91,7 @@ export namespace Noodles
 	};
 
 	template<std::size_t start, std::size_t end>
-	struct QueryDataWrapperHelper
+	struct QueryDataHelper
 	{
 		template<typename Tuple>
 		static void Set(Tuple& tuple, std::span<void*> source, std::size_t count)
@@ -105,29 +105,31 @@ export namespace Noodles
 			else {
 				std::get<start>(tuple) = { static_cast<Type*>(source[start]), count };
 			}
-			QueryDataWrapperHelper<start + 1, end>::Set(tuple, source, count);
+			QueryDataHelper<start + 1, end>::Set(tuple, source, count);
 		}
 	};
 
 	template<std::size_t end>
-	struct QueryDataWrapperHelper<end, end>
+	struct QueryDataHelper<end, end>
 	{
 		template<typename Tuple>
 		static void Set(Tuple& tuple, std::span<void*> source, std::size_t count){}
 	};
 
 	template<AcceptableQueryType... ComponentT>
-	struct QueryDataWrapper
+	struct QueryData
 	{
 		std::array<void*, sizeof...(ComponentT)> raw_query_data = {(Potato::TMP::ItSelf<ComponentT>(), nullptr)...};
 		std::size_t span_count = 0;
 		std::tuple<std::span<ComponentT>...> query_data;
 		void Flush()
 		{
-			QueryDataWrapperHelper<0, sizeof...(ComponentT)>::Set(query_data, raw_query_data, span_count);
+			QueryDataHelper<0, sizeof...(ComponentT)>::Set(query_data, raw_query_data, span_count);
 		}
 		template<std::size_t index>
 		decltype(auto) Get() { return std::get<index>(query_data); }
+		template<std::size_t index>
+		std::tuple_element_t<index, decltype(query_data)>::value_type* GetPointer() { auto span = std::get<index>(query_data);  if (span.size() >= 1)  return span.data(); return nullptr; }
 	};
 
 	export template<AcceptableQueryType ...ComponentT>
@@ -144,11 +146,35 @@ export namespace Noodles
 			Potato::TMP::TypeTuple<RefuseComponentT...>
 		>;
 
-		using Data = QueryDataWrapper<ComponentT...>;
+		using Data = QueryData<ComponentT...>;
 
-		Data GetQueryData() { return {}; }
+		template<typename ForeachFunc>
+		std::size_t Foreach(Context& context, ForeachFunc&& func)
+			requires(std::is_invocable_r_v<bool, ForeachFunc, Data&>)
+		{
+			AutoComponentQueryIterator iterator;
+			Data output;
+			std::size_t count = 0;
+			while (QueryAndMoveToNext(context, iterator, output))
+			{
+				++count = 0;
+				if (!func(output))
+					break;
+			}
+			return count;
+		}
 
-		bool QuerySpanAndMoveToNext(Context& context, AutoComponentQueryIterator& iterator, Data& output)
+		std::optional<Data> QueryAndMoveToNext(Context& context, AutoComponentQueryIterator& iterator)
+		{
+			Data output;
+			if (QueryAndMoveToNext(context, iterator, output))
+			{
+				return output;
+			}
+			return std::nullopt;
+		}
+
+		bool QueryAndMoveToNext(Context& context, AutoComponentQueryIterator& iterator, Data& output)
 		{
 			while (true)
 			{
@@ -172,6 +198,16 @@ export namespace Noodles
 				}
 			}
 		}
+
+		std::optional<Data> QueryEntity(Context& context, Entity const& entity)
+		{
+			Data output;
+			if (QueryEntity(context, entity))
+				return output;
+			else
+				return std::nullopt;
+		}
+
 		bool QueryEntity(Context& context, Entity const& entity, Data& output)
 		{
 			if (context.QueryEntity(*query, entity, output.raw_query_data))
@@ -245,9 +281,17 @@ export namespace Noodles
 			: context(context), query(std::move(query)) {
 		}
 
-		using Data = QueryDataWrapper<SingletonT...>;
+		using Data = QueryData<SingletonT...>;
 
-		Data GetQueryData() { return {}; }
+		std::optional<Data> Query(Context& context)
+		{
+			Data output;
+			if (Query(context, output))
+			{
+				return output;
+			}
+			return std::nullopt;
+		}
 
 		bool Query(Context& context, Data& output)
 		{
@@ -408,4 +452,54 @@ export namespace Noodles
 		}
 		return {};
 	}
+
+	template<typename Func>
+	struct AutoSystemNodeStatic : public SystemNode
+	{
+
+		AutoSystemNodeStatic(Func&& func)
+			: func(std::move(func))
+		{
+
+		}
+
+		using WrapperListType = typename Potato::TMP::FunctionInfo<std::remove_cvref_t<Func>>::template PackParameters<AutoSystemWrapperList>;
+
+		WrapperListType wrappers;
+		Func func;
+
+		virtual void Init(SystemInitializer& initializer) override
+		{
+			wrappers.Init(initializer);
+		}
+
+		virtual void SystemNodeExecute(Context& context) override
+		{
+			if constexpr (WrapperListType::ParameterCount != 0)
+			{
+				std::array<ComponentQuery::OPtr, WrapperListType::ParameterCount> component_list;
+				std::array<SingletonQuery::OPtr, WrapperListType::ParameterCount> singleton_list;
+
+				auto [cc, sc] = context.GetQuery(std::span(component_list), std::span(singleton_list));
+
+				AutoSystemContext auto_context{
+					std::span(component_list).subspan(0, cc),
+					std::span(singleton_list).subspan(0, sc)
+				};
+
+				wrappers.Execute(context, auto_context, func);
+			}
+			else {
+				AutoSystemContext auto_context{ {}, {} };
+
+				wrappers.Execute(context, auto_context, func);
+			}
+		}
+
+		virtual void AddSystemNodeRef() const {  }
+		virtual void SubSystemNodeRef() const {  }
+	};
+
+	template<typename Func>
+	AutoSystemNodeStatic(Func&& func) -> AutoSystemNodeStatic<std::remove_cvref_t<Func>>;
 }
