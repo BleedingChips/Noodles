@@ -46,6 +46,51 @@ export namespace Noodles
 		OnceIgnoreLayer
 	};
 
+	struct SystemUserData
+	{
+		struct Wrapper
+		{
+			void AddRef(SystemUserData const* ptr) { ptr->AddSystemUserDataRef(); }
+			void SubRef(SystemUserData const* ptr) { ptr->SubSystemUserDataRef(); }
+		};
+
+		using Ptr = Potato::Pointer::IntrusivePtr<SystemUserData, Wrapper>;
+
+	protected:
+
+		virtual void AddSystemUserDataRef() const = 0;
+		virtual void SubSystemUserDataRef() const = 0;
+	};
+
+	template<typename StorageT>
+	struct SystemUserDataDefault : public SystemUserData, public Potato::IR::MemoryResourceRecordIntrusiveInterface
+	{
+		SystemUserDataDefault(Potato::IR::MemoryResourceRecord record, StorageT&& storage)
+			: storage(std::move(storage)) {
+		}
+		StorageT storage;
+		StorageT& GetData() { return storage; }
+
+		static Ptr Create(StorageT&& storage, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+
+
+		void AddSystemUserDataRef() const { MemoryResourceRecordIntrusiveInterface::AddRef(); }
+		void SubSystemUserDataRef() const { MemoryResourceRecordIntrusiveInterface::SubRef(); }
+	};
+
+	template<typename StorageT>
+	static SystemUserData::Ptr SystemUserDataDefault<StorageT>::Create(StorageT&& storage, std::pmr::memory_resource* resource)
+	{
+		using Type = std::remove_cvref_t<StorageT>;
+
+		auto re = Potato::IR::MemoryResourceRecord::Allocate<SystemUserDataDefault<Type>>(resource);
+		if (re)
+		{
+			return new(re.Get()) SystemUserDataDefault<Type>(re, std::forward<StorageT>(storage));
+		}
+		return {};
+	}
+
 	struct SystemNode : public Potato::TaskFlow::Node
 	{
 
@@ -72,6 +117,8 @@ export namespace Noodles
 			std::int32_t layer = 0;
 			Priority priority;
 			std::wstring_view module_name;
+			SystemUserData::Ptr data;
+			std::size_t acceptable_mask = std::numeric_limits<std::size_t>::max();
 		};
 
 	protected:
@@ -135,7 +182,13 @@ export namespace Noodles
 		using SystemIndex = Potato::Misc::VersionIndex;
 		using ExecutedSystemIndex = Potato::Misc::VersionIndex;
 
-		SystemIndex PrepareSystemNode(SystemNode::Ptr index, bool temporary = false);
+		struct SystemInfo
+		{
+			bool temporary = false;
+			std::wstring_view identity_name;
+		};
+
+		SystemIndex PrepareSystemNode(SystemNode::Ptr index, SystemInfo info = {}, bool Unique = false);
 		std::optional<ExecutedSystemIndex> LoadSystemNode(SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
 		std::optional<ExecutedSystemIndex> LoadSystemNode(Context& context, SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
 		decltype(auto) CreateEntity() {
@@ -157,6 +210,8 @@ export namespace Noodles
 			std::lock_guard lg(singleton_modify_mutex);
 			return singleton_modify_manager.AddSingleton(std::forward<SingletonT>(singleton), singleton_map);
 		}
+
+		void RequireQuit() { available = false; }
 
 	protected:
 
@@ -204,6 +259,8 @@ export namespace Noodles
 
 		Potato::TaskFlow::Flow::NodeIndex ending_system_index;
 
+		std::atomic_bool available = true;
+
 		std::mutex flow_mutex;
 		Potato::TaskFlow::Flow main_flow;
 		bool flow_need_update = true;
@@ -222,7 +279,7 @@ export namespace Noodles
 			SystemNode::Ptr node;
 			IndexSpan component_query_index;
 			IndexSpan singleton_query_index;
-			bool temporary = false;
+			SystemInfo info;
 			bool has_temporary_last_frame = false;
 			std::size_t execute_node_last_frame = 0;
 		};
@@ -244,7 +301,7 @@ export namespace Noodles
 		std::pmr::vector<ComponentQuery::Ptr> component_query;
 		std::pmr::vector<SingletonQuery::Ptr> singleton_query;
 
-		std::mutex execute_system_mutex;
+		std::shared_mutex execute_system_mutex;
 		bool execute_system_need_update = true;
 		std::pmr::vector<ExecuteSystemNodeInfo> execute_system_info;
 		bool has_template_system = false;
@@ -418,6 +475,7 @@ export namespace Noodles
 		}
 
 		Instance& GetInstance() const { return instance; }
+		SystemNode::Parameter GetParameter() const;
 
 	protected:
 

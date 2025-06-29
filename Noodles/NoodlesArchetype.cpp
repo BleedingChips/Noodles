@@ -36,7 +36,7 @@ namespace Noodles
 				
 				std::size_t offset = total_layout.Insert(ref.ptr->GetLayout());
 
-				assert(ope.default_construct && ope.move_construct);
+				assert(ope.move_construct);
 
 				new (&MV[i]) MemberView{
 					ref.ptr,

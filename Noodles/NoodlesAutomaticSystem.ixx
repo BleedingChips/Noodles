@@ -31,11 +31,9 @@ export namespace Noodles
 		std::size_t chunk_iterator = 0;
 	};
 
-	export template<AcceptableQueryType ...ComponentT>
-		struct AutoComponentQuery;
+	template<AcceptableQueryType ...ComponentT> struct AutoComponentQuery;
 
-	export template<typename Require, typename Refuse>
-		struct AutoComponentQueryWrapper;
+	template<typename Require, typename Refuse> struct AutoComponentQueryWrapper;
 
 	template<typename RequireTypeTuple, typename RefuseTypeTuple>
 	struct AutoComponentQueryWithRefuse;
@@ -90,50 +88,85 @@ export namespace Noodles
 		}
 	};
 
-	template<std::size_t start, std::size_t end>
-	struct QueryDataHelper
-	{
-		template<typename Tuple>
-		static void Set(Tuple& tuple, std::span<void*> source, std::size_t count)
-		{
-			using Type = typename std::tuple_element<start, Tuple>::type::value_type;
-			auto source_ptr = static_cast<Type*>(source[start]);
-			if (source_ptr == nullptr)
-			{
-				std::get<start>(tuple) = { };
-			}
-			else {
-				std::get<start>(tuple) = { static_cast<Type*>(source[start]), count };
-			}
-			QueryDataHelper<start + 1, end>::Set(tuple, source, count);
-		}
-	};
-
-	template<std::size_t end>
-	struct QueryDataHelper<end, end>
-	{
-		template<typename Tuple>
-		static void Set(Tuple& tuple, std::span<void*> source, std::size_t count){}
-	};
-
 	template<AcceptableQueryType... ComponentT>
 	struct QueryData
 	{
 		std::array<void*, sizeof...(ComponentT)> raw_query_data = {(Potato::TMP::ItSelf<ComponentT>(), nullptr)...};
 		std::size_t span_count = 0;
-		std::tuple<std::span<ComponentT>...> query_data;
+		std::tuple<ComponentT* ...> query_data;
+
+		struct Iterator
+		{
+			Iterator(std::size_t index, QueryData<ComponentT...> const* owner) : index(index), owner(owner) {   };
+			Iterator(Iterator const&) = default;
+			Iterator& operator=(Iterator const&) = default;
+			std::tuple<ComponentT*...> operator*() { return owner->GetPointerTuple(index); }
+			Iterator& operator++() { index += 1; return *this; }
+			bool operator==(Iterator const& i2) const { return index == i2.index && owner == i2.owner; }
+		protected:
+			std::size_t index = 0;
+			QueryData<ComponentT...> const* owner;
+		};
+
 		void Flush()
 		{
-			QueryDataHelper<0, sizeof...(ComponentT)>::Set(query_data, raw_query_data, span_count);
+			auto func = [this]<std::size_t index>(std::integral_constant<std::size_t, index>)
+			{
+				std::get<index>(query_data) =
+					static_cast<std::tuple_element_t<index, decltype(query_data)>>(raw_query_data[index]);
+			};
+
+			[this, &func] <std::size_t ...index> (std::index_sequence<index...>) {
+				(
+					func(std::integral_constant<std::size_t, index>{}), ...
+					);
+			}(std::make_index_sequence<sizeof...(ComponentT)>{});
 		}
+
 		template<std::size_t index>
-		decltype(auto) Get() { return std::get<index>(query_data); }
+		auto GetSpan() const {
+			if (std::get<index>(query_data) != nullptr)
+			{
+				return std::span(std::get<index>(query_data), span_count);
+			}
+			else {
+				return std::span<std::remove_pointer_t<std::tuple_element_t<index, decltype(query_data)>>>{};
+			}
+		}
+
 		template<std::size_t index>
-		std::tuple_element_t<index, decltype(query_data)>::value_type* GetPointer() { auto span = std::get<index>(query_data);  if (span.size() >= 1)  return span.data(); return nullptr; }
+		decltype(auto) GetPointer() const { return std::get<index>(query_data); }
+		
+		std::tuple<ComponentT*...> GetPointerTuple(std::size_t count = 0) const
+		{
+			std::tuple<ComponentT*...> output = query_data;
+			auto func = [this, &output, count]<std::size_t index>(std::integral_constant<std::size_t, index>)
+			{
+				if (std::get<index>(output) != nullptr)
+				{
+					std::get<index>(output) += count;
+				}
+				
+			};
+			[this, &func] <std::size_t ...index> (std::index_sequence<index...>) {
+				(
+					func(std::integral_constant<std::size_t, index>{})
+					, ...
+					);
+			}(std::make_index_sequence<sizeof...(ComponentT)>{});
+			return output;
+		}
+
+		auto operator[](std::size_t index) { return GetPointerTuple(index); }
+
+		Potato::Misc::IndexSpan<> GetIndexSpan() const { return {0, span_count }; }
+
+		Iterator begin() const { return { 0, this }; }
+		Iterator end() const { return { span_count, this }; }
 	};
 
-	export template<AcceptableQueryType ...ComponentT>
-		struct AutoComponentQuery
+	template<AcceptableQueryType ...ComponentT>
+	struct AutoComponentQuery
 	{
 		using Wrapper = AutoComponentQueryWrapper<Potato::TMP::TypeTuple<ComponentT...>, Potato::TMP::TypeTuple<>>;
 		AutoComponentQuery(AutoComponentQuery&&) = default;
@@ -202,7 +235,7 @@ export namespace Noodles
 		std::optional<Data> QueryEntity(Context& context, Entity const& entity)
 		{
 			Data output;
-			if (QueryEntity(context, entity))
+			if (QueryEntity(context, entity, output))
 				return output;
 			else
 				return std::nullopt;
@@ -238,8 +271,7 @@ export namespace Noodles
 	};
 
 
-	export template<AcceptableQueryType ...SingletonT>
-		struct AutoSingletonQuery;
+	template<AcceptableQueryType ...SingletonT> struct AutoSingletonQuery;
 
 	template<AcceptableQueryType ...RequireSingletonT>
 	struct AutoSingletonQueryWrapper
@@ -272,8 +304,8 @@ export namespace Noodles
 		}
 	};
 
-	export template<AcceptableQueryType ...SingletonT>
-		struct AutoSingletonQuery
+	template<AcceptableQueryType ...SingletonT>
+	struct AutoSingletonQuery
 	{
 		using Wrapper = AutoSingletonQueryWrapper<SingletonT...>;
 		AutoSingletonQuery(AutoSingletonQuery&&) = default;
@@ -355,7 +387,6 @@ export namespace Noodles
 	struct AutoSystemWrapperList<>
 	{
 		static constexpr std::size_t ParameterCount = 0;
-
 		void Init(SystemInitializer& initializer){}
 
 		template<typename Func, typename ...OtherParameter>
@@ -372,7 +403,6 @@ export namespace Noodles
 		using Type = AutoSystemWrapperGetter<std::remove_cvref_t<ThisWrapperT>>::Type;
 
 		Type wrapper;
-
 
 		void Init(SystemInitializer& initializer)
 		{

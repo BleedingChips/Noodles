@@ -152,12 +152,17 @@ namespace Noodles
 			std::shared_lock sl(info_mutex);
 			new_parameter.trigger_time = startup_time + dur;
 		}
-		auto re = Executor::Commit_AssumedLocked(context, new_parameter);
-		assert(re);
+		
 
 		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log,
 			L"Finish At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()
 		);
+
+		if (available)
+		{
+			auto re = Executor::Commit_AssumedLocked(context, new_parameter);
+			assert(re);
+		}
 	}
 
 	bool Instance::DetectSystemComponentOverlapping_AssumedLocked(std::size_t system_index1, std::size_t system_index2)
@@ -223,7 +228,7 @@ namespace Noodles
 		return result;
 	}
 
-	Instance::SystemIndex Instance::PrepareSystemNode(SystemNode::Ptr node, bool temporary)
+	Instance::SystemIndex Instance::PrepareSystemNode(SystemNode::Ptr node, SystemInfo info, bool unique)
 	{
 		if (node)
 		{
@@ -248,6 +253,20 @@ namespace Noodles
 
 			std::lock_guard lg(system_mutex);
 
+			if (unique)
+			{
+				auto finded = std::find_if(system_info.begin(), system_info.end(), [&](SystemNodeInfo const& finded_info) {
+					return finded_info.info.identity_name == info.identity_name;
+					});
+				if (finded != system_info.end())
+				{
+					return SystemIndex{
+						static_cast<std::size_t>(std::distance(finded, system_info.begin())),
+						finded->version
+					};
+				}
+			}
+
 			auto finded = std::find_if(system_info.begin(), system_info.end(), [](SystemNodeInfo const& info) { return !info.node; });
 			if (finded == system_info.end())
 			{
@@ -265,10 +284,14 @@ namespace Noodles
 				view.Reset();
 				finded = system_info.insert(system_info.end(), added_system_info);
 			}
+			else {
+				finded->component_query_index = { component_query.size(), component_query.size() };
+				finded->singleton_query_index = { singleton_query.size(), singleton_query.size() };
+			}
 
 			finded->version += 1;
 			finded->node = std::move(node);
-			finded->temporary = temporary;
+			finded->info = info;
 
 			std::size_t index = static_cast<std::size_t>(finded - system_info.begin());
 
@@ -309,21 +332,12 @@ namespace Noodles
 					assert(r2);
 				}
 
-				finded->singleton_query_index.BackwardEnd(init.component_list.size());
+				finded->singleton_query_index.BackwardEnd(init.singleton_list.size());
 
 				singleton_query.insert_range(
 					singleton_query.begin() + finded->singleton_query_index.Begin(),
 					std::ranges::as_rvalue_view(init.singleton_list)
 				);
-			}
-
-			if (has_new_query)
-			{
-				for (auto ite = finded + 1; ite != system_info.end(); ++ite)
-				{
-					ite->component_query_index.WholeOffset(init.component_list.size());
-					ite->singleton_query_index.WholeOffset(init.singleton_list.size());
-				}
 			}
 
 			SystemIndex system_index = { index, finded->version };
@@ -520,7 +534,7 @@ namespace Noodles
 		{
 		case SystemCategory::Tick:
 		case SystemCategory::OnceNextFrame:
-			return LoadSystemNode(category, index, parameter);
+			return LoadSystemNode(category, index, std::move(parameter));
 		case SystemCategory::Once:
 		{
 			{
@@ -539,7 +553,7 @@ namespace Noodles
 							return re == std::strong_ordering::greater;
 						}
 						);
-					once_system_node.insert(finded, OnceSystemInfo{parameter, index });
+					once_system_node.insert(finded, OnceSystemInfo{std::move(parameter), index });
 					++current_frame_once_system_count;
 					return ExecuteSystemIndex{};
 				}
@@ -556,7 +570,7 @@ namespace Noodles
 					std::lock_guard lg(execute_system_mutex);
 					
 					auto exe_index = FindAvailableSystemIndex_AssumedLocked();
-					auto& exe_ref = execute_system_info[index.index];
+					auto& exe_ref = execute_system_info[exe_index.index];
 					exe_ref.category = SystemCategory::Once;
 					exe_ref.parameter = parameter;
 					exe_ref.system_info_index = index.index;
@@ -565,6 +579,7 @@ namespace Noodles
 					t_paramter.custom_data.data1 = exe_index.index;
 					t_paramter.node_name = parameter.name;
 					t_paramter.custom_data.data2 = index.index;
+					t_paramter.acceptable_mask = parameter.acceptable_mask;
 					
 					std::shared_lock sl2(component_mutex);
 					auto current_view = GetSystemRequireBitFlagViewer_AssumedLocked(index.index);
@@ -608,6 +623,7 @@ namespace Noodles
 						},
 						t_paramter
 					);
+					has_template_system = true;
 					return ExecutedSystemIndex{};
 				}
 			}
@@ -663,20 +679,21 @@ namespace Noodles
 	{
 		std::shared_lock sl(component_mutex);
 		std::shared_lock s2(singleton_mutex);
+		auto task_node_parameter = controller.GetParameter();
 		if(controller.GetCategory() == Potato::TaskFlow::EncodedFlow::Category::SubFlowBegin)
-			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"SubFlow Begin {}", controller.GetParameter().node_name);
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"SubFlow Begin {}", task_node_parameter.node_name);
 		else if(controller.GetCategory() != Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
 			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"+--Execute Begin System {}", controller.GetParameter().node_name);
 		SystemNode* sys_node = static_cast<SystemNode*>(&node);
-		Context instance_context{context, controller, *this, controller.GetParameter().custom_data.data2};
+		Context instance_context{context, controller, *this, task_node_parameter.custom_data.data2};
 		sys_node->SystemNodeExecute(instance_context);
 		if (controller.GetCategory() == Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
 		{
-			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"SubFlow End {}", controller.GetParameter().node_name);
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"SubFlow End {}", task_node_parameter.node_name);
 		}
 		else if (controller.GetCategory() != Potato::TaskFlow::EncodedFlow::Category::SubFlowBegin)
 		{
-			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"+--Execute End System {}", controller.GetParameter().node_name);
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"+--Execute End System {}", task_node_parameter.node_name);
 		}
 	}
 
@@ -754,7 +771,7 @@ namespace Noodles
 					{
 						auto version = execute_system_ite.version;
 						system_info[execute_system_ite.system_info_index].has_temporary_last_frame = true;
-						if (system_info[execute_system_ite.system_info_index].temporary)
+						if (system_info[execute_system_ite.system_info_index].info.temporary)
 						{
 							need_remove_temporary_system = true;
 						}
@@ -776,13 +793,63 @@ namespace Noodles
 						}
 					}
 
-					for (auto& ite : system_info)
+					for (auto ite = system_info.begin(); ite != system_info.end(); ++ite)
 					{
-						if (ite.node && ite.temporary && ite.has_temporary_last_frame)
+						if (ite->node && ite->info.temporary && ite->has_temporary_last_frame)
 						{
-							auto version = ite.version;
-							ite = SystemNodeInfo{};
-							ite.version = version + 1;
+							auto comp_que_index = ite->component_query_index;
+							auto sing_que_index = ite->singleton_query_index;
+							bool need_fix_index = false;
+							if (comp_que_index.Size() > 0)
+							{
+								need_fix_index = true;
+								auto component_span = comp_que_index.Slice(std::span(component_query));
+								for (auto& ite2 : component_span)
+								{
+									ite2.Reset();
+								}
+								component_query.erase(
+									component_query.begin() + comp_que_index.Begin(),
+									component_query.begin() + comp_que_index.End()
+								);
+							}
+
+							if (sing_que_index.Size() > 0)
+							{
+								need_fix_index = true;
+								auto singleton_span = sing_que_index.Slice(std::span(singleton_query));
+								for (auto& ite2 : singleton_span)
+								{
+									ite2.Reset();
+								}
+								singleton_query.erase(
+									singleton_query.begin() + sing_que_index.Begin(),
+									singleton_query.begin() + sing_que_index.End()
+								);
+							}
+
+							ite->node.Reset();
+
+							if (need_fix_index)
+							{
+								for (auto& ite2 : system_info)
+								{
+									if (ite2.node)
+									{
+										if (ite2.component_query_index.Begin() >= comp_que_index.End())
+										{
+											ite2.component_query_index.WholeForward(comp_que_index.Size());
+										}
+										if (ite2.singleton_query_index.Begin() >= sing_que_index.End())
+										{
+											ite2.singleton_query_index.WholeForward(sing_que_index.Size());
+										}
+									}
+								}
+							}
+							auto version = ite->version;
+							*ite = SystemNodeInfo{};
+							ite->version = version + 1;
 						}
 					}
 				}
@@ -940,5 +1007,11 @@ namespace Noodles
 		return false;
 	}
 
-	
+	SystemNode::Parameter Context::GetParameter() const
+	{
+		auto par = controller.GetParameter().custom_data;
+		std::shared_lock sl(instance.execute_system_mutex);
+		assert(par.data1 < instance.execute_system_info.size());
+		return instance.execute_system_info[par.data1].parameter;
+	}
 }
