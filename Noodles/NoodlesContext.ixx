@@ -46,6 +46,11 @@ export namespace Noodles
 		OnceIgnoreLayer
 	};
 
+	struct SystemUserData;
+
+	template<typename Type>
+	concept IsDerivedOfSystemUserData = std::is_base_of_v<SystemUserData, Type>;
+
 	struct SystemUserData
 	{
 		struct Wrapper
@@ -56,37 +61,46 @@ export namespace Noodles
 
 		using Ptr = Potato::Pointer::IntrusivePtr<SystemUserData, Wrapper>;
 
+		template<IsDerivedOfSystemUserData RequireT>
+		RequireT* TryCast() { return dynamic_cast<RequireT*>(this); }
+
+		template<IsDerivedOfSystemUserData RequireT>
+		RequireT* Cast() { return static_cast<RequireT*>(this); }
+
 	protected:
 
 		virtual void AddSystemUserDataRef() const = 0;
 		virtual void SubSystemUserDataRef() const = 0;
 	};
 
-	template<typename StorageT>
-	struct SystemUserDataDefault : public SystemUserData, public Potato::IR::MemoryResourceRecordIntrusiveInterface
+	template<IsDerivedOfSystemUserData StorageT>
+	struct SystemUserDataDefault : public StorageT, public Potato::IR::MemoryResourceRecordIntrusiveInterface
 	{
-		SystemUserDataDefault(Potato::IR::MemoryResourceRecord record, StorageT&& storage)
-			: storage(std::move(storage)) {
+		template<typename ...Params>
+		SystemUserDataDefault(Potato::IR::MemoryResourceRecord record, Params&& ...params)
+			: MemoryResourceRecordIntrusiveInterface(record), StorageT(std::forward<Params>(params)...)
+		{
 		}
-		StorageT storage;
-		StorageT& GetData() { return storage; }
 
-		static Ptr Create(StorageT&& storage, std::pmr::memory_resource* resource = std::pmr::get_default_resource());
+		using Ptr = Potato::Pointer::IntrusivePtr<SystemUserDataDefault, SystemUserData::Wrapper>;
+
+		template<typename ...Params>
+		static Ptr Create(std::pmr::memory_resource* resource = std::pmr::get_default_resource(), Params&& ...params);
 
 
 		void AddSystemUserDataRef() const { MemoryResourceRecordIntrusiveInterface::AddRef(); }
 		void SubSystemUserDataRef() const { MemoryResourceRecordIntrusiveInterface::SubRef(); }
 	};
 
-	template<typename StorageT>
-	static SystemUserData::Ptr SystemUserDataDefault<StorageT>::Create(StorageT&& storage, std::pmr::memory_resource* resource)
+	template<IsDerivedOfSystemUserData StorageT> template<typename ...Params>
+	auto SystemUserDataDefault<StorageT>::Create(std::pmr::memory_resource* resource, Params&& ...params)
+		-> Ptr
 	{
-		using Type = std::remove_cvref_t<StorageT>;
 
-		auto re = Potato::IR::MemoryResourceRecord::Allocate<SystemUserDataDefault<Type>>(resource);
+		auto re = Potato::IR::MemoryResourceRecord::Allocate<SystemUserDataDefault<StorageT>>(resource);
 		if (re)
 		{
-			return new(re.Get()) SystemUserDataDefault<Type>(re, std::forward<StorageT>(storage));
+			return new(re.Get()) SystemUserDataDefault<StorageT>(re, std::forward<Params>(params)...);
 		}
 		return {};
 	}
