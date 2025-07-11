@@ -46,65 +46,6 @@ export namespace Noodles
 		OnceIgnoreLayer
 	};
 
-	struct SystemUserData;
-
-	template<typename Type>
-	concept IsDerivedOfSystemUserData = std::is_base_of_v<SystemUserData, Type>;
-
-	struct SystemUserData
-	{
-		struct Wrapper
-		{
-			void AddRef(SystemUserData const* ptr) { ptr->AddSystemUserDataRef(); }
-			void SubRef(SystemUserData const* ptr) { ptr->SubSystemUserDataRef(); }
-		};
-
-		using Ptr = Potato::Pointer::IntrusivePtr<SystemUserData, Wrapper>;
-
-		template<IsDerivedOfSystemUserData RequireT>
-		RequireT* TryCast() { return dynamic_cast<RequireT*>(this); }
-
-		template<IsDerivedOfSystemUserData RequireT>
-		RequireT* Cast() { return static_cast<RequireT*>(this); }
-
-	protected:
-
-		virtual void AddSystemUserDataRef() const = 0;
-		virtual void SubSystemUserDataRef() const = 0;
-	};
-
-	template<IsDerivedOfSystemUserData StorageT>
-	struct SystemUserDataDefault : public StorageT, public Potato::IR::MemoryResourceRecordIntrusiveInterface
-	{
-		template<typename ...Params>
-		SystemUserDataDefault(Potato::IR::MemoryResourceRecord record, Params&& ...params)
-			: MemoryResourceRecordIntrusiveInterface(record), StorageT(std::forward<Params>(params)...)
-		{
-		}
-
-		using Ptr = Potato::Pointer::IntrusivePtr<SystemUserDataDefault, SystemUserData::Wrapper>;
-
-		template<typename ...Params>
-		static Ptr Create(std::pmr::memory_resource* resource = std::pmr::get_default_resource(), Params&& ...params);
-
-
-		void AddSystemUserDataRef() const { MemoryResourceRecordIntrusiveInterface::AddRef(); }
-		void SubSystemUserDataRef() const { MemoryResourceRecordIntrusiveInterface::SubRef(); }
-	};
-
-	template<IsDerivedOfSystemUserData StorageT> template<typename ...Params>
-	auto SystemUserDataDefault<StorageT>::Create(std::pmr::memory_resource* resource, Params&& ...params)
-		-> Ptr
-	{
-
-		auto re = Potato::IR::MemoryResourceRecord::Allocate<SystemUserDataDefault<StorageT>>(resource);
-		if (re)
-		{
-			return new(re.Get()) SystemUserDataDefault<StorageT>(re, std::forward<Params>(params)...);
-		}
-		return {};
-	}
-
 	struct SystemNode : public Potato::TaskFlow::Node
 	{
 
@@ -131,7 +72,7 @@ export namespace Noodles
 			std::int32_t layer = 0;
 			Priority priority;
 			std::wstring_view module_name;
-			SystemUserData::Ptr data;
+			Potato::IR::StructLayoutObject::Ptr object;
 			std::size_t acceptable_mask = std::numeric_limits<std::size_t>::max();
 		};
 
