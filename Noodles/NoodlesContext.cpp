@@ -228,123 +228,158 @@ namespace Noodles
 		return result;
 	}
 
+	std::optional<Instance::ExecutedSystemIndex> Instance::LoadOnceSystemNode(SystemNode::Ptr node, SystemNode::Parameter parameter)
+	{
+		SystemInfo info;
+		info.temporary = true;
+		auto index = PrepareSystemNode(node, info);
+		if (index)
+		{
+			return LoadSystemNode(SystemCategory::Once, index, std::move(parameter));
+		}
+		return std::nullopt;
+	}
+
+	std::optional<Instance::ExecutedSystemIndex> Instance::LoadOnceSystemNode(Context& context, SystemCategory category, SystemNode::Ptr node, SystemNode::Parameter parameter)
+	{
+		if (category == SystemCategory::Tick)
+			return std::nullopt;
+		SystemInfo info;
+		info.temporary = true;
+		auto index = PrepareSystemNode(node, info);
+		if (index)
+		{
+			return LoadSystemNode(context, category, index, std::move(parameter));
+		}
+		return std::nullopt;
+	}
+
+
 	Instance::SystemIndex Instance::PrepareSystemNode(SystemNode::Ptr node, SystemInfo info, bool unique)
 	{
 		if (node)
 		{
 			SystemInitializer init{ *this };
-			node->Init(init);
-
-			{
-				std::shared_lock sl(component_mutex);
-				for (auto& ite : init.component_list)
-				{
-					ite->UpdateQueryData(component_manager);
-				}
-			}
-
-			{
-				std::shared_lock sl(singleton_mutex);
-				for (auto& ite : init.singleton_list)
-				{
-					ite->UpdateQueryData(singleton_manager);
-				}
-			}
-
-			std::lock_guard lg(system_mutex);
-
-			if (unique)
-			{
-				auto finded = std::find_if(system_info.begin(), system_info.end(), [&](SystemNodeInfo const& finded_info) {
-					return finded_info.info.identity_name == info.identity_name;
-					});
-				if (finded != system_info.end())
-				{
-					return SystemIndex{
-						static_cast<std::size_t>(std::distance(finded, system_info.begin())),
-						finded->version
-					};
-				}
-			}
-
-			auto finded = std::find_if(system_info.begin(), system_info.end(), [](SystemNodeInfo const& info) { return !info.node; });
-			if (finded == system_info.end())
-			{
-				SystemNodeInfo added_system_info;
-
-				added_system_info.component_query_index = { component_query.size(), component_query.size() };
-				added_system_info.singleton_query_index = { singleton_query.size(), singleton_query.size() };
-				auto total_bitflag_container_count = component_map.GetBitFlagContainerElementCount() * 2
-					+ singleton_map.GetBitFlagContainerElementCount() * 2
-					+ component_manager.GetArchetypeBitFlagContainerCount()
-					;
-				auto old_size = system_bitflag_container.size();
-				system_bitflag_container.resize(old_size + total_bitflag_container_count);
-				BitFlagContainerViewer view{ std::span(system_bitflag_container).subspan(old_size) };
-				view.Reset();
-				finded = system_info.insert(system_info.end(), added_system_info);
-			}
-			else {
-				finded->component_query_index = { component_query.size(), component_query.size() };
-				finded->singleton_query_index = { singleton_query.size(), singleton_query.size() };
-			}
-
-			finded->version += 1;
-			finded->node = std::move(node);
-			finded->info = info;
-
-			std::size_t index = static_cast<std::size_t>(finded - system_info.begin());
-
-			bool has_new_query = false;
-
-			auto system_bit_flag = GetSystemRequireBitFlagViewer_AssumedLocked(index);
-
-			if (!init.component_list.empty())
-			{
-				has_new_query = true;
-
-				for (auto& ite : init.component_list)
-				{
-					auto r1 = system_bit_flag.component.require.Union(ite->GetRequireContainerConstViewer());
-					assert(r1);
-					auto r2 = system_bit_flag.component.write.Union(ite->GetWritedContainerConstViewer());
-					assert(r2);
-					system_bit_flag.archetype_usage.Union(ite->GetArchetypeContainerConstViewer());
-				}
-
-				finded->component_query_index.BackwardEnd(init.component_list.size());
-
-				component_query.insert_range(
-					component_query.begin() + finded->component_query_index.Begin(),
-					std::ranges::as_rvalue_view(init.component_list)
-				);
-			}
-
-			if (!init.singleton_list.empty())
-			{
-				has_new_query = true;
-
-				for (auto& ite : init.singleton_list)
-				{
-					auto r1 = system_bit_flag.singleton.require.Union(ite->GetRequireContainerConstViewer());
-					assert(r1);
-					auto r2 = system_bit_flag.singleton.write.Union(ite->GetWritedContainerConstViewer());
-					assert(r2);
-				}
-
-				finded->singleton_query_index.BackwardEnd(init.singleton_list.size());
-
-				singleton_query.insert_range(
-					singleton_query.begin() + finded->singleton_query_index.Begin(),
-					std::ranges::as_rvalue_view(init.singleton_list)
-				);
-			}
-
-			SystemIndex system_index = { index, finded->version };
-
-			return system_index;
+			InitSystemInitializer(init, *node);
+			return PrepareSystemNode(init, std::move(node), info, unique);
 		}
 		return {};
+	}
+
+	void Instance::InitSystemInitializer(SystemInitializer& output, SystemNode& target_system) const
+	{
+		target_system.Init(output);
+		{
+			std::shared_lock sl(component_mutex);
+			for (auto& ite : output.component_list)
+			{
+				ite->UpdateQueryData(component_manager);
+			}
+		}
+
+		{
+			std::shared_lock sl(singleton_mutex);
+			for (auto& ite : output.singleton_list)
+			{
+				ite->UpdateQueryData(singleton_manager);
+			}
+		}
+	}
+
+	Instance::SystemIndex Instance::PrepareSystemNode(SystemInitializer& init, SystemNode::Ptr node, SystemInfo info, bool unique)
+	{
+		assert(node);
+		std::lock_guard lg(system_mutex);
+		if (unique && !info.identity_name.empty())
+		{
+			auto finded = std::find_if(system_info.begin(), system_info.end(), [&](SystemNodeInfo const& finded_info) {
+				return finded_info.info.identity_name == info.identity_name;
+				});
+			if (finded != system_info.end())
+			{
+				return SystemIndex{
+					static_cast<std::size_t>(std::distance(finded, system_info.begin())),
+					finded->version
+				};
+			}
+		}
+
+		auto finded = std::find_if(system_info.begin(), system_info.end(), [](SystemNodeInfo const& info) { return !info.node; });
+		if (finded == system_info.end())
+		{
+			SystemNodeInfo added_system_info;
+
+			added_system_info.component_query_index = { component_query.size(), component_query.size() };
+			added_system_info.singleton_query_index = { singleton_query.size(), singleton_query.size() };
+			auto total_bitflag_container_count = component_map.GetBitFlagContainerElementCount() * 2
+				+ singleton_map.GetBitFlagContainerElementCount() * 2
+				+ component_manager.GetArchetypeBitFlagContainerCount()
+				;
+			auto old_size = system_bitflag_container.size();
+			system_bitflag_container.resize(old_size + total_bitflag_container_count);
+			BitFlagContainerViewer view{ std::span(system_bitflag_container).subspan(old_size) };
+			view.Reset();
+			finded = system_info.insert(system_info.end(), added_system_info);
+		}
+		else {
+			finded->component_query_index = { component_query.size(), component_query.size() };
+			finded->singleton_query_index = { singleton_query.size(), singleton_query.size() };
+		}
+
+		finded->version += 1;
+		finded->node = std::move(node);
+		finded->info = info;
+
+		std::size_t index = static_cast<std::size_t>(finded - system_info.begin());
+
+		bool has_new_query = false;
+
+		auto system_bit_flag = GetSystemRequireBitFlagViewer_AssumedLocked(index);
+
+		if (!init.component_list.empty())
+		{
+			has_new_query = true;
+
+			for (auto& ite : init.component_list)
+			{
+				auto r1 = system_bit_flag.component.require.Union(ite->GetRequireContainerConstViewer());
+				assert(r1);
+				auto r2 = system_bit_flag.component.write.Union(ite->GetWritedContainerConstViewer());
+				assert(r2);
+				system_bit_flag.archetype_usage.Union(ite->GetArchetypeContainerConstViewer());
+			}
+
+			finded->component_query_index.BackwardEnd(init.component_list.size());
+
+			component_query.insert_range(
+				component_query.begin() + finded->component_query_index.Begin(),
+				std::ranges::as_rvalue_view(init.component_list)
+			);
+		}
+
+		if (!init.singleton_list.empty())
+		{
+			has_new_query = true;
+
+			for (auto& ite : init.singleton_list)
+			{
+				auto r1 = system_bit_flag.singleton.require.Union(ite->GetRequireContainerConstViewer());
+				assert(r1);
+				auto r2 = system_bit_flag.singleton.write.Union(ite->GetWritedContainerConstViewer());
+				assert(r2);
+			}
+
+			finded->singleton_query_index.BackwardEnd(init.singleton_list.size());
+
+			singleton_query.insert_range(
+				singleton_query.begin() + finded->singleton_query_index.Begin(),
+				std::ranges::as_rvalue_view(init.singleton_list)
+			);
+		}
+
+		SystemIndex system_index = { index, finded->version };
+
+		return system_index;
 	}
 
 	Instance::ExecuteSystemIndex Instance::FindAvailableSystemIndex_AssumedLocked()

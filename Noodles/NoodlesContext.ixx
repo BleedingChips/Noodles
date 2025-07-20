@@ -143,9 +143,13 @@ export namespace Noodles
 			std::wstring_view identity_name;
 		};
 
+		std::optional<ExecutedSystemIndex> LoadOnceSystemNode(Context& context, SystemCategory category, SystemNode::Ptr node, SystemNode::Parameter parameter = {});
+		std::optional<ExecutedSystemIndex> LoadOnceSystemNode(SystemNode::Ptr node, SystemNode::Parameter parameter = {});
 		SystemIndex PrepareSystemNode(SystemNode::Ptr index, SystemInfo info = {}, bool Unique = false);
 		std::optional<ExecutedSystemIndex> LoadSystemNode(SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
 		std::optional<ExecutedSystemIndex> LoadSystemNode(Context& context, SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
+		
+		
 		decltype(auto) CreateEntity() {
 			std::lock_guard lg(entity_mutex);
 			return entity_manager.CreateEntity();
@@ -179,6 +183,8 @@ export namespace Noodles
 		SystemRequireBitFlagViewer GetSystemRequireBitFlagViewer_AssumedLocked(std::size_t system_info_index);
 		bool DetectSystemComponentOverlapping_AssumedLocked(std::size_t system_index, std::size_t system_index2);
 
+		void InitSystemInitializer(SystemInitializer& output, SystemNode& target_system) const;
+		SystemIndex PrepareSystemNode(SystemInitializer& initializer, SystemNode::Ptr node, SystemInfo info, bool unique);
 		virtual void BeginFlow(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
 		virtual void FinishFlow_AssumedLocked(Potato::Task::Context& context, Potato::Task::Node::Parameter parameter) override;
 		virtual bool UpdateFlow_AssumedLocked(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
