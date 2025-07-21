@@ -162,7 +162,7 @@ namespace Noodles
 
 			auto bitflag_conatiner_span = std::span<BitFlagContainerViewer::Element>{
 				new (static_cast<void*>(record.GetByte(bitflag_offset))) std::size_t[singleton_container_count * 2],
-				singleton_container_count
+				singleton_container_count * 2
 			};
 
 			BitFlagContainerViewer require = bitflag_conatiner_span.subspan(0, singleton_container_count);

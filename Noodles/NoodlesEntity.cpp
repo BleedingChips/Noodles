@@ -233,7 +233,7 @@ namespace Noodles
 					{
 						event_span = entity_modifier[target_entity.modify_index].infos;
 					}
-					auto span = event_span.Slice(std::span(entity_modifier_event));
+					auto span = event_span.Slice(std::span(entity_modifier_event.data(), entity_modifier_event.size()));
 					for (auto& ite : span)
 					{
 						if (ite.need_add && ite.bitflag == component_bitflag)
@@ -295,7 +295,7 @@ namespace Noodles
 				if (*bitflag_is_same)
 				{
 					assert(entity.index);
-					auto span = ite.infos.Slice(std::span{ entity_modifier_event });
+					auto span = ite.infos.Slice(std::span{ entity_modifier_event.data(), entity_modifier_event.size()});
 					component_init_list.clear();
 					for (EntityModifierEvent const& ite2 : span)
 					{
@@ -306,7 +306,7 @@ namespace Noodles
 					}
 					ComponentManager::ConstructOption option;
 					option.destruct_before_construct = true;
-					auto re = manager.ConstructEntity(*entity.index, std::span(component_init_list), option);
+					auto re = manager.ConstructEntity(*entity.index, std::span(component_init_list.data(), component_init_list.size()), option);
 					assert(re);
 
 				}
@@ -321,13 +321,14 @@ namespace Noodles
 					if (!archetype_index)
 					{
 						init_list.resize(archetype_component_count);
-						offset = manager.FlushInitWithComponent(*entity.index, entity.modify_component_bitflag, std::span(component_init_list), std::span(init_list));
-					}
-					else {
-						offset = manager.FlushInitWithComponent(*entity.index, entity.modify_component_bitflag, std::span(component_init_list), {});
 					}
 
-					auto span = ite.infos.Slice(std::span{ entity_modifier_event });
+					if (entity.index.has_value())
+					{
+						offset = manager.FlushInitWithComponent(*entity.index, entity.modify_component_bitflag, std::span(component_init_list.data(), component_init_list.size()), std::span(init_list.data(), init_list.size()));
+					}
+
+					auto span = ite.infos.Slice(std::span{ entity_modifier_event.data(), entity_modifier_event.size()});
 					std::size_t new_component_start_index = offset;
 					for (EntityModifierEvent const& ite2 : span)
 					{
@@ -370,8 +371,8 @@ namespace Noodles
 
 					if (!archetype_index)
 					{
-						ComponentManager::Sort(init_list);
-						archetype_index = manager.CreateComponentChunk(std::span(init_list));
+						ComponentManager::Sort(std::span(init_list.data(), init_list.size()));
+						archetype_index = manager.CreateComponentChunk(std::span(init_list.data(), init_list.size()));
 						assert(archetype_index);
 						if (!archetype_index)
 						{
@@ -401,7 +402,7 @@ namespace Noodles
 						}
 					}
 
-					auto re = manager.ConstructEntity(*new_index, std::span(component_init_list), option);
+					auto re = manager.ConstructEntity(*new_index, std::span(component_init_list.data(), component_init_list.size()), option);
 					assert(re);
 
 					if (entity.index)
@@ -427,7 +428,7 @@ namespace Noodles
 		if (!removed_list.empty())
 		{
 			std::sort(removed_list.begin(), removed_list.end());
-			std::span<ComponentManager::Index> span = std::span(removed_list);
+			std::span<ComponentManager::Index> span = std::span(removed_list.data(), removed_list.size());
 			while (!span.empty())
 			{
 				std::size_t index = 1;

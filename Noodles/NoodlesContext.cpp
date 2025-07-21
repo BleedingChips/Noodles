@@ -235,7 +235,7 @@ namespace Noodles
 		auto index = PrepareSystemNode(node, info);
 		if (index)
 		{
-			return LoadSystemNode(SystemCategory::Once, index, std::move(parameter));
+			return LoadSystemNode(SystemCategory::OnceNextFrame, index, std::move(parameter));
 		}
 		return std::nullopt;
 	}
