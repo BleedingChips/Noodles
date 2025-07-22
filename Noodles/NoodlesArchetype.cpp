@@ -27,6 +27,7 @@ namespace Noodles
 				class_bitflag_container_count
 			};
 			BitFlagContainerViewer class_flag_container{ class_bitflag_container_span };
+			class_flag_container.Reset();
 			Potato::MemLayout::MemLayoutCPP total_layout;
 			for (std::size_t i = 0; i < atomic_type.size(); ++i)
 			{

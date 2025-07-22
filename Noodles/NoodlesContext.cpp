@@ -689,7 +689,7 @@ namespace Noodles
 						if (ite.index != ite2.index)
 						{
 							assert(ite.layer != ite2.layer);
-							if (ite.layer > ite2.layer)
+							if (ite.layer < ite2.layer)
 							{
 								main_flow.AddDirectEdge(ite.index, ite2.index);
 							}

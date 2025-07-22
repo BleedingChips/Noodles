@@ -265,7 +265,8 @@ namespace Noodles
 		for (auto& ite : archetype_info)
 		{
 			assert(ite.archtype);
-			if (ite.archtype->GetClassBitFlagContainer().IsSame(component_bitflag))
+			auto is_same = ite.archtype->GetClassBitFlagContainer().IsSame(component_bitflag);
+			if (is_same && *is_same)
 			{
 				return index;
 			}
@@ -321,7 +322,7 @@ namespace Noodles
 		{
 			auto& archetype = archetype_info[index.archetype_index];
 
-			if (index.chunk_index < archetype.chunk_span.Size())
+			if (archetype.chunk_span.IsInclude(index.chunk_index))
 			{
 				auto& target_chunk = chunks[index.chunk_index];
 				for(auto ite : component_init)
