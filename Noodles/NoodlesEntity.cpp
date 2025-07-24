@@ -107,7 +107,7 @@ namespace Noodles
 	bool EntityManager::AddEntityComponentImp(Entity& entity, StructLayout const& component_class, void* component_ptr, BitFlag component_bitflag, bool accept_build_in, Operation operation, std::pmr::memory_resource* resource)
 	{
 		auto ope = component_class.GetOperateProperty();
-		if (!ope.move_construct && !ope.copy_construct)
+		if (!ope.construct_move && !ope.construct_copy)
 			return false;
 		if (accept_build_in || component_bitflag != GetEntityPropertyBitFlag())
 		{

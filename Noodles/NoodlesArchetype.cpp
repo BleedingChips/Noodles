@@ -37,7 +37,7 @@ namespace Noodles
 				
 				std::size_t offset = total_layout.Insert(ref.ptr->GetLayout());
 
-				assert(ope.move_construct);
+				assert(ope.construct_move);
 
 				new (&MV[i]) MemberView{
 					ref.ptr,
@@ -74,31 +74,4 @@ namespace Noodles
 			ite.~MemberView();
 		}
 	}
-
-	/*
-	StructBitFlagMapping::StructBitFlagMapping(Potato::IR::MemoryResourceRecord record, Config config) :
-		MemoryResourceRecordIntrusiveInterface(record),
-		component_bit_flag(config.component_count, config.resource),
-	singleton_bit_flag(config.singleton_count, config.resource),
-	thread_order_bit_flag(config.thread_order_count, config.resource),
-	archetype_bit_flag_count(BitFlagContainer::GetMaxBitFlagContainer(config.archetype_count))
-	{
-		
-	}
-
-	std::size_t StructBitFlagMapping::GetArchetypeBitContainerCount() const
-	{
-		return BitFlagContainer::GetBitFlagContainerCount(archetype_bit_flag_count);
-	}
-
-	auto StructBitFlagMapping::Create(Config config, std::pmr::memory_resource* resource) -> Ptr
-	{
-		auto re = Potato::IR::MemoryResourceRecord::Allocate<StructBitFlagMapping>(resource);
-		if(re)
-		{
-			return new(re.Get()) StructBitFlagMapping{ re, std::move(config)};
-		}
-		return {};
-	}
-	*/
 }

@@ -28,7 +28,7 @@ export namespace Noodles
 
 		struct Init
 		{
-			StructLayout::Ptr ptr;
+			Potato::IR::StructLayout::Ptr ptr;
 			BitFlag flag;
 		};
 

@@ -154,8 +154,8 @@ namespace Noodles
 			auto ope = mem_view.struct_layout->GetOperateProperty();
 
 			if(
-				ope.copy_construct && !move_construct
-				|| ope.move_construct && move_construct
+				ope.construct_copy && !move_construct
+				|| ope.construct_move && move_construct
 				)
 			{
 				auto target_offset = GetComponent(mem_view, entity_index);
