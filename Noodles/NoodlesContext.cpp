@@ -47,9 +47,14 @@ namespace Noodles
 		void SystemNodeExecute(Context& context)
 		{
 			auto& instance = context.instance;
-			if (!instance.available)
-			{
+			std::lock_guard lg(instance.once_system_mutex);
+			instance.current_layer = std::numeric_limits<std::int32_t>::max();
 
+			while (instance.current_frame_once_system_iterator < instance.current_frame_once_system_count)
+			{
+				auto cur = instance.once_system_node[instance.current_frame_once_system_iterator];
+				++instance.current_frame_once_system_iterator;
+				instance.LoadSystemNode(context, SystemCategory::OnceIgnoreLayer, cur.index, cur.parameter);
 			}
 		}
 	}ending_system_node;
@@ -61,14 +66,13 @@ namespace Noodles
 		void SystemNodeExecute(Context& context)
 		{
 			auto& instance = context.instance;
-			std::lock_guard lg(instance.once_system_mutex);
-			instance.current_layer = std::numeric_limits<std::int32_t>::max();
-
-			while (instance.current_frame_once_system_iterator < instance.current_frame_once_system_count)
+			if (!instance.available)
 			{
-				auto cur = instance.once_system_node[instance.current_frame_once_system_iterator];
-				++instance.current_frame_once_system_iterator;
-				instance.LoadSystemNode(context, SystemCategory::OnceIgnoreLayer, cur.index, cur.parameter);
+				std::lock_guard lg(instance.once_system_mutex);
+				for (auto& ite : instance.dying_system_node)
+				{
+					instance.LoadSystemNode(context, SystemCategory::OnceIgnoreLayer, ite.index, ite.parameter);
+				}
 			}
 		}
 	}static_dying_system_node;
@@ -578,6 +582,21 @@ namespace Noodles
 			}
 		}
 		return std::nullopt;
+	}
+
+	void Instance::LoadDyingSystemNode(SystemIndex index, SystemNode::Parameter parameter)
+	{
+		std::lock_guard lg(once_system_mutex);
+		OnceSystemInfo once_sys_info;
+		once_sys_info.parameter = parameter;
+		once_sys_info.index = index;
+		auto find = std::find_if(dying_system_node.begin(), dying_system_node.end(), [&](OnceSystemInfo const& info) {
+			return Potato::Misc::PriorityCompareStrongOrdering(
+				parameter.layer, info.parameter.layer,
+				parameter.priority, info.parameter.priority
+			) == std::strong_ordering::less;
+		});
+		dying_system_node.insert(find, once_sys_info);
 	}
 
 	std::optional<Instance::ExecutedSystemIndex> Instance::LoadSystemNode(Context& context, SystemCategory category, SystemIndex index, SystemNode::Parameter parameter)

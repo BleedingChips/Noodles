@@ -151,7 +151,7 @@ export namespace Noodles
 		SystemIndex PrepareSystemNode(SystemNode::Ptr index, SystemInfo info = {}, bool Unique = false);
 		std::optional<ExecutedSystemIndex> LoadSystemNode(SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
 		std::optional<ExecutedSystemIndex> LoadSystemNode(Context& context, SystemCategory category, SystemIndex index, SystemNode::Parameter parameter = {});
-		
+		void LoadDyingSystemNode(SystemIndex index, SystemNode::Parameter parameter = {});
 		
 		decltype(auto) CreateEntity() {
 			std::lock_guard lg(entity_mutex);
