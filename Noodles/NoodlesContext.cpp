@@ -47,6 +47,20 @@ namespace Noodles
 		void SystemNodeExecute(Context& context)
 		{
 			auto& instance = context.instance;
+			if (!instance.available)
+			{
+
+			}
+		}
+	}ending_system_node;
+
+	struct DyingSystemNode : public SystemNode
+	{
+		virtual void AddSystemNodeRef() const {}
+		virtual void SubSystemNodeRef() const {}
+		void SystemNodeExecute(Context& context)
+		{
+			auto& instance = context.instance;
 			std::lock_guard lg(instance.once_system_mutex);
 			instance.current_layer = std::numeric_limits<std::int32_t>::max();
 
@@ -57,8 +71,7 @@ namespace Noodles
 				instance.LoadSystemNode(context, SystemCategory::OnceIgnoreLayer, cur.index, cur.parameter);
 			}
 		}
-	}ending_system_node;
-
+	}static_dying_system_node;
 
 	Instance::Instance(Config config, std::pmr::memory_resource* resource)
 		: Executor(resource),
@@ -70,12 +83,16 @@ namespace Noodles
 		singleton_modify_manager(singleton_map.GetBitFlagContainerElementCount()),
 		main_flow(resource),
 		sub_flows(resource),
-		system_info(resource)
+		system_info(resource),
+		entity_history(component_map, resource)
 	{
 		Potato::TaskFlow::Node::Parameter parameter;
 		parameter.node_name = L"EndingSystemNode";
 		parameter.custom_data.data1 = std::numeric_limits<std::size_t>::max();
 		ending_system_index = main_flow.AddNode(ending_system_node, parameter);
+		parameter.node_name = L"DyingSystemNode";
+		dying_system_index = main_flow.AddNode(static_dying_system_node, parameter);
+		main_flow.AddDirectEdge(ending_system_index, dying_system_index);
 	}
 
 	bool Instance::Commit(Potato::Task::Context& context, Parameter parameter)
@@ -741,7 +758,7 @@ namespace Noodles
 			std::lock_guard sl(component_mutex, std::adopt_lock);
 			std::lock_guard s2(entity_mutex, std::adopt_lock);
 
-			entity_manager.FlushEntityModify(component_manager);
+			entity_manager.FlushEntityModify(component_manager, entity_history);
 
 			component_has_modify = component_manager.HasArchetypeCreated();
 		}

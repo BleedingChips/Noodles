@@ -22,6 +22,8 @@ export namespace Noodles
 {
 	constexpr auto InstanceLogCategory = Potato::Log::LogCategory(L"Noodles");
 
+	using EntityHistroy = EntityModifyHistory::History;
+
 	export struct Context;
 	export struct SystemInitializer;
 
@@ -103,6 +105,7 @@ export namespace Noodles
 
 	struct SubFlowSystemNode;
 	struct EndingSystemNode;
+	struct DyingSystemNode;
 
 	struct Instance : protected Potato::TaskFlow::Executor
 	{
@@ -190,7 +193,7 @@ export namespace Noodles
 		virtual bool UpdateFlow_AssumedLocked(std::pmr::memory_resource* resource = std::pmr::get_default_resource());
 		virtual void UpdateSystems();
 		virtual void ExecuteNode(Potato::Task::Context& context, Potato::TaskFlow::Node& node, Potato::TaskFlow::Controller& controller) override;
-		
+
 		using ExecuteSystemIndex = Potato::Misc::VersionIndex;
 
 		ExecuteSystemIndex FindAvailableSystemIndex_AssumedLocked();
@@ -208,7 +211,8 @@ export namespace Noodles
 
 		mutable std::shared_mutex component_mutex;
 		ComponentManager component_manager;
-		
+		EntityModifyHistory entity_history;
+
 		mutable std::mutex entity_mutex;
 		EntityManager entity_manager;
 
@@ -219,6 +223,7 @@ export namespace Noodles
 		SingletonModifyManager singleton_modify_manager;
 
 		Potato::TaskFlow::Flow::NodeIndex ending_system_index;
+		Potato::TaskFlow::Flow::NodeIndex dying_system_index;
 
 		std::atomic_bool available = true;
 
@@ -287,6 +292,7 @@ export namespace Noodles
 
 		std::mutex once_system_mutex;
 		std::pmr::vector<OnceSystemInfo> once_system_node;
+		std::pmr::vector<OnceSystemInfo> dying_system_node;
 		std::int32_t current_layer = std::numeric_limits<std::int32_t>::max();
 		std::size_t current_frame_once_system_iterator = 0;
 		std::size_t current_frame_once_system_count = 0;
@@ -299,6 +305,7 @@ export namespace Noodles
 		friend struct Context;
 		friend struct SubFlowSystemNode;
 		friend struct EndingSystemNode;
+		friend struct DyingSystemNode;
 	};
 
 	template<typename Type>
@@ -435,6 +442,8 @@ export namespace Noodles
 			return query.QuerySingleton(instance.singleton_manager, output);
 		}
 
+		std::span<EntityHistroy const> GetEntityHistory() const { return instance.entity_history.GetHistory(); }
+
 		Instance& GetInstance() const { return instance; }
 		SystemNode::Parameter GetParameter() const;
 
@@ -455,6 +464,7 @@ export namespace Noodles
 		friend struct Instance;
 		friend struct SubFlowSystemNode;
 		friend struct EndingSystemNode;
+		friend struct DyingSystemNode;
 	};
 
 

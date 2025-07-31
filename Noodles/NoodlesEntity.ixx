@@ -5,10 +5,7 @@ module;
 export module NoodlesEntity;
 
 import std;
-import PotatoTMP;
-import PotatoPointer;
-import PotatoIR;
-import PotatoMisc;
+import Potato;
 
 import NoodlesMisc;
 import NoodlesBitFlag;
@@ -18,8 +15,8 @@ import NoodlesComponent;
 export namespace Noodles
 {
 
-	export struct EntityManager;
-	export struct EntityProperty;
+	struct EntityManager;
+	struct EntityProperty;
 	
 
 	struct Entity : protected Potato::IR::MemoryResourceRecordIntrusiveInterface
@@ -72,7 +69,7 @@ export namespace Noodles
 		friend struct Ptr::CurrentWrapper;
 	};
 
-	export struct EntityProperty
+	struct EntityProperty
 	{
 		Entity::Ptr GetEntity() const { return entity; }
 
@@ -89,7 +86,43 @@ export namespace Noodles
 		friend struct EntityManager;
 	};
 
-	export struct EntityManager
+	struct EntityModifyHistory
+	{
+
+		enum class Type
+		{
+			Remove,
+			Modify
+		};
+
+		struct History
+		{
+			Type type;
+			Entity::Ptr entity;
+			BitFlagContainerConstViewer add;
+			BitFlagContainerConstViewer remove;
+		};
+
+		EntityModifyHistory(AsynClassBitFlagMap& mapping, std::pmr::memory_resource* resource = std::pmr::get_default_resource())
+			: history(resource), modify_class_mask(resource), componenot_bitflag_container_count(mapping.GetBitFlagContainerElementCount())
+		{
+
+		}
+		void Clear();
+		std::tuple<BitFlagContainerViewer, BitFlagContainerViewer> AddEntityHistory(Type type, Entity::Ptr entity);
+
+		std::span<History const> GetHistory() const { return std::span(history.data(), history.size()); }
+		void FlushBitMaskToHistory();
+
+	protected:
+
+		std::size_t componenot_bitflag_container_count;
+		std::pmr::vector<History> history;
+		std::pmr::vector<BitFlagContainer::Element> modify_class_mask;
+		friend struct EntityManager;
+	};
+
+	struct EntityManager
 	{
 
 		using Index = Entity::Index;
@@ -129,7 +162,7 @@ export namespace Noodles
 
 		bool RemoveEntityComponent(Entity& entity, BitFlag component_bitflag) { return RemoveEntityComponentImp(entity, component_bitflag, false); }
 
-		bool FlushEntityModify(ComponentManager& manager, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
+		bool FlushEntityModify(ComponentManager& manager, EntityModifyHistory& history, std::pmr::memory_resource* temp_resource = std::pmr::get_default_resource());
 
 		//bool ReadEntityComponents_AssumedLocked(ComponentManager const& manager, Entity const& ent, ComponentQuery const& filter, QueryData& accessor) const;
 
@@ -165,8 +198,5 @@ export namespace Noodles
 		std::pmr::vector<EntityModifierEvent> entity_modifier_event;
 	};
 
-
-	/*
 	
-	*/
 }

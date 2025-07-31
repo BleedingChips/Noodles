@@ -54,6 +54,46 @@ namespace Noodles
 		}
 	}
 
+	void EntityModifyHistory::Clear() 
+	{ 
+		history.clear();
+		modify_class_mask.clear();
+	}
+
+	std::tuple<BitFlagContainerViewer, BitFlagContainerViewer> EntityModifyHistory::AddEntityHistory(Type type, Entity::Ptr entity)
+	{
+		assert(entity);
+		std::size_t old_index = modify_class_mask.size();
+		modify_class_mask.resize(old_index + componenot_bitflag_container_count * 2);
+		BitFlagContainerViewer add{ std::span(modify_class_mask.data() + old_index,componenot_bitflag_container_count) };
+		BitFlagContainerViewer remove{ std::span(modify_class_mask.data() + old_index + componenot_bitflag_container_count,componenot_bitflag_container_count) };
+		add.Reset();
+		remove.Reset();
+		history.emplace_back(
+			type,
+			std::move(entity), 
+			BitFlagContainerConstViewer{},
+			BitFlagContainerConstViewer{}
+		);
+		return { add, remove };
+	}
+
+	void EntityModifyHistory::FlushBitMaskToHistory()
+	{
+		std::size_t index = 0;
+		std::size_t offset = componenot_bitflag_container_count * 2;
+		for (auto& hit : history)
+		{
+			hit.add = BitFlagContainerConstViewer{ std::span(modify_class_mask.data(), modify_class_mask.size()).subspan(
+				index * offset, componenot_bitflag_container_count
+			) };
+			hit.remove = BitFlagContainerConstViewer{ std::span(modify_class_mask.data(), modify_class_mask.size()).subspan(
+				index * offset + componenot_bitflag_container_count, componenot_bitflag_container_count
+			) };
+			index += 2;
+		}
+	}
+
 	EntityManager::EntityManager(AsynClassBitFlagMap& map, Config config)
 		: entity_modifier(config.resource), entity_modifier_event(config.resource)
 	{
@@ -249,11 +289,12 @@ namespace Noodles
 		return false;
 	}
 
-	bool EntityManager::FlushEntityModify(ComponentManager& manager, std::pmr::memory_resource* temp_resource)
+	bool EntityManager::FlushEntityModify(ComponentManager& manager, EntityModifyHistory& history, std::pmr::memory_resource* temp_resource)
 	{
 		bool has_been_update = false;
 
 		manager.ResetUpdatedState();
+		history.Clear();
 
 		std::pmr::vector<ComponentManager::Index> removed_list(temp_resource);
 
@@ -261,6 +302,10 @@ namespace Noodles
 		{
 			if (ite.entity && ite.need_remove)
 			{
+				auto [add, remove] = history.AddEntityHistory(EntityModifyHistory::Type::Remove, ite.entity);
+				auto re = remove.CopyFrom(ite.entity->component_bitflag);
+				assert(re);
+				
 				has_been_update = true;
 				auto& entity = *ite.entity;
 
@@ -287,6 +332,7 @@ namespace Noodles
 		{
 			if (ite.entity && !ite.need_remove)
 			{
+				auto [add, remove] = history.AddEntityHistory(EntityModifyHistory::Type::Modify, ite.entity);
 				has_been_update = true;
 				auto& entity = *ite.entity;
 				std::lock_guard lg(entity.mutex);
@@ -302,6 +348,10 @@ namespace Noodles
 						if (ite2.need_add)
 						{
 							component_init_list.emplace_back(ite2.bitflag, true, ite2.resource.GetByte());
+							auto re = add.SetValue(ite2.bitflag);
+							auto re2 = remove.SetValue(ite2.bitflag);
+							assert(re && !*re);
+							assert(re2 && !*re2);
 						}
 					}
 					ComponentManager::ConstructOption option;
@@ -334,6 +384,8 @@ namespace Noodles
 					{
 						if (ite2.need_add)
 						{
+							auto re = add.SetValue(ite2.bitflag);
+							assert(re && !*re);
 							bool modify = false;
 							for (std::size_t i = 0; i < offset; ++i)
 							{
@@ -358,6 +410,10 @@ namespace Noodles
 								}
 								++new_component_start_index;
 							}
+						}
+						else {
+							auto re = remove.SetValue(ite2.bitflag);
+							assert(re && !*re);
 						}
 					}
 
@@ -468,6 +524,7 @@ namespace Noodles
 		entity_modifier.clear();
 		entity_modifier_event.clear();
 		manager.UpdateUpdatedState();
+		history.FlushBitMaskToHistory();
 		return has_been_update;
 	}
 }

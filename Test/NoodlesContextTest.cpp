@@ -61,6 +61,7 @@ int main()
 			Noodles::AutoSingletonQuery<A> s_query
 		) 
 		{
+			/*
 			Noodles::AutoComponentQueryIterator iterator;
 			auto component_query_data = query.GetQueryData();
 			auto singleton_query_data = s_query.GetQueryData();
@@ -77,7 +78,7 @@ int main()
 				auto p = singleton_query_data.Get<0>();
 				volatile int i = 0;
 			}
-
+			*/
 		}
 	);
 

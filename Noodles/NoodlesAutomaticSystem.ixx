@@ -253,7 +253,18 @@ export namespace Noodles
 				return false;
 			}
 		}
+
+		bool RequireMarchAny(BitFlagContainerConstViewer target) const { auto re = query->GetRequireContainerConstViewer().IsOverlapping(target);  return re && *re; };
+		bool RequireMarchAll(BitFlagContainerConstViewer target) const { auto re = target.Inclusion(query->GetRequireContainerConstViewer());  return re && *re; };
+		bool RequireMarchSingle(BitFlagContainerConstViewer target, std::size_t require_index) const { auto re = target.GetValue(query->GetRequireBitFlag()[require_index]); return re && *re; };
+		template<typename RequireType>
+		bool RequireMarchSingle(BitFlagContainerConstViewer target) const requires(Potato::TMP::IsOneOfV<RequireType, ComponentT...>) 
+		{ 
+			return RequireMarchSingle(target, Potato::TMP::LocateByType<RequireType, ComponentT...>::Value); 
+		}
+
 	protected:
+
 		Context& context;
 		ComponentQuery::OPtr query;
 	};

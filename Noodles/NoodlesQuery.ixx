@@ -11,6 +11,7 @@ import NoodlesArchetype;
 import NoodlesBitFlag;
 import NoodlesComponent;
 import NoodlesSingleton;
+import NoodlesEntity;
 
 export namespace Noodles
 {
@@ -65,7 +66,6 @@ export namespace Noodles
 		std::optional<std::size_t> QueryComponentArrayWithIterator(ComponentManager& manager, std::size_t iterator, std::size_t chunk_index, std::span<void*> output_component) const;
 		std::optional<std::size_t> GetChunkCount(ComponentManager& manager, std::size_t iterator) const;
 		bool QueryComponent(ComponentManager& manager, ComponentManager::Index component_index, std::span<void*> output_component) const;
-
 		~ComponentQuery() = default;
 
 	protected:
