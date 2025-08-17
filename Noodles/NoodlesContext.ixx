@@ -181,7 +181,7 @@ export namespace Noodles
 
 		Instance(Config config, std::pmr::memory_resource* resource);
 
-		std::tuple<std::size_t, std::size_t> GetQuery(std::size_t system_index, std::span<ComponentQuery::OPtr> component_query, std::span<SingletonQuery::OPtr> singleton_query);
+		std::tuple<std::size_t, std::size_t> GetQueryFromExecuteSystem(std::size_t execute_index, std::span<ComponentQuery::OPtr> component_query, std::span<SingletonQuery::OPtr> singleton_query);
 
 		SystemRequireBitFlagViewer GetSystemRequireBitFlagViewer_AssumedLocked(std::size_t system_info_index);
 		bool DetectSystemComponentOverlapping_AssumedLocked(std::size_t system_index, std::size_t system_index2);
@@ -238,16 +238,16 @@ export namespace Noodles
 			Potato::TaskFlow::Flow::NodeIndex index;
 		};
 		std::pmr::vector<SubFlowState> sub_flows;
-		
+
 		struct SystemNodeInfo
 		{
-			std::size_t version = 0;
 			SystemNode::Ptr node;
+			std::size_t version = 0;
+			std::size_t exist_node = 0;
 			IndexSpan component_query_index;
 			IndexSpan singleton_query_index;
 			SystemInfo info;
-			bool has_temporary_last_frame = false;
-			std::size_t execute_node_last_frame = 0;
+			bool need_update_query = false;
 		};
 
 		struct ExecuteSystemNodeInfo
@@ -259,9 +259,12 @@ export namespace Noodles
 			std::size_t system_info_index = 0;
 			std::size_t sub_flow_index = 0;
 			SystemNode::Parameter parameter;
+			Potato::Misc::IndexSpan<> component_query;
+			Potato::Misc::IndexSpan<> singleton_query;
 		};
 
-		std::shared_mutex system_mutex;
+		std::mutex system_mutex;
+		bool new_system = false;
 		std::pmr::vector<SystemNodeInfo> system_info;
 		std::pmr::vector<BitFlagContainer::Element> system_bitflag_container;
 		std::pmr::vector<ComponentQuery::Ptr> component_query;
@@ -296,6 +299,8 @@ export namespace Noodles
 		std::int32_t current_layer = std::numeric_limits<std::int32_t>::max();
 		std::size_t current_frame_once_system_iterator = 0;
 		std::size_t current_frame_once_system_count = 0;
+
+		void UpdateQueryData_AssumedLocked(SystemNodeInfo& info);
 
 	private:
 
@@ -412,9 +417,9 @@ export namespace Noodles
 
 	struct Context
 	{
-		std::tuple<std::size_t, std::size_t> GetQuery(std::span<ComponentQuery::OPtr> component_query, std::span<SingletonQuery::OPtr> singleton_query)
+		std::tuple<std::size_t, std::size_t> GetQueryFromExecuteSystem(std::span<ComponentQuery::OPtr> component_query, std::span<SingletonQuery::OPtr> singleton_query)
 		{
-			return instance.GetQuery(system_index, component_query, singleton_query);
+			return instance.GetQueryFromExecuteSystem(execute_system_index, component_query, singleton_query);
 		}
 
 		std::optional<Instance::ExecuteSystemIndex> LoadSystemNode(SystemCategory category, Instance::SystemIndex system_index, SystemNode::Parameter parameter = {})
@@ -449,8 +454,8 @@ export namespace Noodles
 
 	protected:
 
-		Context(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller, Instance& instance, std::size_t system_index)
-			: context(context), controller(controller), instance(instance), system_index(system_index)
+		Context(Potato::Task::Context& context, Potato::TaskFlow::Controller& controller, Instance& instance, std::size_t execute_system_index)
+			: context(context), controller(controller), instance(instance), execute_system_index(execute_system_index)
 		{
 
 		}
@@ -458,7 +463,7 @@ export namespace Noodles
 		Potato::Task::Context& context;
 		Potato::TaskFlow::Controller& controller;
 		Instance& instance;
-		std::size_t system_index;
+		std::size_t execute_system_index;
 
 		friend struct SystemNode;
 		friend struct Instance;

@@ -196,8 +196,8 @@ namespace Noodles
 
 		if (*viewer1.archetype_usage.IsOverlapping(viewer2.archetype_usage))
 		{
-			std::span<ComponentQuery::Ptr> comp1 = ref1.component_query_index.Slice(std::span(component_query));
-			std::span<ComponentQuery::Ptr> comp2 = ref2.component_query_index.Slice(std::span(component_query));
+			std::span<ComponentQuery::Ptr> comp1 = ref1.component_query_index.Slice(std::span(component_query.data(), component_query.size()));
+			std::span<ComponentQuery::Ptr> comp2 = ref2.component_query_index.Slice(std::span(component_query.data(), component_query.size()));
 
 			for (auto& ite1 : comp1)
 			{
@@ -226,7 +226,7 @@ namespace Noodles
 		auto singleton_count = singleton_map.GetBitFlagContainerElementCount();
 		auto archtype_count = component_manager.GetArchetypeBitFlagContainerCount();
 		auto total_count = commponent_count * 2 + singleton_count * 2 + archtype_count;
-		auto total_span = std::span(system_bitflag_container).subspan(
+		auto total_span = std::span(system_bitflag_container.data(), system_bitflag_container.size()).subspan(
 			total_count * system_info_index,
 			total_count
 		);
@@ -329,27 +329,27 @@ namespace Noodles
 		if (finded == system_info.end())
 		{
 			SystemNodeInfo added_system_info;
-
-			added_system_info.component_query_index = { component_query.size(), component_query.size() };
-			added_system_info.singleton_query_index = { singleton_query.size(), singleton_query.size() };
 			auto total_bitflag_container_count = component_map.GetBitFlagContainerElementCount() * 2
 				+ singleton_map.GetBitFlagContainerElementCount() * 2
 				+ component_manager.GetArchetypeBitFlagContainerCount()
 				;
 			auto old_size = system_bitflag_container.size();
 			system_bitflag_container.resize(old_size + total_bitflag_container_count);
-			BitFlagContainerViewer view{ std::span(system_bitflag_container).subspan(old_size) };
+			BitFlagContainerViewer view{ std::span(system_bitflag_container.data(), system_bitflag_container.size()).subspan(old_size) };
 			view.Reset();
 			finded = system_info.insert(system_info.end(), added_system_info);
 		}
-		else {
-			finded->component_query_index = { component_query.size(), component_query.size() };
-			finded->singleton_query_index = { singleton_query.size(), singleton_query.size() };
-		}
+
+		if (finded == system_info.end())
+			return {};
+
+		finded->component_query_index = { component_query.size(), component_query.size() };
+		finded->singleton_query_index = { singleton_query.size(), singleton_query.size() };
 
 		finded->version += 1;
 		finded->node = std::move(node);
 		finded->info = info;
+		finded->exist_node = 0;
 
 		std::size_t index = static_cast<std::size_t>(finded - system_info.begin());
 
@@ -399,7 +399,6 @@ namespace Noodles
 		}
 
 		SystemIndex system_index = { index, finded->version };
-
 		return system_index;
 	}
 
@@ -424,7 +423,7 @@ namespace Noodles
 
 	std::optional<Instance::ExecutedSystemIndex> Instance::LoadSystemNode(SystemCategory category, SystemIndex index, SystemNode::Parameter parameter)
 	{
-		std::shared_lock sl(system_mutex);
+		std::lock_guard sl(system_mutex);
 		if (index && index.index < system_info.size())
 		{
 			auto& target_system = system_info[index.index];
@@ -434,6 +433,11 @@ namespace Noodles
 				{
 				case Noodles::SystemCategory::Tick:
 				{
+					target_system.exist_node += 1;
+					if (target_system.exist_node == 1)
+					{
+						target_system.need_update_query = true;
+					}
 					std::lock_guard lg(execute_system_mutex);
 					auto execute_sys_index = FindAvailableSystemIndex_AssumedLocked();
 
@@ -464,6 +468,8 @@ namespace Noodles
 					ite->need_update = true;
 					assert(flow_index);
 
+					ref.component_query = target_system.component_query_index;
+					ref.singleton_query = target_system.singleton_query_index;
 					ref.flow_index = flow_index;
 					ref.sub_flow_index = static_cast<std::size_t>(ite - sub_flows.begin());
 					ref.category = Noodles::SystemCategory::Tick;
@@ -599,6 +605,20 @@ namespace Noodles
 		dying_system_node.insert(find, once_sys_info);
 	}
 
+	void Instance::UpdateQueryData_AssumedLocked(SystemNodeInfo& info)
+	{
+		auto component_span = info.component_query_index.Slice(std::span(component_query.data(), component_query.size()));
+		auto singleton_span = info.singleton_query_index.Slice(std::span(singleton_query.data(), singleton_query.size()));
+		for (auto& ite : component_span)
+		{
+			ite->UpdateQueryData(component_manager);
+		}
+		for (auto& ite : singleton_span)
+		{
+			ite->UpdateQueryData(singleton_manager);
+		}
+	}
+
 	std::optional<Instance::ExecutedSystemIndex> Instance::LoadSystemNode(Context& context, SystemCategory category, SystemIndex index, SystemNode::Parameter parameter)
 	{
 		switch (category)
@@ -632,12 +652,18 @@ namespace Noodles
 		}
 		case SystemCategory::OnceIgnoreLayer:
 		{
-			std::shared_lock sl(system_mutex);
+			std::lock_guard sl(system_mutex);
 			if (index.index < system_info.size())
 			{
 				auto& ref = system_info[index.index];
 				if (ref.version == index.version)
 				{
+					ref.exist_node += 1;
+					if (ref.exist_node == 1)
+					{
+						ref.need_update_query = false;
+						UpdateQueryData_AssumedLocked(ref);
+					}
 					std::lock_guard lg(execute_system_mutex);
 					
 					auto exe_index = FindAvailableSystemIndex_AssumedLocked();
@@ -645,6 +671,8 @@ namespace Noodles
 					exe_ref.category = SystemCategory::Once;
 					exe_ref.parameter = parameter;
 					exe_ref.system_info_index = index.index;
+					exe_ref.component_query = ref.component_query_index;
+					exe_ref.singleton_query = ref.singleton_query_index;
 
 					Potato::TaskFlow::Node::Parameter t_paramter;
 					t_paramter.custom_data.data1 = exe_index.index;
@@ -756,7 +784,7 @@ namespace Noodles
 		else if(controller.GetCategory() != Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
 			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"+--Execute Begin System {}", controller.GetParameter().node_name);
 		SystemNode* sys_node = static_cast<SystemNode*>(&node);
-		Context instance_context{context, controller, *this, task_node_parameter.custom_data.data2};
+		Context instance_context{context, controller, *this, task_node_parameter.custom_data.data1};
 		sys_node->SystemNodeExecute(instance_context);
 		if (controller.GetCategory() == Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
 		{
@@ -841,8 +869,9 @@ namespace Noodles
 					if (execute_system_ite.category.has_value() && execute_system_ite.category == SystemCategory::Once)
 					{
 						auto version = execute_system_ite.version;
-						system_info[execute_system_ite.system_info_index].has_temporary_last_frame = true;
-						if (system_info[execute_system_ite.system_info_index].info.temporary)
+						auto& system_ref = system_info[execute_system_ite.system_info_index];
+						system_ref.exist_node -= 1;
+						if (system_ref.exist_node == 0 && system_info[execute_system_ite.system_info_index].info.temporary)
 						{
 							need_remove_temporary_system = true;
 						}
@@ -852,21 +881,10 @@ namespace Noodles
 				}
 				if (need_remove_temporary_system)
 				{
-					for (auto& ite : once_system_node)
-					{
-						if (ite.index.index < system_info.size())
-						{
-							auto& ref = system_info[ite.index.index];
-							if (ref.version == ref.version)
-							{
-								ref.has_temporary_last_frame = false;
-							}
-						}
-					}
 
 					for (auto ite = system_info.begin(); ite != system_info.end(); ++ite)
 					{
-						if (ite->node && ite->info.temporary && ite->has_temporary_last_frame)
+						if (ite->node && ite->info.temporary && ite->exist_node == 0)
 						{
 							auto comp_que_index = ite->component_query_index;
 							auto sing_que_index = ite->singleton_query_index;
@@ -874,7 +892,7 @@ namespace Noodles
 							if (comp_que_index.Size() > 0)
 							{
 								need_fix_index = true;
-								auto component_span = comp_que_index.Slice(std::span(component_query));
+								auto component_span = comp_que_index.Slice(std::span(component_query.data(), component_query.size()));
 								for (auto& ite2 : component_span)
 								{
 									ite2.Reset();
@@ -888,7 +906,7 @@ namespace Noodles
 							if (sing_que_index.Size() > 0)
 							{
 								need_fix_index = true;
-								auto singleton_span = sing_que_index.Slice(std::span(singleton_query));
+								auto singleton_span = sing_que_index.Slice(std::span(singleton_query.data(), singleton_query.size()));
 								for (auto& ite2 : singleton_span)
 								{
 									ite2.Reset();
@@ -919,24 +937,31 @@ namespace Noodles
 								}
 							}
 							auto version = ite->version;
-							*ite = SystemNodeInfo{};
 							ite->version = version + 1;
+							ite->node.Reset();
 						}
+					}
+
+					for (auto& ite : execute_system_info)
+					{
+						auto& system_ref = system_info[ite.system_info_index];
+						ite.component_query = system_ref.component_query_index;
+						ite.singleton_query = system_ref.singleton_query_index;
 					}
 				}
 			}
 
-			if (component_has_modify || singleton_has_modify)
+			if (new_system || component_has_modify || singleton_has_modify)
 			{
 				std::size_t system_info_index = 0;
 				for (auto& ite : system_info)
 				{
-					if (ite.node)
+					if (ite.node && ite.exist_node > 0)
 					{
 						auto Viewer = GetSystemRequireBitFlagViewer_AssumedLocked(system_info_index);
-						if (component_has_modify)
+						if (component_has_modify || ite.need_update_query)
 						{
-							auto span = ite.component_query_index.Slice(std::span(component_query));
+							auto span = ite.component_query_index.Slice(std::span(component_query.data(), component_query.size()));
 							for (auto& ite2 : span)
 							{
 								if (ite2->UpdateQueryData(component_manager))
@@ -946,17 +971,19 @@ namespace Noodles
 							}
 						}
 
-						if (singleton_has_modify)
+						if (singleton_has_modify || ite.need_update_query)
 						{
-							auto span = ite.singleton_query_index.Slice(std::span(singleton_query));
+							auto span = ite.singleton_query_index.Slice(std::span(singleton_query.data(), singleton_query.size()));
 							for (auto& ite2 : span)
 							{
 								ite2->UpdateQueryData(singleton_manager);
 							}
 						}
 					}
+					ite.need_update_query = false;
 					system_info_index += 1;
 				}
+				new_system = false;
 			}
 
 			if (!component_manager.GetArchetypeUpdateBitFlag().IsReset())
@@ -1014,28 +1041,25 @@ namespace Noodles
 		}
 	}
 
-	std::tuple<std::size_t, std::size_t> Instance::GetQuery(std::size_t system_index, std::span<ComponentQuery::OPtr> out_component_query, std::span<SingletonQuery::OPtr> out_singleton_query)
+	std::tuple<std::size_t, std::size_t> Instance::GetQueryFromExecuteSystem(std::size_t execute_index, std::span<ComponentQuery::OPtr> out_component_query, std::span<SingletonQuery::OPtr> out_singleton_query)
 	{
-		std::shared_lock sl(system_mutex);
-		if (system_index < system_info.size())
+		std::shared_lock sl(execute_state_mutex);
+		if (execute_index < execute_system_info.size())
 		{
-			auto& ref = system_info[system_index];
-			if (ref.node)
+			auto& ref = execute_system_info[execute_index];
+			auto com_span = ref.component_query.Slice(std::span(component_query.data(), component_query.size()));
+			auto sin_span = ref.singleton_query.Slice(std::span(singleton_query.data(), singleton_query.size()));
+			std::size_t min_comp_size = std::min(out_component_query.size(), com_span.size());
+			for (auto i = 0; i < min_comp_size; ++i)
 			{
-				auto com_span = ref.component_query_index.Slice(std::span(component_query));
-				auto sin_span = ref.singleton_query_index.Slice(std::span(singleton_query));
-				std::size_t min_comp_size = std::min(out_component_query.size(), com_span.size());
-				for (auto i = 0; i < min_comp_size; ++i)
-				{
-					out_component_query[i] = com_span[i];
-				}
-				std::size_t min_sing_size = std::min(out_singleton_query.size(), sin_span.size());
-				for (auto i = 0; i < min_sing_size; ++i)
-				{
-					out_singleton_query[i] = sin_span[i];
-				}
-				return {min_comp_size, min_sing_size};
+				out_component_query[i] = com_span[i];
 			}
+			std::size_t min_sing_size = std::min(out_singleton_query.size(), sin_span.size());
+			for (auto i = 0; i < min_sing_size; ++i)
+			{
+				out_singleton_query[i] = sin_span[i];
+			}
+			return { min_comp_size, min_sing_size };
 		}
 		return {0, 0};
 	}

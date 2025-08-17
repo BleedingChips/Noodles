@@ -458,7 +458,7 @@ export namespace Noodles
 				std::array<ComponentQuery::OPtr, WrapperListType::ParameterCount> component_list;
 				std::array<SingletonQuery::OPtr, WrapperListType::ParameterCount> singleton_list;
 
-				auto [cc, sc] = context.GetQuery(std::span(component_list), std::span(singleton_list));
+				auto [cc, sc] = context.GetQueryFromExecuteSystem(std::span(component_list), std::span(singleton_list));
 
 				AutoSystemContext auto_context{
 					std::span(component_list).subspan(0, cc),
@@ -521,7 +521,7 @@ export namespace Noodles
 				std::array<ComponentQuery::OPtr, WrapperListType::ParameterCount> component_list;
 				std::array<SingletonQuery::OPtr, WrapperListType::ParameterCount> singleton_list;
 
-				auto [cc, sc] = context.GetQuery(std::span(component_list), std::span(singleton_list));
+				auto [cc, sc] = context.GetQueryFromExecuteSystem(std::span(component_list), std::span(singleton_list));
 
 				AutoSystemContext auto_context{
 					std::span(component_list).subspan(0, cc),
