@@ -15,7 +15,7 @@ struct SysNode : public Noodles::SystemNode
 		std::array<Noodles::ComponentQuery::OPtr, 10> out_comp;
 		std::array<Noodles::SingletonQuery::OPtr, 10> out_sing;
 
-		auto [s, p] = context.GetQuery(out_comp, out_sing);
+		auto [s, p] = context.GetQueryFromExecuteSystem(out_comp, out_sing);
 		
 		std::this_thread::sleep_for(std::chrono::seconds{1});
 	}

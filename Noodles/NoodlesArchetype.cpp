@@ -12,30 +12,31 @@ namespace Noodles
 	auto Archetype::Create(std::size_t class_bitflag_container_count, std::span<Init const> atomic_type, std::pmr::memory_resource* resource)
 	->Ptr
 	{
-		auto tol_layout = Potato::MemLayout::MemLayoutCPP::Get<Archetype>();
-		auto index_offset = tol_layout.Insert(Potato::IR::Layout::GetArray<BitFlagContainer::Element>(class_bitflag_container_count));
-		auto offset = tol_layout.Insert(Potato::IR::Layout::GetArray<MemberView>(atomic_type.size()));
+		auto policy = Potato::IR::LayoutPolicyRef{};
+		auto tol_layout = Potato::IR::Layout::Get<Archetype>();
+		auto index_offset = *policy.Combine(tol_layout, Potato::IR::Layout::Get<BitFlagContainer::Element>(), class_bitflag_container_count);
+		auto offset = *policy.Combine(tol_layout, Potato::IR::Layout::Get<MemberView>(), atomic_type.size());
 
-		auto layout = tol_layout.Get();
+		auto layout = *policy.Complete(tol_layout);
 		
 		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout);
 		if(re)
 		{
-			std::span<MemberView> MV = std::span(reinterpret_cast<MemberView*>(re.GetByte() + offset), atomic_type.size());
+			std::span<MemberView> MV = std::span(reinterpret_cast<MemberView*>(re.GetByte() + offset.Begin()), atomic_type.size());
 			std::span<BitFlagContainer::Element> class_bitflag_container_span{
-				new (re.GetByte(index_offset)) BitFlagContainer::Element[class_bitflag_container_count],
+				new (re.GetByte(index_offset.Begin())) BitFlagContainer::Element[class_bitflag_container_count],
 				class_bitflag_container_count
 			};
 			BitFlagContainerViewer class_flag_container{ class_bitflag_container_span };
 			class_flag_container.Reset();
-			Potato::MemLayout::MemLayoutCPP total_layout;
+			Potato::IR::Layout total_layout;
 			for (std::size_t i = 0; i < atomic_type.size(); ++i)
 			{
 				auto& ref = atomic_type[i];
 				assert(ref.ptr);
 				auto ope = ref.ptr->GetOperateProperty();
 				
-				std::size_t offset = total_layout.Insert(ref.ptr->GetLayout());
+				auto offset = *policy.Combine(total_layout, ref.ptr->GetLayout());
 
 				assert(ope.construct_move);
 
@@ -43,13 +44,12 @@ namespace Noodles
 					ref.ptr,
 					ref.ptr->GetLayout(),
 					ref.flag,
-					offset
+					offset.Begin()
 				};
 
 				auto result = class_flag_container.SetValue(ref.flag);
 				assert(result.has_value());
 			}
-			auto archetype_layout = total_layout.GetRawLayout();
 			return new(re.Get()) Archetype{
 				re,  total_layout, MV, class_flag_container
 			};

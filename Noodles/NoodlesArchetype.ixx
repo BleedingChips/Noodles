@@ -37,8 +37,8 @@ export namespace Noodles
 		MemberIndex FindMemberIndex(BitFlag class_bitflag) const;
 		std::size_t GetAtomicTypeCount() const { return GetMemberView().size(); }
 
-		Potato::IR::Layout GetLayout() const { return archetype_layout.Get(); }
-		Potato::IR::Layout GetArchetypeLayout() const { return archetype_layout.GetRawLayout(); }
+		Potato::IR::Layout GetLayout() const { Potato::IR::LayoutPolicyRef policy; return *policy.Complete(archetype_layout); }
+		Potato::IR::Layout GetArchetypeLayout() const { return archetype_layout; }
 
 		std::span<MemberView const> GetMemberView() const { return member_view; }
 		MemberView const& GetMemberView(Archetype::MemberIndex index) const { return member_view[index.Get()]; };
@@ -52,7 +52,7 @@ export namespace Noodles
 
 		Archetype(
 			Potato::IR::MemoryResourceRecord record,
-			Potato::MemLayout::MemLayoutCPP archetype_layout,
+			Potato::IR::Layout archetype_layout,
 			std::span<MemberView const> member_view,
 			BitFlagContainerViewer class_bitflag_container
 			)
@@ -68,7 +68,7 @@ export namespace Noodles
 
 		~Archetype();
 
-		Potato::MemLayout::MemLayoutCPP archetype_layout;
+		Potato::IR::Layout archetype_layout;
 		std::span<MemberView const> member_view;
 
 		friend struct Potato::Pointer::DefaultIntrusiveWrapper;

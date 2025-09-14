@@ -22,13 +22,14 @@ namespace Noodles
 		std::size_t suggest_size = component_page_min_size;
 		suggest_component_count = std::max(suggest_component_count, component_page_min_columns_count);
 
+		Potato::IR::LayoutPolicyRef policy;
 		{
-			auto chunk_layout = Potato::MemLayout::MemLayoutCPP::Get<Chunk>();
-			auto offset = chunk_layout.Insert(target_archetype.GetLayout());
+			auto chunk_layout = Potato::IR::Layout::Get<Chunk>();
+			auto offset = *policy.Combine(chunk_layout, target_archetype.GetLayout());
 
 			while (true)
 			{
-				suggest_component_count = (suggest_size - offset) / archetype_layout.size;
+				suggest_component_count = (suggest_size - offset.Begin()) / archetype_layout.size;
 				if (suggest_component_count > component_page_min_columns_count)
 				{
 					break;
@@ -47,19 +48,19 @@ namespace Noodles
 			}
 		}
 
-		auto chunk_layout = Potato::MemLayout::MemLayoutCPP::Get<Chunk>();
+		auto chunk_layout = Potato::IR::Layout::Get<Chunk>();
 		std::optional<std::size_t> offset;
 
 		for (auto& ite : target_archetype.GetMemberView())
 		{
-			auto mer_offset = chunk_layout.Insert(ite.struct_layout->GetLayout(suggest_component_count));
+			auto mer_offset = *policy.Combine(chunk_layout, ite.struct_layout->GetLayout(), suggest_component_count);
 			if (!offset.has_value())
 			{
-				offset = mer_offset;
+				offset = mer_offset.Begin();
 			}
 		}
 
-		auto final_layout = chunk_layout.Get();
+		auto final_layout = *policy.Complete(chunk_layout);
 
 		assert(final_layout.size <= suggest_size);
 
