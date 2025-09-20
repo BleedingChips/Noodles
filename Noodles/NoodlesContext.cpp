@@ -91,10 +91,10 @@ namespace Noodles
 		entity_history(component_map, resource)
 	{
 		Potato::TaskFlow::Node::Parameter parameter;
-		parameter.node_name = L"EndingSystemNode";
+		parameter.node_name = "EndingSystemNode";
 		parameter.custom_data.data1 = std::numeric_limits<std::size_t>::max();
 		ending_system_index = main_flow.AddNode(ending_system_node, parameter);
-		parameter.node_name = L"DyingSystemNode";
+		parameter.node_name = "DyingSystemNode";
 		dying_system_index = main_flow.AddNode(static_dying_system_node, parameter);
 		main_flow.AddDirectEdge(ending_system_index, dying_system_index);
 	}
@@ -155,7 +155,7 @@ namespace Noodles
 			startup_time = now;
 		}
 		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log,
-			L"Begin At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()
+			"Begin At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()
 		);
 	}
 
@@ -176,7 +176,7 @@ namespace Noodles
 		
 
 		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log,
-			L"Finish At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()
+			"Finish At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()
 		);
 
 		if (available)
@@ -743,7 +743,7 @@ namespace Noodles
 				{
 					main_flow.Remove(ite.index);
 					Potato::TaskFlow::Node::Parameter parameter;
-					parameter.node_name = L"SubFlowBoundary";
+					parameter.node_name = "SubFlowBoundary";
 					parameter.custom_data.data1 = std::numeric_limits<std::size_t>::max() - 1;
 					parameter.custom_data.data2 = static_cast<std::size_t>(ite.layer);
 					ite.index = main_flow.AddFlowAsNode(ite.flow, &sub_flow_system_node, parameter);
@@ -780,19 +780,19 @@ namespace Noodles
 		std::shared_lock s2(singleton_mutex);
 		auto task_node_parameter = controller.GetParameter();
 		if(controller.GetCategory() == Potato::TaskFlow::EncodedFlow::Category::SubFlowBegin)
-			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"SubFlow Begin {}", task_node_parameter.node_name);
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, "SubFlow Begin {}", task_node_parameter.node_name);
 		else if(controller.GetCategory() != Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
-			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"+--Execute Begin System {}", controller.GetParameter().node_name);
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, "+--Execute Begin System {}", controller.GetParameter().node_name);
 		SystemNode* sys_node = static_cast<SystemNode*>(&node);
 		Context instance_context{context, controller, *this, task_node_parameter.custom_data.data1};
 		sys_node->SystemNodeExecute(instance_context);
 		if (controller.GetCategory() == Potato::TaskFlow::EncodedFlow::Category::SubFlowEnd)
 		{
-			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"SubFlow End {}", task_node_parameter.node_name);
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, "SubFlow End {}", task_node_parameter.node_name);
 		}
 		else if (controller.GetCategory() != Potato::TaskFlow::EncodedFlow::Category::SubFlowBegin)
 		{
-			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, L"+--Execute End System {}", task_node_parameter.node_name);
+			Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log, "+--Execute End System {}", task_node_parameter.node_name);
 		}
 	}
 
