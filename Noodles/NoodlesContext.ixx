@@ -70,10 +70,10 @@ export namespace Noodles
 
 		struct Parameter
 		{
-			std::string_view name;
+			std::u8string_view name;
 			std::int32_t layer = 0;
 			Priority priority;
-			std::string_view module_name;
+			std::u8string_view module_name;
 			Potato::IR::StructLayoutObject::Ptr object;
 			std::size_t acceptable_mask = std::numeric_limits<std::size_t>::max();
 		};
@@ -131,7 +131,7 @@ export namespace Noodles
 
 		struct Parameter
 		{
-			std::string_view instance_name = "NoodlesInstance";
+			std::u8string_view instance_name = u8"NoodlesInstance";
 			std::chrono::milliseconds duration_time = std::chrono::milliseconds{ 30 };
 		};
 
@@ -143,7 +143,7 @@ export namespace Noodles
 		struct SystemInfo
 		{
 			bool temporary = false;
-			std::string_view identity_name;
+			std::u8string_view identity_name;
 		};
 
 		std::optional<ExecutedSystemIndex> LoadOnceSystemNode(Context& context, SystemCategory category, SystemNode::Ptr node, SystemNode::Parameter parameter = {});

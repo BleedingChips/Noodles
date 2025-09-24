@@ -91,10 +91,10 @@ namespace Noodles
 		entity_history(component_map, resource)
 	{
 		Potato::TaskFlow::Node::Parameter parameter;
-		parameter.node_name = "EndingSystemNode";
+		parameter.node_name = u8"EndingSystemNode";
 		parameter.custom_data.data1 = std::numeric_limits<std::size_t>::max();
 		ending_system_index = main_flow.AddNode(ending_system_node, parameter);
-		parameter.node_name = "DyingSystemNode";
+		parameter.node_name = u8"DyingSystemNode";
 		dying_system_index = main_flow.AddNode(static_dying_system_node, parameter);
 		main_flow.AddDirectEdge(ending_system_index, dying_system_index);
 	}
@@ -743,7 +743,7 @@ namespace Noodles
 				{
 					main_flow.Remove(ite.index);
 					Potato::TaskFlow::Node::Parameter parameter;
-					parameter.node_name = "SubFlowBoundary";
+					parameter.node_name = u8"SubFlowBoundary";
 					parameter.custom_data.data1 = std::numeric_limits<std::size_t>::max() - 1;
 					parameter.custom_data.data2 = static_cast<std::size_t>(ite.layer);
 					ite.index = main_flow.AddFlowAsNode(ite.flow, &sub_flow_system_node, parameter);

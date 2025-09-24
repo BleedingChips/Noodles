@@ -29,7 +29,7 @@ namespace Noodles
 
 			while (true)
 			{
-				suggest_component_count = (suggest_size - offset.Begin()) / archetype_layout.size;
+				suggest_component_count = (suggest_size - offset.buffer_offset) / archetype_layout.size;
 				if (suggest_component_count > component_page_min_columns_count)
 				{
 					break;
@@ -56,7 +56,7 @@ namespace Noodles
 			auto mer_offset = *policy.Combine(chunk_layout, ite.struct_layout->GetLayout(), suggest_component_count);
 			if (!offset.has_value())
 			{
-				offset = mer_offset.Begin();
+				offset = mer_offset.buffer_offset;
 			}
 		}
 
@@ -74,7 +74,7 @@ namespace Noodles
 
 	void* Chunk::GetComponent(Archetype::MemberView const& member, std::size_t entity_index)
 	{
-		return GetComponent(member.offset, member.layout.size, entity_index);
+		return GetComponent(member.offset.buffer_offset, member.layout.size, entity_index);
 	}
 
 	void* Chunk::GetComponent(std::size_t member_offset, std::size_t member_size, std::size_t entity_index)
@@ -125,7 +125,7 @@ namespace Noodles
 			for (auto& ite : target_archetype)
 			{
 				auto buffer = GetComponent(ite, 0);
-				auto result = ite.struct_layout->Destruction(buffer, current_count);
+				auto result = ite.struct_layout->Destruction(buffer, current_count, ite.offset.next_element_offset);
 				assert(result);
 			}
 			current_count = 0;
@@ -527,7 +527,7 @@ namespace Noodles
 				if (loc)
 				{
 					auto& mm = (*archetype.archtype)[loc.Get()];
-					outoput_query_data[0] = mm.offset;
+					outoput_query_data[0] = mm.offset.buffer_offset;
 					outoput_query_data[1] = mm.layout.size;
 					outoput_query_data = outoput_query_data.subspan(2);
 				}

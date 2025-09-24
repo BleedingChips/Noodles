@@ -22,9 +22,9 @@ namespace Noodles
 		auto re = Potato::IR::MemoryResourceRecord::Allocate(resource, layout);
 		if(re)
 		{
-			std::span<MemberView> MV = std::span(reinterpret_cast<MemberView*>(re.GetByte() + offset.Begin()), atomic_type.size());
+			std::span<MemberView> MV = std::span(reinterpret_cast<MemberView*>(offset.GetMember(re.GetByte())), atomic_type.size());
 			std::span<BitFlagContainer::Element> class_bitflag_container_span{
-				new (re.GetByte(index_offset.Begin())) BitFlagContainer::Element[class_bitflag_container_count],
+				new (index_offset.GetMember(re.GetByte())) BitFlagContainer::Element[class_bitflag_container_count],
 				class_bitflag_container_count
 			};
 			BitFlagContainerViewer class_flag_container{ class_bitflag_container_span };
@@ -44,7 +44,7 @@ namespace Noodles
 					ref.ptr,
 					ref.ptr->GetLayout(),
 					ref.flag,
-					offset.Begin()
+					offset
 				};
 
 				auto result = class_flag_container.SetValue(ref.flag);

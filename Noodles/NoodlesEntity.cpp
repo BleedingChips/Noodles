@@ -21,13 +21,13 @@ namespace Noodles
 		auto layout = Potato::IR::Layout::Get<Entity>();
 		auto layout_policy = Potato::IR::PolicyLayout{ layout };
 
-		auto offset_flag = *layout_policy.Combine(Potato::MemLayout::Layout::GetArray<BitFlagContainerViewer::Element>(component_bitflag_container_count * 2));
+		auto offset_flag = *layout_policy.Combine(Potato::MemLayout::Layout::Get<BitFlagContainerViewer::Element>(), component_bitflag_container_count * 2);
 		auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, *layout_policy.Complete());
 
 		if (record)
 		{
 			auto flag_span = std::span{
-				new (record.GetByte(offset_flag.Begin())) BitFlagContainerViewer::Element[component_bitflag_container_count * 2],
+				new (offset_flag.GetMember(record.GetByte())) BitFlagContainerViewer::Element[component_bitflag_container_count * 2],
 				component_bitflag_container_count * 2
 			};
 

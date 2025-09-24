@@ -23,7 +23,7 @@ namespace Noodles
 			assert(singleton_archetype);
 			for (Archetype::MemberView const& ite : *singleton_archetype)
 			{
-				ite.struct_layout->Destruction(singleton_record.GetByte(ite.offset));
+				ite.struct_layout->Destruction(ite.offset.GetMember(singleton_record.GetByte()));
 			}
 			singleton_record.Deallocate();
 			singleton_record = {};
@@ -42,7 +42,7 @@ namespace Noodles
 				if (mv)
 				{
 					++index;
-					output[0] = singleton_archetype->GetMemberView(mv.Get()).offset;
+					output[0] = singleton_archetype->GetMemberView(mv.Get()).offset.buffer_offset;
 				}
 				else {
 					output[0] = std::numeric_limits<std::size_t>::max();
@@ -187,7 +187,7 @@ namespace Noodles
 						if (*re)
 						{
 							init_list.emplace_back(ite.struct_layout, ite.bitflag);
-							component_init_list.emplace_back(ite.bitflag, true, manager.singleton_record.GetByte(ite.offset));
+							component_init_list.emplace_back(ite.bitflag, true, manager.singleton_record.GetByte(ite.offset.buffer_offset));
 						}
 					}
 				}
@@ -221,7 +221,7 @@ namespace Noodles
 							auto loc = archetype->FindMemberIndex(ite.component_class);
 							assert(loc);
 							auto& mm = (*archetype)[loc.Get()];
-							auto re = mm.struct_layout->MoveConstruction(new_record.GetByte(mm.offset), ite.data);
+							auto re = mm.struct_layout->MoveConstruction(mm.offset.GetMember(new_record.GetByte()), ite.data);
 							assert(re);
 						}
 
@@ -230,7 +230,7 @@ namespace Noodles
 							for (Archetype::MemberView const& ite : *manager.singleton_archetype)
 							{
 								ite.struct_layout->Destruction(
-									manager.singleton_record.GetByte(ite.offset)
+									ite.offset.GetMember(manager.singleton_record.GetByte())
 								);
 							}
 							manager.singleton_record.Deallocate();
@@ -249,7 +249,7 @@ namespace Noodles
 				for (Archetype::MemberView const& ite : *manager.singleton_archetype)
 				{
 					ite.struct_layout->Destruction(
-						manager.singleton_record.GetByte(ite.offset)
+						ite.offset.GetMember(manager.singleton_record.GetByte())
 					);
 				}
 				done = true;
@@ -264,11 +264,11 @@ namespace Noodles
 				assert(loc);
 				Archetype::MemberView const& mv = manager.singleton_archetype->GetMemberView()[loc.Get()];
 				auto re = mv.struct_layout->Destruction(
-					manager.singleton_record.GetByte(mv.offset)
+					mv.offset.GetMember(manager.singleton_record.GetByte())
 				);
 				assert(re);
 				re = mv.struct_layout->MoveConstruction(
-					manager.singleton_record.GetByte(mv.offset),
+					mv.offset.GetMember(manager.singleton_record.GetByte()),
 					ite.resource.Get()
 				);
 				assert(re);

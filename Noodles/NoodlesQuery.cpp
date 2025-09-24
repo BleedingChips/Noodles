@@ -18,8 +18,8 @@ namespace Noodles
 	{
 		auto layout = Potato::IR::Layout::Get<ComponentQuery>();
 		auto layout_policy = Potato::IR::PolicyLayout{ layout };
-		auto require_offset = *layout_policy.Combine(Potato::IR::Layout::GetArray<BitFlag>(require_count));
-		auto bitflag_offset = *layout_policy.Combine(Potato::IR::Layout::GetArray<BitFlagContainerViewer::Element>(component_container_count * 3 + archetype_container_count));
+		auto require_offset = *layout_policy.Combine(Potato::IR::Layout::Get<BitFlag>(), require_count);
+		auto bitflag_offset = *layout_policy.Combine(Potato::IR::Layout::Get<BitFlagContainerViewer::Element>(), component_container_count * 3 + archetype_container_count);
 		
 		auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, *layout_policy.Complete());
 
@@ -27,12 +27,12 @@ namespace Noodles
 		{
 
 			auto require_span = std::span<BitFlag>{
-				new (static_cast<void*>(record.GetByte(require_offset.Begin()))) BitFlag[require_count],
+				new (require_offset.GetMember(record.GetByte())) BitFlag[require_count],
 				require_count
 			};
 
 			auto bitflag_conatiner_span = std::span<BitFlagContainerViewer::Element>{
-				new (static_cast<void*>(record.GetByte(bitflag_offset.Begin()))) std::size_t[component_container_count * 3 + archetype_container_count],
+				new (bitflag_offset.GetMember(record.GetByte())) std::size_t[component_container_count * 3 + archetype_container_count],
 				component_container_count * 3 + archetype_container_count
 			};
 
@@ -142,9 +142,9 @@ namespace Noodles
 	{
 		auto layout = Potato::IR::Layout::Get<ComponentQuery>();
 		auto layout_policy = Potato::IR::PolicyLayout{ layout };
-		auto query_data_offset = *layout_policy.Combine(Potato::MemLayout::Layout::GetArray<std::size_t>(singleton_count * SingletonManager::GetQueryDataCount()));
-		auto require_offset = *layout_policy.Combine(Potato::IR::Layout::GetArray<BitFlag>(singleton_count), singleton_count);
-		auto bitflag_offset = *layout_policy.Combine(Potato::IR::Layout::GetArray<BitFlagContainerViewer::Element>(singleton_container_count * 2));
+		auto query_data_offset = *layout_policy.Combine(Potato::MemLayout::Layout::Get<std::size_t>(), singleton_count * SingletonManager::GetQueryDataCount());
+		auto require_offset = *layout_policy.Combine(Potato::IR::Layout::Get<BitFlag>(), singleton_count);
+		auto bitflag_offset = *layout_policy.Combine(Potato::IR::Layout::Get<BitFlagContainerViewer::Element>(), singleton_container_count * 2);
 
 
 		
@@ -153,17 +153,17 @@ namespace Noodles
 		if (record)
 		{
 			auto query_data = std::span<std::size_t>{
-				new (static_cast<void*>(record.GetByte(query_data_offset.Begin()))) std::size_t[singleton_count * SingletonManager::GetQueryDataCount()],
+				new (query_data_offset.GetMember(record.GetByte())) std::size_t[singleton_count * SingletonManager::GetQueryDataCount()],
 				singleton_count* SingletonManager::GetQueryDataCount()
 			};
 
 			auto require_span = std::span<BitFlag>{
-				new (static_cast<void*>(record.GetByte(require_offset.Begin()))) BitFlag[singleton_count],
+				new (require_offset.GetMember(record.GetByte())) BitFlag[singleton_count],
 				singleton_count
 			};
 
 			auto bitflag_conatiner_span = std::span<BitFlagContainerViewer::Element>{
-				new (static_cast<void*>(record.GetByte(bitflag_offset.Begin()))) std::size_t[singleton_container_count * 2],
+				new (bitflag_offset.GetMember(record.GetByte())) std::size_t[singleton_container_count * 2],
 				singleton_container_count * 2
 			};
 

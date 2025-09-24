@@ -18,7 +18,7 @@ export namespace Noodles
 			Potato::IR::StructLayout::Ptr struct_layout;
 			Potato::IR::Layout layout;
 			BitFlag bitflag;
-			std::size_t offset;
+			Potato::MemLayout::MermberOffset offset;
 		};
 
 		using MemberIndex = OptionalSizeT;
