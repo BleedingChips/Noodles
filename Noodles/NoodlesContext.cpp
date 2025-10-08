@@ -155,7 +155,7 @@ namespace Noodles
 			startup_time = now;
 		}
 		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log,
-			"Begin At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()
+			"Begin At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()._Get_underlying_id()
 		);
 	}
 
@@ -174,9 +174,8 @@ namespace Noodles
 			new_parameter.trigger_time = startup_time + dur;
 		}
 		
-
 		Potato::Log::Log<InstanceLogCategory>(Potato::Log::Level::Log,
-			"Finish At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()
+			"Finish At[{:3}]({:.3f}) - {} In ThreadId<{}>", GetCurrentFrameCount() % 1000, GetDeltaTime().count(), parameter.node_name, std::this_thread::get_id()._Get_underlying_id()
 		);
 
 		if (available)

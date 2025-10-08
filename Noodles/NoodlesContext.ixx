@@ -20,7 +20,7 @@ import NoodlesClassBitFlag;
 
 export namespace Noodles
 {
-	constexpr auto InstanceLogCategory = Potato::Log::LogCategory("Noodles");
+	constexpr auto InstanceLogCategory = Potato::Log::LogCategory(u8"Noodles");
 
 	using EntityHistroy = EntityModifyHistory::History;
 
