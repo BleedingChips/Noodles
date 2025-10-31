@@ -19,6 +19,22 @@ export namespace Noodles
 			Potato::IR::Layout layout;
 			BitFlag bitflag;
 			Potato::MemLayout::MermberLayout member_layout;
+			std::byte* GetMember(std::size_t element_count, std::byte* buffer, std::size_t array_index = 0) const 
+			{
+				return member_layout.array_layout.GetElement(buffer + member_layout.offset * element_count, array_index);
+			}
+			std::byte const* GetMember(std::size_t element_count, std::byte const* buffer, std::size_t array_index = 0) const
+			{
+				return GetMember(element_count, const_cast<std::byte*>(buffer), array_index);
+			}
+			std::byte* GetMember(std::size_t element_count, void* buffer, std::size_t array_index = 0) const
+			{
+				return GetMember(element_count, static_cast<std::byte*>(buffer), array_index);
+			}
+			std::byte const* GetMember(std::size_t element_count, void const* buffer, std::size_t array_index = 0) const
+			{
+				return GetMember(element_count, static_cast<std::byte const*>(buffer), array_index);
+			}
 		};
 
 		using MemberIndex = OptionalSizeT;
@@ -47,6 +63,9 @@ export namespace Noodles
 		decltype(auto) end() const { return member_view.end(); }
 		MemberView const& operator[](std::size_t index) const { return member_view[index]; }
 		BitFlagContainerConstViewer GetClassBitFlagContainer() const { return class_bitflag_container; }
+
+		std::size_t PredictElementCount(std::size_t buffer_size, std::size_t memory_align = alignof(std::nullptr_t)) const;
+		std::tuple<std::byte*, std::size_t> AlignBuffer(std::byte* buffer, std::size_t buffer_size) const;
 
 	protected:
 
