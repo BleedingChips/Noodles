@@ -90,18 +90,18 @@ int main()
 		auto s1 = instance->PrepareSystemNode(&test_sys);
 		//auto s2 = instance->PrepareSystemNode(&test_sys);
 		Noodles::SystemNode::Parameter sys_par;
-		sys_par.name = "TestSystem1!!";
+		sys_par.name = u8"TestSystem1!!";
 		sys_par.layer = -1;
 		instance->LoadSystemNode(Noodles::SystemCategory::Tick, s1, sys_par);
-		sys_par.name = "TestSystem2!!";
+		sys_par.name = u8"TestSystem2!!";
 		instance->LoadSystemNode(Noodles::SystemCategory::Tick, s1, sys_par);
 
-		sys_par.name = "TestSystem3!!";
+		sys_par.name = u8"TestSystem3!!";
 		//instance->LoadSystemNode(Noodles::SystemCategory::OnceNextFrame, s1, sys_par);
-		sys_par.name = "TestSystem4!!";
+		sys_par.name = u8"TestSystem4!!";
 		//instance->LoadSystemNode(Noodles::SystemCategory::OnceNextFrame, s1, sys_par);
 
-		sys_par.name = "TestSystem66!!";
+		sys_par.name = u8"TestSystem66!!";
 		instance->LoadSystemNode(Noodles::SystemCategory::Tick, sys_index, sys_par);
 		Noodles::Instance::Parameter par;
 		par.duration_time = std::chrono::milliseconds{ 3000 };

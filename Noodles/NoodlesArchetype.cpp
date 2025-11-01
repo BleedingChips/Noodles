@@ -79,7 +79,7 @@ namespace Noodles
 	{
 		auto archtype_layout = GetArchetypeLayout();
 		std::size_t space_for_align = std::max(archtype_layout.align, memory_align) - memory_align;
-		if (space_for_align > buffer_size)
+		if (space_for_align < buffer_size)
 		{
 			return (buffer_size - space_for_align) / archetype_layout.size;
 		}
@@ -91,8 +91,8 @@ namespace Noodles
 		assert(buffer != nullptr && buffer_size > 0);
 		auto archtype_layout = GetArchetypeLayout();
 		auto aligned_buffer = reinterpret_cast<std::byte*>(Potato::MemLayout::AlignTo(reinterpret_cast<std::size_t>(buffer), archtype_layout.align));
-		assert((aligned_buffer - buffer) > buffer_size);
+		assert((aligned_buffer - buffer) < buffer_size);
 		buffer_size -= aligned_buffer - buffer;
-		return { buffer, buffer_size / archetype_layout.size };
+		return { aligned_buffer, buffer_size / archetype_layout.size };
 	}
 }

@@ -64,7 +64,7 @@ export namespace Noodles
 		MemberView const& operator[](std::size_t index) const { return member_view[index]; }
 		BitFlagContainerConstViewer GetClassBitFlagContainer() const { return class_bitflag_container; }
 
-		std::size_t PredictElementCount(std::size_t buffer_size, std::size_t memory_align = alignof(std::nullptr_t)) const;
+		std::size_t PredictElementCount(std::size_t buffer_size, std::size_t memory_align = alignof(void*)) const;
 		std::tuple<std::byte*, std::size_t> AlignBuffer(std::byte* buffer, std::size_t buffer_size) const;
 
 	protected:
