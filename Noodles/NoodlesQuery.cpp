@@ -142,7 +142,6 @@ namespace Noodles
 	{
 		auto layout = Potato::IR::Layout::Get<ComponentQuery>();
 		auto layout_policy = Potato::IR::PolicyLayout{ layout };
-		auto query_data_offset = *layout_policy.Combine(Potato::MemLayout::Layout::Get<std::size_t>(), singleton_count * SingletonManager::GetQueryDataCount());
 		auto require_offset = *layout_policy.Combine(Potato::IR::Layout::Get<BitFlag>(), singleton_count);
 		auto bitflag_offset = *layout_policy.Combine(Potato::IR::Layout::Get<BitFlagContainerViewer::Element>(), singleton_container_count * 2);
 
@@ -152,10 +151,6 @@ namespace Noodles
 
 		if (record)
 		{
-			auto query_data = std::span<std::size_t>{
-				new (query_data_offset.GetMember(record.GetByte())) std::size_t[singleton_count * SingletonManager::GetQueryDataCount()],
-				singleton_count* SingletonManager::GetQueryDataCount()
-			};
 
 			auto require_span = std::span<BitFlag>{
 				new (require_offset.GetMember(record.GetByte())) BitFlag[singleton_count],
@@ -182,29 +177,15 @@ namespace Noodles
 
 			assert(*require.Inclusion(writed));
 
-			return new (record.Get()) SingletonQuery{ record, require, writed, require_span, query_data };
+			return new (record.Get()) SingletonQuery{ record, require, writed, require_span };
 		}
 
 		return {};
 	}
 
-	bool SingletonQuery::UpdateQueryData(SingletonManager const& manager)
-	{
-		if (current_version < manager.GetSingletonVersion())
-		{
-			current_version = manager.GetSingletonVersion();
-			manager.TranslateBitFlagToQueryData(singleton_bitflag, query_data);
-			return true;
-		}
-		return false;
-	}
-
 	bool SingletonQuery::QuerySingleton(SingletonManager const& manager, std::span<void*> output_component) const
 	{
-		if (current_version == manager.GetSingletonVersion())
-		{
-			return manager.QuerySingletonData(query_data, output_component) != 0;
-		}
-		return false;
+		manager.QuerySingletonData(singleton_bitflag, output_component);
+		return true;
 	}
 }

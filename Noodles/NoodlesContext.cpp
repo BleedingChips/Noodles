@@ -296,14 +296,6 @@ namespace Noodles
 				ite->UpdateQueryData(component_manager);
 			}
 		}
-
-		{
-			std::shared_lock sl(singleton_mutex);
-			for (auto& ite : output.singleton_list)
-			{
-				ite->UpdateQueryData(singleton_manager);
-			}
-		}
 	}
 
 	Instance::SystemIndex Instance::PrepareSystemNode(SystemInitializer& init, SystemNode::Ptr node, SystemInfo info, bool unique)
@@ -611,10 +603,6 @@ namespace Noodles
 		for (auto& ite : component_span)
 		{
 			ite->UpdateQueryData(component_manager);
-		}
-		for (auto& ite : singleton_span)
-		{
-			ite->UpdateQueryData(singleton_manager);
 		}
 	}
 
@@ -967,15 +955,6 @@ namespace Noodles
 								{
 									Viewer.archetype_usage.Union(ite2->GetArchetypeContainerConstViewer());
 								}
-							}
-						}
-
-						if (singleton_has_modify || ite.need_update_query)
-						{
-							auto span = ite.singleton_query_index.Slice(std::span(singleton_query.data(), singleton_query.size()));
-							for (auto& ite2 : span)
-							{
-								ite2->UpdateQueryData(singleton_manager);
 							}
 						}
 					}

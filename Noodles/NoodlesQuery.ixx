@@ -141,8 +141,6 @@ export namespace Noodles
 			std::pmr::memory_resource* resource = std::pmr::get_default_resource()
 		);
 
-		bool UpdateQueryData(SingletonManager const& manager);
-
 		bool QuerySingleton(SingletonManager const& manager, std::span<void*> output_component) const;
 
 		~SingletonQuery() = default;
@@ -153,21 +151,18 @@ export namespace Noodles
 			Potato::IR::MemoryResourceRecord record,
 			BitFlagContainerViewer require_bitflag_viewer,
 			BitFlagContainerViewer write_bitflag_viewer,
-			std::span<BitFlag const> singleton_bitflag,
-			std::span<std::size_t> query_data
+			std::span<BitFlag const> singleton_bitflag
 		)
 			:MemoryResourceRecordIntrusiveInterface(record),
 			require_bitflag_viewer(require_bitflag_viewer),
 			write_bitflag_viewer(write_bitflag_viewer),
-			singleton_bitflag(singleton_bitflag),
-			query_data(query_data)
+			singleton_bitflag(singleton_bitflag)
 		{
 		}
 
 		BitFlagContainerViewer require_bitflag_viewer;
 		BitFlagContainerViewer write_bitflag_viewer;
 		std::span<BitFlag const> singleton_bitflag;
-		std::span<std::size_t> query_data;
 		std::size_t current_version = 0;
 
 		friend struct Ptr::CurrentWrapper;

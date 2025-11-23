@@ -25,7 +25,6 @@ export namespace Noodles
 		SingletonManager(std::size_t singleton_container_count, Config config = {});
 		~SingletonManager();
 
-		std::size_t GetSingletonVersion() const { return version; }
 		static void ResetQueryData(std::span<std::size_t> target)
 		{
 			for (auto& ite : target) ite = std::numeric_limits<std::size_t>::max();
@@ -33,18 +32,19 @@ export namespace Noodles
 
 		constexpr static std::size_t GetQueryDataCount() { return 1; }
 
-		std::size_t TranslateBitFlagToQueryData(std::span<BitFlag const> bitflag, std::span<std::size_t> output) const;
-		std::size_t QuerySingletonData(std::span<std::size_t> query_data, std::span<void*> output_singleton) const;
+		//std::size_t TranslateBitFlagToQueryData(std::span<BitFlag const> bitflag, std::span<std::size_t> output) const;
+		std::size_t QuerySingletonData(std::span<BitFlag const> query_data, std::span<void*> output_singleton) const;
 		BitFlagContainerConstViewer GetSingletonUpdateBitFlagViewer() const { return singleton_update_bitflag; }
 		BitFlagContainerConstViewer GetSingletonUsageBitFlagViewer() const { return singleton_usage_bitflag; }
 
 	protected:
 
 		std::pmr::unsynchronized_pool_resource singleton_resource;
-		Archetype::Ptr singleton_archetype;
-		Potato::IR::MemoryResourceRecord singleton_record;
-		
-		std::size_t version = 0;
+		struct SingleDescription
+		{
+			Potato::IR::StructLayoutObject::Ptr struct_layout;
+		};
+		std::pmr::vector<SingleDescription> description;
 
 		BitFlagContainer bitflag;
 		BitFlagContainerViewer singleton_usage_bitflag;
@@ -78,12 +78,17 @@ export namespace Noodles
 
 	protected:
 
+		enum class ModifyType
+		{
+			Add,
+			Remove,
+			Empty,
+		};
+
 		struct Modify
 		{
-			BitFlag singleton_bitflag;
-			Potato::IR::MemoryResourceRecord resource;
-			StructLayout::Ptr singleton_class;
-			bool Release();
+			ModifyType type = ModifyType::Empty;
+			Potato::IR::StructLayoutObject::Ptr singleton_object;
 		};
 
 		std::pmr::vector<Modify> singleton_modify;

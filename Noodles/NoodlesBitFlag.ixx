@@ -35,11 +35,12 @@ export namespace Noodles
 		static std::size_t GetBitFlagContainerElementCount(std::size_t max_bit_flag);
 		static BitFlag GetMaxBitFlag(std::size_t max_bit_flag);
 		std::span<Element const> AsSpan() const { return container; };
+		static std::size_t GetMaxBitFlagCount(std::size_t bit_flag_container_count) { return sizeof(Element) * 8 * bit_flag_container_count; }
+		std::size_t GetMaxBitFlagCount() const { return GetMaxBitFlagCount(container.size()); }
 
 	protected:
 
 		std::span<Element const> container;
-
 		friend struct BitFlagContainerViewer;
 	};
 

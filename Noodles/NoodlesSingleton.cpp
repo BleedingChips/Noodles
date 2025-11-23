@@ -14,27 +14,19 @@ namespace Noodles
 	{
 		singleton_usage_bitflag = bitflag.AsSpan().subspan(0, singleton_container_count);
 		singleton_update_bitflag = bitflag.AsSpan().subspan(singleton_container_count, singleton_container_count);
+		description.resize(BitFlagContainerConstViewer::GetMaxBitFlagCount(singleton_container_count));
 	}
 
 	SingletonManager::~SingletonManager()
 	{
-		if (singleton_record)
-		{
-			assert(singleton_archetype);
-			for (Archetype::MemberView const& ite : *singleton_archetype)
-			{
-				ite.struct_layout->Destruction(ite.member_layout.GetMember(singleton_record.GetByte()));
-			}
-			singleton_record.Deallocate();
-			singleton_record = {};
-			singleton_archetype.Reset();
-		}
+		description.clear();
 	}
 
+	/*
 	std::size_t SingletonManager::TranslateBitFlagToQueryData(std::span<BitFlag const> bitflag, std::span<std::size_t> output) const
 	{
 		std::size_t index = 0;
-		if (singleton_archetype && output.size() >= bitflag.size())
+		if (output.size() >= bitflag.size())
 		{
 			for (auto ite : bitflag)
 			{
@@ -52,78 +44,49 @@ namespace Noodles
 		}
 		return index;
 	}
+	*/
 
-	std::size_t SingletonManager::QuerySingletonData(std::span<std::size_t> query_data, std::span<void*> output_singleton) const
+	std::size_t SingletonManager::QuerySingletonData(std::span<BitFlag const> query_data, std::span<void*> output_singleton) const
 	{
 		std::size_t result = 0;
-		if (singleton_archetype && output_singleton.size() >= query_data.size())
+		if (output_singleton.size() >= query_data.size())
 		{
-			while (!query_data.empty())
+			for (std::size_t index = 0; index < query_data.size(); ++index)
 			{
-				if (query_data[0] != std::numeric_limits<std::size_t>::max())
-				{
-					++result;
-					output_singleton[0] = singleton_record.GetByte(query_data[0]);
-				}
-				else {
-					output_singleton[0] = nullptr;
-				}
-				query_data = query_data.subspan(1);
-				output_singleton = output_singleton.subspan(1);
+				auto& ptr = description[query_data[index].value].struct_layout;
+				output_singleton[index] = ptr ? ptr->GetObject() : nullptr;
 			}
 		}
 		return result;
 	}
 
-
-
-	bool SingletonModifyManager::Modify::Release()
-	{
-		if (resource)
-		{
-			singleton_class->Destruction(resource.Get());
-			singleton_class.Reset();
-			resource.Deallocate();
-			resource = {};
-			return true;
-		}
-		return false;
-	}
-
 	SingletonModifyManager::SingletonModifyManager(std::size_t singleton_container_count, std::pmr::memory_resource* resource)
 		: singleton_modify(resource), singleton_modify_bitflag(singleton_container_count, resource)
 	{
-
+		singleton_modify.resize(BitFlagContainerConstViewer::GetMaxBitFlagCount(singleton_container_count));
 	}
 
 	bool SingletonModifyManager::AddSingleton(StructLayout const& singleton_class, BitFlag singleton_bitflag, bool is_move_construct, void* singleton_data, std::pmr::memory_resource* resource)
 	{
 		BitFlagContainerViewer viwer = singleton_modify_bitflag;
-
-		auto old_value = viwer.GetValue(singleton_bitflag);
-		if (old_value.has_value() && !*old_value)
+		auto index = singleton_bitflag.value;
+		if (index < singleton_modify.size())
 		{
-			auto record = Potato::IR::MemoryResourceRecord::Allocate(resource, singleton_class.GetLayout());
-			if (record)
+			Potato::IR::StructLayoutObject::Ptr singleton_object;
+			if (is_move_construct)
 			{
-				if (is_move_construct)
-				{
-					auto re = singleton_class.MoveConstruction(record.Get(), singleton_data);
-					assert(re);
-				}
-				else {
-					auto re = singleton_class.CopyConstruction(record.Get(), singleton_data);
-					assert(re);
-				}
+				singleton_object = Potato::IR::StructLayoutObject::MoveConstruct(&singleton_class, singleton_data, resource);
+			}
+			else {
+				singleton_object = Potato::IR::StructLayoutObject::CopyConstruct(&singleton_class, singleton_data, resource);
+			}
 
-				singleton_modify.emplace_back(
-					singleton_bitflag,
-					record,
-					&singleton_class
-				);
-
-				auto re = viwer.SetValue(singleton_bitflag);
-				assert(re && !*re);
+			if (singleton_object)
+			{
+				auto& ref = singleton_modify[index];
+				ref.type = ModifyType::Add;
+				ref.singleton_object = std::move(singleton_object);
+				BitFlagContainerViewer{ singleton_modify_bitflag }.SetValue(singleton_bitflag);
 				return true;
 			}
 		}
@@ -132,22 +95,24 @@ namespace Noodles
 
 	bool SingletonModifyManager::RemoveSingleton(BitFlag singleton_bitflag)
 	{
-
-		BitFlagContainerViewer viewer = singleton_modify_bitflag;
-
-		auto re = viewer.GetValue(singleton_bitflag);
-		if (re.has_value() && *re)
+		BitFlagContainerViewer viwer = singleton_modify_bitflag;
+		auto index = singleton_bitflag.value;
+		if (index < singleton_modify.size())
 		{
-			viewer.SetValue(singleton_bitflag, false);
-			auto find = std::find_if(singleton_modify.begin(), singleton_modify.end(), [=](Modify const& i1) {
-				return i1.singleton_bitflag == singleton_bitflag;
-				});
-			if (find != singleton_modify.end())
+			auto& ref = singleton_modify[index];
+			if (ref.type == ModifyType::Add)
 			{
-				find->Release();
-				singleton_modify.erase(find);
+				ref.singleton_object.Reset();
+				ref.type = ModifyType::Remove;
+				BitFlagContainerViewer{ singleton_modify_bitflag }.SetValue(singleton_bitflag);
+				return true;
 			}
-			return true;
+			else if (ref.type == ModifyType::Empty)
+			{
+				ref.type = ModifyType::Remove;
+				BitFlagContainerViewer{ singleton_modify_bitflag }.SetValue(singleton_bitflag);
+				return true;
+			}
 		}
 		return false;
 	}
@@ -158,147 +123,45 @@ namespace Noodles
 		bool done = false;
 		manager.singleton_update_bitflag.Reset();
 
-		if (singleton_modify.empty())
+		for (std::size_t index = 0; index < singleton_modify.size() && index < manager.description.size(); ++index)
 		{
-			auto result = viewer.IsSame(manager.GetSingletonUsageBitFlagViewer());
-			if (!result.has_value() || *result)
+			auto& ref = singleton_modify[index];
+			if (ref.type == ModifyType::Remove)
 			{
-				return false;
+				auto& ref2 = manager.description[index];
+				if (ref2.struct_layout)
+				{
+					ref2.struct_layout.Reset();
+					manager.singleton_usage_bitflag.SetValue(BitFlag{ index }, false);
+					manager.singleton_update_bitflag.SetValue(BitFlag{ index }, true);
+					done = true;
+				}
+				ref.type = ModifyType::Empty;
+				ref.singleton_object.Reset();
+			}
+			else if (ref.type == ModifyType::Add)
+			{
+				assert(ref.singleton_object);
+				auto& ref2 = manager.description[index];
+				if (!ref2.struct_layout)
+				{
+					ref2.struct_layout = Potato::IR::StructLayoutObject::MoveConstruct(*ref.singleton_object, {}, &manager.singleton_resource);
+					assert(ref2.struct_layout);
+					manager.singleton_usage_bitflag.SetValue(BitFlag{ index }, true);
+					manager.singleton_update_bitflag.SetValue(BitFlag{ index }, true);
+					done = true;
+				}
+				ref.type = ModifyType::Empty;
+				ref.singleton_object.Reset();
 			}
 		}
 
-		auto result = viewer.IsSame(manager.GetSingletonUsageBitFlagViewer());
-		assert(result.has_value());
-		if(!*result)
-		{
-			if (!viewer.IsReset())
-			{
-				std::pmr::vector<Archetype::Init> init_list(temp_resource);
-				std::pmr::vector<ComponentManager::Init> component_init_list(temp_resource);
-				init_list.reserve(viewer.GetBitFlagCount());
-				component_init_list.reserve(viewer.GetBitFlagCount());
-
-				if (manager.singleton_archetype)
-				{
-					for (Archetype::MemberView const& ite : *manager.singleton_archetype)
-					{
-						auto re = viewer.GetValue(ite.bitflag);
-						assert(re.has_value());
-						if (*re)
-						{
-							init_list.emplace_back(ite.struct_layout, ite.bitflag);
-							component_init_list.emplace_back(ite.bitflag, true, manager.singleton_record.GetByte(ite.member_layout.offset));
-						}
-					}
-				}
-
-				for (auto& ite : singleton_modify)
-				{
-					auto find = std::find_if(component_init_list.begin(), component_init_list.end(), [&](ComponentManager::Init& init) {
-						return init.component_class == ite.singleton_bitflag;
-						});
-					if (find != component_init_list.end())
-					{
-						find->data = ite.resource.Get();
-					}
-					else {
-						init_list.emplace_back(ite.singleton_class, ite.singleton_bitflag);
-						component_init_list.emplace_back(ite.singleton_bitflag, true, ite.resource.Get());
-					}
-				}
-
-				ComponentManager::Sort(init_list);
-
-				auto archetype = Archetype::Create(singleton_modify_bitflag.AsSpan().size(), init_list, &manager.singleton_resource);
-
-				if (archetype)
-				{
-					auto new_record = Potato::IR::MemoryResourceRecord::Allocate(&manager.singleton_resource, archetype->GetLayout());
-					if (new_record)
-					{
-						for (auto& ite : component_init_list)
-						{
-							auto loc = archetype->FindMemberIndex(ite.component_class);
-							assert(loc);
-							auto& mm = (*archetype)[loc.Get()];
-							auto re = mm.struct_layout->MoveConstruction(mm.member_layout.GetMember(new_record.GetByte()), ite.data);
-							assert(re);
-						}
-
-						if (manager.singleton_archetype)
-						{
-							for (Archetype::MemberView const& ite : *manager.singleton_archetype)
-							{
-								ite.struct_layout->Destruction(
-									ite.member_layout.GetMember(manager.singleton_record.GetByte())
-								);
-							}
-							manager.singleton_record.Deallocate();
-							manager.singleton_record = {};
-						}
-
-
-						manager.singleton_archetype = std::move(archetype);
-						manager.singleton_record = new_record;
-						done = true;
-					}
-				}
-			}
-			else {
-				assert(manager.singleton_archetype);
-				for (Archetype::MemberView const& ite : *manager.singleton_archetype)
-				{
-					ite.struct_layout->Destruction(
-						ite.member_layout.GetMember(manager.singleton_record.GetByte())
-					);
-				}
-				done = true;
-			}
-
-		}
-		else {
-			assert(manager.singleton_archetype);
-			for (auto& ite : singleton_modify)
-			{
-				auto loc = manager.singleton_archetype->FindMemberIndex(ite.singleton_bitflag);
-				assert(loc);
-				Archetype::MemberView const& mv = manager.singleton_archetype->GetMemberView()[loc.Get()];
-				auto re = mv.struct_layout->Destruction(
-					mv.member_layout.GetMember(manager.singleton_record.GetByte())
-				);
-				assert(re);
-				re = mv.struct_layout->MoveConstruction(
-					mv.member_layout.GetMember(manager.singleton_record.GetByte()),
-					ite.resource.Get()
-				);
-				assert(re);
-			}
-			done = true;
-		}
-
-		if (done)
-		{
-			++manager.version;
-			auto re = manager.singleton_update_bitflag.ExclusiveOr(manager.singleton_usage_bitflag, singleton_modify_bitflag);
-			assert(re);
-			re = manager.singleton_usage_bitflag.CopyFrom(singleton_modify_bitflag);
-			for (auto& ite : singleton_modify)
-			{
-				ite.Release();
-			}
-			singleton_modify.clear();
-			return true;
-		}
-
-		return false;
+		BitFlagContainerViewer{ singleton_modify_bitflag }.Reset();
+		return done;
 	}
 
 	SingletonModifyManager::~SingletonModifyManager()
 	{
-		for (auto& ite : singleton_modify)
-		{
-			ite.Release();
-		}
 		singleton_modify.clear();
 	}
 }

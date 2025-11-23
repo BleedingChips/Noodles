@@ -13,7 +13,6 @@ namespace Noodles
 		};
 	}
 
-
 	std::size_t BitFlagContainerConstViewer::GetBitFlagContainerElementCount(std::size_t max_big_flag)
 	{
 		constexpr std::size_t size = sizeof(Element) * 8;
